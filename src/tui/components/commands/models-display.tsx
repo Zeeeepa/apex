@@ -7,13 +7,13 @@ import type { Config } from "../../../core/config/config";
 import { config } from "../../../core/config";
 import Input from "../input";
 import { AVAILABLE_MODELS } from "../../../core/ai/models";
+import { useRoute } from "../../context/route";
+import { useConfig } from "../../context/config";
 
-export default function ModelsDisplay({
-  closeModels,
-}: {
-  closeModels: () => void;
-}) {
-  const [appConfig, setAppConfig] = useState<Config | null>(null);
+export default function ModelsDisplay() {
+  const route = useRoute();
+  const _config = useConfig();
+  
   const [models, setModels] = useState<ModelInfo[]>([]);
   const { model: selectedModel, setModel } = useAgent();
   const [customModel, setCustomModel] = useState<string>("");
@@ -23,14 +23,13 @@ export default function ModelsDisplay({
     models.findIndex((m) => m.id === selectedModel.id)
   );
 
+
   useEffect(() => {
     async function getConfig() {
-      const _config = await config.get();
-      setAppConfig(_config);
-      const openAiConfigured = !!_config.openAiAPIKey;
-      const anthropicConfigured = !!_config.anthropicAPIKey;
-      const bedrockConfigured = !!_config.bedrockAPIKey;
-      const openRouterConfigured = !!_config.openRouterAPIKey;
+      const openAiConfigured = !!_config.data.openAiAPIKey;
+      const anthropicConfigured = !!_config.data.anthropicAPIKey;
+      const bedrockConfigured = !!_config.data.bedrockAPIKey;
+      const openRouterConfigured = !!_config.data.openRouterAPIKey;
       const _models = AVAILABLE_MODELS.filter((m) => {
         if (m.provider === "openai") return openAiConfigured;
         if (m.provider === "anthropic") return anthropicConfigured;
@@ -47,7 +46,10 @@ export default function ModelsDisplay({
   useKeyboard((key) => {
     // Escape - Close models display
     if (key.name === "escape") {
-      closeModels();
+      route.navigate({
+        type: "base",
+        path: "home"
+      });
       return;
     }
 
@@ -84,7 +86,10 @@ export default function ModelsDisplay({
         const sel = models[highlightedIndex];
         if (sel) {
           setModel(sel);
-          closeModels();
+          route.navigate({
+            type: "base",
+            path: "home"
+          });
         }
         return;
       }
@@ -129,7 +134,10 @@ export default function ModelsDisplay({
               const localModel: ModelInfo = { id, name: id, provider: "local" };
               setModel(localModel);
               setCustomModel("");
-              closeModels();
+              route.navigate({
+                type: "base",
+                path: "home"
+              });
             }}
           />
         </box>
@@ -176,7 +184,10 @@ export default function ModelsDisplay({
                 gap={0}
                 onMouseDown={() => {
                   setModel(model);
-                  closeModels();
+                  route.navigate({
+                    type: "base",
+                    path: "home"
+                  });
                 }}
               >
                 <text

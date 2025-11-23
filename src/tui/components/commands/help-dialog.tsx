@@ -1,14 +1,8 @@
 import { useMemo } from "react";
-import AlertDialog from "../alert-dialog";
 import { useCommand } from "../../command-provider";
+import { RGBA } from "@opentui/core";
 
-export default function HelpDialog({
-  helpOpen,
-  closeHelp,
-}: {
-  helpOpen: boolean;
-  closeHelp: () => void;
-}) {
+export default function HelpDialog() {
   const { commands } = useCommand();
 
   const message = useMemo(() => {
@@ -28,11 +22,32 @@ export default function HelpDialog({
   }, [commands]);
 
   return (
-    <AlertDialog
-      title="Help"
-      message={message}
-      open={helpOpen}
-      onClose={closeHelp}
-    />
+      <box
+          position="absolute"
+          top={0}
+          backgroundColor={RGBA.fromInts(0, 0, 0, 150)}
+          left={0}
+          zIndex={1000}
+          width="100%"
+          height="100%"
+          justifyContent="center"
+          alignItems="center"
+        >
+          <box
+            width={50}
+            border={true}
+            borderColor="green"
+            backgroundColor="black"
+            flexDirection="column"
+            padding={1}
+          >
+              <box marginBottom={1}>
+                <text fg="green">Help</text>
+              </box>
+            <box flexDirection="column">
+              <text fg="white">{message}</text>
+            </box>
+          </box>
+        </box>
   );
 }

@@ -3,29 +3,26 @@ import AlertDialog from "../alert-dialog";
 import { useCommand } from "../../command-provider";
 import { config } from "../../../core/config";
 import type { Config } from "../../../core/config/config";
+import { useConfig } from "../../context/config";
+import { useKeyboard } from "@opentui/react";
+import { useRoute } from "../../context/route";
 
-export default function ConfigDialog({
-  configOpen,
-  closeConfig,
-}: {
-  configOpen: boolean;
-  closeConfig: () => void;
-}) {
-  const { commands } = useCommand();
-  const [appConfig, setAppConfig] = useState<Config | null>(null);
+export default function ConfigDialog() {
 
-  useEffect(() => {
-    async function getConfig() {
-      const _appConfig = await config.get();
-      setAppConfig(_appConfig);
+  const appConfig = useConfig();
+  const route = useRoute();
+
+  useKeyboard((key) => {
+    if(key.name === "escape") {
+      route.navigate({
+        type: "base",
+        path: "home"
+      });
     }
-    getConfig();
-  }, []);
-
+  });
+  
   return (
-    <AlertDialog title="Config" open={configOpen} onClose={closeConfig}>
-      <ConfigForm appConfig={appConfig} />
-    </AlertDialog>
+    <ConfigForm appConfig={appConfig.data} />
   );
 }
 
