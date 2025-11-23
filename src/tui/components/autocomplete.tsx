@@ -109,10 +109,10 @@ export default function Autocomplete({
         focused={focused}
         onInput={onInput}
         onSubmit={handleSubmit}
-        onPaste={(text: string) => {
+        onPaste={(event) => {
           if (!onInput) return;
           const current = typeof value === "string" ? value : "";
-          const cleaned = String(text).replace(/\r?\n/g, " ");
+          const cleaned = String(event.text).replace(/\r?\n/g, " ");
           onInput(current + cleaned);
         }}
         {...inputProps}

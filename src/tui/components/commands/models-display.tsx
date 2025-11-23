@@ -119,8 +119,8 @@ export default function ModelsDisplay({
             onChange={(value) =>
               setCustomModel(typeof value === "string" ? value : "")
             }
-            onPaste={(text: string) => {
-              const cleaned = String(text);
+            onPaste={(event) => {
+              const cleaned = String(event.text);
               setCustomModel((prev) => `${prev}${cleaned}`);
             }}
             onSubmit={() => {
