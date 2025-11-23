@@ -1,9 +1,29 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
+import AlertDialog from "../alert-dialog";
 import { useCommand } from "../../command-provider";
-import { RGBA } from "@opentui/core";
+import { useRoute } from "../../context/route";
 
 export default function HelpDialog() {
   const { commands } = useCommand();
+  const route = useRoute();
+
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    if(route.data.type === "base" && route.data.path === "help") {
+      setOpen(true);
+    } else {
+      setOpen(false);
+    }
+  }, [route]);
+
+  const closeAlert = () => {
+    setOpen(false);
+    route.navigate({
+      type: "base",
+      path: "home"
+    });
+  }
 
   const message = useMemo(() => {
     // Generate commands list
@@ -22,32 +42,11 @@ export default function HelpDialog() {
   }, [commands]);
 
   return (
-      <box
-          position="absolute"
-          top={0}
-          backgroundColor={RGBA.fromInts(0, 0, 0, 150)}
-          left={0}
-          zIndex={1000}
-          width="100%"
-          height="100%"
-          justifyContent="center"
-          alignItems="center"
-        >
-          <box
-            width={50}
-            border={true}
-            borderColor="green"
-            backgroundColor="black"
-            flexDirection="column"
-            padding={1}
-          >
-              <box marginBottom={1}>
-                <text fg="green">Help</text>
-              </box>
-            <box flexDirection="column">
-              <text fg="white">{message}</text>
-            </box>
-          </box>
-        </box>
+    <AlertDialog
+      title="Help"
+      message={message}
+      open={open}
+      onClose={closeAlert}
+    />
   );
 }

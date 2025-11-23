@@ -22,7 +22,7 @@ import { dirname, join } from "path";
 import { existsSync } from "fs";
 import { ConfigProvider, useConfig } from "./context/config";
 import { createSwitch } from "./components/switch";
-import { type RoutePath, useRoute } from "./context/route";
+import { type RoutePath, RouteProvider, useRoute } from "./context/route";
 import { ResponsibleUseDisclosure } from "./components/responsible-use-disclosure";
 
 // Get the directory of the current module
@@ -87,22 +87,24 @@ function App(props: AppProps) {
 
   return (
     <ConfigProvider config={appConfig}>
-      <AgentProvider>
-        <CommandProvider>
-          <AppContent
-            focusIndex={focusIndex}
-            setFocusIndex={setFocusIndex}
-            cwd={cwd}
-            ctrlCPressTime={ctrlCPressTime}
-            setCtrlCPressTime={setCtrlCPressTime}
-            showExitWarning={showExitWarning}
-            setShowExitWarning={setShowExitWarning}
-            inputKey={inputKey}
-            setInputKey={setInputKey}
-            navigableItems={navigableItems}
-          />
-        </CommandProvider>
-      </AgentProvider>
+      <RouteProvider>
+        <AgentProvider>
+          <CommandProvider>
+            <AppContent
+              focusIndex={focusIndex}
+              setFocusIndex={setFocusIndex}
+              cwd={cwd}
+              ctrlCPressTime={ctrlCPressTime}
+              setCtrlCPressTime={setCtrlCPressTime}
+              showExitWarning={showExitWarning}
+              setShowExitWarning={setShowExitWarning}
+              inputKey={inputKey}
+              setInputKey={setInputKey}
+              navigableItems={navigableItems}
+            />
+          </CommandProvider>
+        </AgentProvider>
+      </RouteProvider>
     </ConfigProvider>
   );
 }
@@ -130,6 +132,14 @@ function AppContent({
   setInputKey: (fn: (prev: number) => number) => void;
   navigableItems: string[];
 }) {
+
+  const route = useRoute();
+  const config = useConfig();
+
+  !config.data.responsibleUseAccepted && route.navigate({
+    type: "base",
+    path: "disclosure"
+  });
 
   // Auto-clear the exit warning after 1 second
   useEffect(() => {
@@ -181,22 +191,18 @@ function AppContent({
   });
 
   return (
-    <CommandProvider>
-      <CommandOverlay>
-        <box
-          flexDirection="column"
-          alignItems="center"
-          flexGrow={1}
-          width="100%"
-          maxHeight="100%"
-          overflow="hidden"
-        >
-          <ColoredAsciiArt ascii={coloredAscii} />
-          <CommandDisplay focusIndex={focusIndex} inputKey={inputKey} />
-          <Footer cwd={cwd} showExitWarning={showExitWarning} />
-        </box>
-      </CommandOverlay>
-    </CommandProvider>
+    <box
+      flexDirection="column"
+      alignItems="center"
+      flexGrow={1}
+      width="100%"
+      maxHeight="100%"
+      overflow="hidden"
+    >
+      <ColoredAsciiArt ascii={coloredAscii} />
+      <CommandDisplay focusIndex={focusIndex} inputKey={inputKey} />
+      <Footer cwd={cwd} showExitWarning={showExitWarning} />
+    </box>
   );
 }
 
@@ -209,14 +215,6 @@ function CommandDisplay({
   focusIndex: number;
   inputKey: number;
 }) {
-  const {
-    pentestOpen,
-    thoroughPentestOpen,
-    sessionsOpen,
-    closeSessions,
-    modelsOpen,
-    closeModels,
-  } = useCommand();
 
   const route = useRoute();
   const _config = useConfig();
@@ -279,18 +277,6 @@ function CommandDisplay({
   
   // TODO: implement session display
   return null;
-}
-
-function CommandOverlay({ children }: { children: React.ReactNode }) {
-  const { helpOpen, closeHelp, configOpen, closeConfig } = useCommand();
-
-  return (
-    <>
-      {children}
-      <HelpDialog helpOpen={helpOpen} closeHelp={closeHelp} />
-      <ConfigDialog configOpen={configOpen} closeConfig={closeConfig} />
-    </>
-  );
 }
 
 async function main() {
