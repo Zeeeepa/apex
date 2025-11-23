@@ -1,4 +1,4 @@
-import { render, useKeyboard } from "@opentui/react";
+import { createRoot, useKeyboard } from "@opentui/react";
 import {
   convertImageToColoredAscii,
   ColoredAsciiArt,
@@ -21,6 +21,7 @@ import AlertDialog from "./components/alert-dialog";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
 import { existsSync } from "fs";
+import { createCliRenderer } from "@opentui/core";
 
 // Get the directory of the current module
 const __filename = fileURLToPath(import.meta.url);
@@ -296,6 +297,7 @@ function AppContent({
           width="100%"
           maxHeight="100%"
           overflow="hidden"
+          backgroundColor={'transparent'}
         >
           <ColoredAsciiArt ascii={coloredAscii} />
           <CommandDisplay focusIndex={focusIndex} inputKey={inputKey} />
@@ -333,6 +335,7 @@ function CommandDisplay({
       flexShrink={1}
       overflow="hidden"
       gap={2}
+      backgroundColor={'transparent'}
     >
       {!pentestOpen && !thoroughPentestOpen && !sessionsOpen && !modelsOpen && (
         <CommandInput focused={focusIndex === 0} inputKey={inputKey} />
@@ -357,6 +360,7 @@ function CommandOverlay({ children }: { children: React.ReactNode }) {
   );
 }
 
-render(<App />, {
-  exitOnCtrlC: false, // We'll handle Ctrl+C manually
-});
+
+const renderer = await createCliRenderer({ exitOnCtrlC: false });
+createRoot(renderer)
+    .render(<App />);
