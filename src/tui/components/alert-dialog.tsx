@@ -32,7 +32,7 @@ export default function AlertDialog({
     <box
       position="absolute"
       top={0}
-      backgroundColor={RGBA.fromInts(0, 0, 0, 150)}
+      // backgroundColor={RGBA.fromInts(0, 0, 0, 150)}
       left={0}
       zIndex={1000}
       width="100%"
@@ -47,6 +47,7 @@ export default function AlertDialog({
         backgroundColor="black"
         flexDirection="column"
         padding={1}
+        
       >
         {title ? (
           <box marginBottom={1}>
