@@ -9,18 +9,17 @@ import { listSessions, getSession } from "../../../core/agent/sessions";
 import type { Session } from "../../../core/agent/sessions";
 import { getMessages, type Message } from "../../../core/messages";
 import AgentDisplay from "../agent-display";
+import { useRoute } from "../../context/route";
 
-export default function SessionsDisplay({
-  closeSessions,
-}: {
-  closeSessions: () => void;
-}) {
+export default function SessionsDisplay() {
   const [sessionIds, setSessionIds] = useState<string[]>([]);
   const [sessions, setSessions] = useState<(Session | null)[]>([]);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [loading, setLoading] = useState(true);
   const [statusMessage, setStatusMessage] = useState<string>("");
   const [openMessages, setOpenMessages] = useState<boolean>(false);
+
+  const route = useRoute();
 
   useEffect(() => {
     async function loadSessions() {
@@ -114,7 +113,10 @@ export default function SessionsDisplay({
       if (openMessages) {
         setOpenMessages(false);
       } else {
-        closeSessions();
+        route.navigate({
+          type: "base",
+          path: "home"
+        });
       }
       return;
     }
