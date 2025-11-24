@@ -26,7 +26,7 @@ import {
   summarizeConversation,
   type AIAuthConfig,
 } from "./utils";
-import { traceAICall, isBraintrustEnabled, sanitizeToolInput, sanitizeToolOutput } from "../braintrust";
+import { traceAICall, getConfigFromContext, sanitizeToolInput, sanitizeToolOutput } from "../braintrust";
 import { config } from "../config";
 import type { Config } from "../config/config";
 
@@ -145,7 +145,6 @@ export interface StreamResponseOpts {
   activeTools?: string[];
   silent?: boolean;
   authConfig?: AIAuthConfig;
-  appConfig?: Config; // Pass config to avoid async fetching inside callbacks (breaks AsyncLocalStorage context)
 }
 
 // Helper to get provider from model string
@@ -160,26 +159,28 @@ function getProviderFromModel(model: AIModel): AIModelProvider {
 }
 
 // Helper to wrap onStepFinish with Braintrust tracing
-// Takes appConfig as parameter to maintain AsyncLocalStorage context for proper span nesting
+// Uses config from AsyncLocalStorage context for proper span nesting
 function wrapOnStepFinishWithTracing(
   originalCallback: StreamTextOnStepFinishCallback<ToolSet> | undefined,
   model: AIModel,
-  provider: AIModelProvider,
-  appConfig: Config
+  provider: AIModelProvider
 ): StreamTextOnStepFinishCallback<ToolSet> | undefined {
   if (!originalCallback) {
     return undefined;
   }
 
-  // If Braintrust is disabled, return original callback unchanged
-  if (!isBraintrustEnabled(appConfig)) {
-    return originalCallback;
-  }
-
   // Return wrapped callback that traces each step
-  // Since this runs inside the parent agent's async context (no await for config),
-  // spans created here will automatically nest under the parent agent span
+  // Gets config from AsyncLocalStorage context set by withConfigContext at entry points
+  // This maintains proper span nesting without explicit parameter threading
   return async (step) => {
+    const appConfig = getConfigFromContext();
+
+    // If no config in context, skip tracing
+    if (!appConfig) {
+      await originalCallback(step);
+      return;
+    }
+
     await traceAICall(
       appConfig,
       'streamText-step',
@@ -235,18 +236,14 @@ export function streamResponse(
     activeTools,
     silent,
     authConfig,
-    appConfig,
   } = opts;
   // Use a container object so the reference stays stable but the value can be updated
   const messagesContainer = { current: messages || [] };
   const providerModel = getProviderModel(model, authConfig);
   const provider = getProviderFromModel(model);
 
-  // Wrap onStepFinish with Braintrust tracing if config is provided
-  // Config must be passed to maintain AsyncLocalStorage context for proper span nesting
-  const wrappedOnStepFinish = appConfig
-    ? wrapOnStepFinishWithTracing(onStepFinish, model, provider, appConfig)
-    : onStepFinish;
+  // Wrap onStepFinish with Braintrust tracing (uses config from AsyncLocalStorage context)
+  const wrappedOnStepFinish = wrapOnStepFinishWithTracing(onStepFinish, model, provider);
 
   try {
     // Create the appropriate provider instance
@@ -371,10 +368,12 @@ export async function generateObjectResponse<T extends z.ZodType>(
 
   const providerModel = getProviderModel(model, authConfig);
   const provider = getProviderFromModel(model);
-  const appConfig = await config.get();
 
-  // If Braintrust is disabled, just call directly
-  if (!isBraintrustEnabled(appConfig)) {
+  // Get config from AsyncLocalStorage context
+  const appConfig = getConfigFromContext();
+
+  // If no config in context or disabled, call directly without tracing
+  if (!appConfig) {
     const { object } = await generateObject({
       model: providerModel,
       schema,

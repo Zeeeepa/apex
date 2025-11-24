@@ -8,9 +8,27 @@
 //   export BRAINTRUST_PROJECT_NAME="apex-pentest"  # optional
 //   export BRAINTRUST_ENVIRONMENT="dev"            # optional: dev|staging|prod
 //
-// Usage:
-//   import { traceAgent, isBraintrustEnabled } from '@/core/braintrust';
+// ## Recommended Usage (Factory Pattern):
+//
+//   import { createTracedAgent, withConfigContext } from '@/core/braintrust';
 //   import { config } from '@/core/config';
+//
+//   // Wrap your agent once at definition:
+//   export const runAgent = createTracedAgent(
+//     'my-agent',
+//     async (args) => { /* agent logic */ },
+//     (args) => ({ agent_type: 'pentest', target: args.target, ... })
+//   );
+//
+//   // At entry points, provide config context:
+//   const appConfig = await config.get();
+//   await withConfigContext(appConfig, async () => {
+//     await runAgent({ target: 'example.com' }); // Automatically traced!
+//   });
+//
+// ## Legacy Usage (Manual Tracing):
+//
+//   import { traceAgent, isBraintrustEnabled } from '@/core/braintrust';
 //
 //   const appConfig = await config.get();
 //   if (isBraintrustEnabled(appConfig)) {
@@ -26,7 +44,24 @@ export { isBraintrustEnabled } from './config';
 // Client management
 export { flushBraintrust } from './client';
 
-// Tracing utilities
+// Context management (for factory pattern)
+export {
+  withConfigContext,
+  getConfigFromContext,
+  getConfigFromContextOrFetch,
+  hasConfigContext,
+} from './context';
+
+// Factory functions (recommended for new code)
+export {
+  createTracedAgent,
+  createTracedTool,
+  createTracedAICall,
+  getRegisteredAgents,
+  getRegisteredTools,
+} from './factories';
+
+// Tracing utilities (legacy/manual usage)
 export { traceAgent, traceToolCall, traceAICall } from './tracer';
 
 // Data sanitization (main entry points only)

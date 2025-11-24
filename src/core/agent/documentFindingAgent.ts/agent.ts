@@ -63,8 +63,7 @@ export async function documentFindingAgent(
   toolOverride?: {
     create_poc?: (opts: CreatePocOpts) => Promise<CreatePocResult>;
   },
-  onStepFinish?: StreamTextOnStepFinishCallback<ToolSet>,
-  appConfig?: Config
+  onStepFinish?: StreamTextOnStepFinishCallback<ToolSet>
 ) {
   const logger = new Logger(session, 'documentFindingAgent.log');
   // Create pocs directory for pentest agent
@@ -676,7 +675,6 @@ Begin your analysis now.
     },
     authConfig,
     onStepFinish,
-    appConfig,
     stopWhen: hasToolCall('finalize_documentation') || stepCountIs(1000),
   });
 

@@ -16,7 +16,7 @@ import type { AIModel } from "../ai";
 import { generateObjectResponse } from "../ai";
 import { getProviderModel } from "../ai/utils";
 import { generateText } from "ai";
-import { traceToolCall, isBraintrustEnabled, sanitizeToolInput, sanitizeToolOutput } from "../braintrust";
+import { createTracedTool, sanitizeToolInput, sanitizeToolOutput } from "../braintrust";
 import { config } from "../config";
 import type { Config } from "../config/config";
 
@@ -1290,7 +1290,7 @@ The scratchpad is session-specific and helps maintain context during long assess
 /**
  * Port scan analyzer - Interpret nmap results
  */
-export function createAnalyzeScanTool(appConfig?: Config) {
+export function createAnalyzeScanTool() {
   return tool({
     name: "analyze_scan",
     description: `Analyze scan results and suggest next steps for penetration testing.
@@ -1320,130 +1320,8 @@ Provides guidance on:
     target: z.string().describe("The target that was scanned"),
   }),
   execute: async ({ scanType, results, target }) => {
-    // If Braintrust disabled, execute directly
-    if (!appConfig || !isBraintrustEnabled(appConfig)) {
-      // Parse and provide intelligent analysis
-      const analysis = {
-        scanType,
-        target,
-        timestamp: new Date().toISOString(),
-        summary: "",
-        openPorts: [] as string[],
-        services: [] as string[],
-        recommendations: [] as string[],
-        potentialVulnerabilities: [] as string[],
-      };
-
-      // Simple parsing logic (can be enhanced)
-      if (scanType === "port_scan") {
-        const portMatches = results.match(/(\d+)\/tcp\s+open/g);
-        if (portMatches) {
-          analysis.openPorts = portMatches
-            .map((m) => m.split("/")[0])
-            .filter((p): p is string => p !== undefined);
-          analysis.summary = `Found ${analysis.openPorts.length} open TCP ports`;
-
-          // Add recommendations based on common ports
-          if (
-            analysis.openPorts.includes("80") ||
-            analysis.openPorts.includes("443")
-          ) {
-            analysis.recommendations.push(
-              "Run web application scans (nikto, gobuster)"
-            );
-          }
-          if (analysis.openPorts.includes("22")) {
-            analysis.recommendations.push(
-              "Test SSH authentication methods and banners"
-            );
-          }
-          if (
-            analysis.openPorts.includes("3306") ||
-            analysis.openPorts.includes("5432")
-          ) {
-            analysis.recommendations.push(
-              "Database port exposed - test for default credentials"
-            );
-          }
-        }
-      }
-
-      return {
-        success: true,
-        analysis,
-      };
-    }
-
-    // Wrap with Braintrust tracing
-    return await traceToolCall(
-      appConfig,
-      'analyze_scan',
-      {
-        tool_name: 'analyze_scan',
-        scan_type: scanType,
-        target: sanitizeToolInput({ target }).target,
-        results_length: results.length,
-      },
-      async (updateMetadata) => {
-        // Parse and provide intelligent analysis
-        const analysis = {
-          scanType,
-          target,
-          timestamp: new Date().toISOString(),
-          summary: "",
-          openPorts: [] as string[],
-          services: [] as string[],
-          recommendations: [] as string[],
-          potentialVulnerabilities: [] as string[],
-        };
-
-        // Simple parsing logic (can be enhanced)
-        if (scanType === "port_scan") {
-          const portMatches = results.match(/(\d+)\/tcp\s+open/g);
-          if (portMatches) {
-            analysis.openPorts = portMatches
-              .map((m) => m.split("/")[0])
-              .filter((p): p is string => p !== undefined);
-            analysis.summary = `Found ${analysis.openPorts.length} open TCP ports`;
-
-            // Add recommendations based on common ports
-            if (
-              analysis.openPorts.includes("80") ||
-              analysis.openPorts.includes("443")
-            ) {
-              analysis.recommendations.push(
-                "Run web application scans (nikto, gobuster)"
-              );
-            }
-            if (analysis.openPorts.includes("22")) {
-              analysis.recommendations.push(
-                "Test SSH authentication methods and banners"
-              );
-            }
-            if (
-              analysis.openPorts.includes("3306") ||
-              analysis.openPorts.includes("5432")
-            ) {
-              analysis.recommendations.push(
-                "Database port exposed - test for default credentials"
-              );
-            }
-          }
-        }
-
-        updateMetadata({
-          success: true,
-          open_ports_found: analysis.openPorts.length,
-          recommendations_count: analysis.recommendations.length,
-        });
-
-        return {
-          success: true,
-          analysis,
-          nextSteps: analysis.recommendations,
-        };
-      }
-    );
+    // Use traced implementation (automatically handles enabled/disabled)
+    return await tracedAnalyzeScan({ scanType, target, results });
   },
   });
 }
@@ -2749,6 +2627,213 @@ Not found: ${(range.max - range.min + 1 - discovered.length)} endpoints returned
   });
 }
 
+// ============================================================================
+// Traced Tool Implementations
+// ============================================================================
+// These functions are wrapped with createTracedTool for automatic Braintrust
+// tracing. This eliminates code duplication and makes tracing transparent.
+
+/**
+ * Core implementation for executing shell commands.
+ * Wrapped with Braintrust tracing via createTracedTool.
+ */
+async function executeCommandImpl(opts: ExecuteCommandOpts): Promise<ExecuteCommandResult> {
+  const { command, timeout = 30000 } = opts;
+
+  try {
+    const { stdout, stderr } = await execAsync(command, {
+      timeout,
+      maxBuffer: 10 * 1024 * 1024,
+    });
+
+    return {
+      success: true,
+      stdout:
+        `${stdout.substring(0, 50000)}... \n\n (truncated) call the command again with grep / tail to paginate the response` ||
+        "(no output)",
+      stderr: stderr || "",
+      command,
+      error: "",
+    };
+  } catch (error: any) {
+    return {
+      success: false,
+      error: error.message,
+      stdout: error.stdout || "",
+      stderr: error.stderr || "",
+      command,
+    };
+  }
+}
+
+/**
+ * Traced version of executeCommand.
+ * Automatically handles Braintrust tracing when enabled.
+ */
+const tracedExecuteCommand = createTracedTool(
+  'execute_command',
+  executeCommandImpl,
+  (opts) => ({
+    tool_name: 'execute_command',
+    command: sanitizeToolInput({ command: opts.command }).command,
+    timeout: opts.timeout,
+  })
+);
+
+/**
+ * Core implementation for making HTTP requests.
+ * Wrapped with Braintrust tracing via createTracedTool.
+ */
+async function httpRequestImpl(opts: HttpRequestOpts): Promise<HttpRequestResult> {
+  const { url, method, headers, body, followRedirects, timeout } = opts;
+
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeout);
+
+    const response = await fetch(url, {
+      method,
+      headers: headers || {},
+      body: body || undefined,
+      redirect: followRedirects ? "follow" : "manual",
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeoutId);
+
+    const responseHeaders: Record<string, string> = {};
+    response.headers.forEach((value, key) => {
+      responseHeaders[key] = value;
+    });
+
+    let responseBody = "";
+    try {
+      responseBody = await response.text();
+    } catch (e) {
+      responseBody = "(unable to read response body)";
+    }
+
+    return {
+      success: true,
+      status: response.status,
+      statusText: response.statusText,
+      headers: responseHeaders,
+      body: `${responseBody.substring(0, 5000)}... \n\n (truncated) use execute_command with grep / tail to paginate the response`,
+      url: response.url,
+      redirected: response.redirected,
+    };
+  } catch (error: any) {
+    return {
+      success: false,
+      error: error.message,
+      url,
+      method,
+      status: 0,
+      statusText: "",
+      headers: {},
+      body: "",
+      redirected: false,
+    };
+  }
+}
+
+/**
+ * Traced version of httpRequest.
+ * Automatically handles Braintrust tracing when enabled.
+ */
+const tracedHttpRequest = createTracedTool(
+  'http_request',
+  httpRequestImpl,
+  (opts) => ({
+    tool_name: 'http_request',
+    url: sanitizeToolInput({ url: opts.url }).url,
+    method: opts.method,
+    has_body: !!opts.body,
+  })
+);
+
+/**
+ * Core implementation for analyzing scan results.
+ * Wrapped with Braintrust tracing via createTracedTool.
+ */
+async function analyzeScanImpl(opts: {
+  scanType: string;
+  target: string;
+  results: string;
+}): Promise<{ success: boolean; analysis: any }> {
+  const { scanType, target, results } = opts;
+
+  // Parse and provide intelligent analysis
+  const analysis = {
+    scanType,
+    target,
+    timestamp: new Date().toISOString(),
+    summary: "",
+    openPorts: [] as string[],
+    services: [] as string[],
+    recommendations: [] as string[],
+    potentialVulnerabilities: [] as string[],
+  };
+
+  // Simple parsing logic (can be enhanced)
+  if (scanType === "port_scan") {
+    const portMatches = results.match(/(\d+)\/tcp\s+open/g);
+    if (portMatches) {
+      analysis.openPorts = portMatches
+        .map((m) => m.split("/")[0])
+        .filter((p): p is string => p !== undefined);
+      analysis.summary = `Found ${analysis.openPorts.length} open TCP ports`;
+
+      // Add recommendations based on common ports
+      if (
+        analysis.openPorts.includes("80") ||
+        analysis.openPorts.includes("443")
+      ) {
+        analysis.recommendations.push(
+          "Run web application scans (nikto, gobuster)"
+        );
+      }
+      if (analysis.openPorts.includes("22")) {
+        analysis.recommendations.push(
+          "Test SSH authentication methods and banners"
+        );
+      }
+      if (
+        analysis.openPorts.includes("3306") ||
+        analysis.openPorts.includes("5432")
+      ) {
+        analysis.recommendations.push(
+          "Database port exposed - test for default credentials"
+        );
+      }
+    }
+  }
+
+  return {
+    success: true,
+    analysis,
+  };
+}
+
+/**
+ * Traced version of analyzeScan.
+ * Automatically handles Braintrust tracing when enabled.
+ */
+const tracedAnalyzeScan = createTracedTool(
+  'analyze_scan',
+  analyzeScanImpl,
+  (opts) => ({
+    tool_name: 'analyze_scan',
+    scan_type: opts.scanType,
+    target: sanitizeToolInput({ target: opts.target }).target,
+    results_length: opts.results.length,
+  })
+);
+
+// ============================================================================
+// Tool Definitions
+// ============================================================================
+
 // Export tools creator function that accepts a session
 export function createPentestTools(
   session: Session,
@@ -2758,8 +2843,7 @@ export function createPentestTools(
       opts: ExecuteCommandOpts
     ) => Promise<ExecuteCommandResult>;
     http_request?: (opts: HttpRequestOpts) => Promise<HttpRequestResult>;
-  },
-  appConfig?: Config // For Braintrust tracing - maintains AsyncLocalStorage context
+  }
 ) {
   const executeCommand = tool({
     name: "execute_command",
@@ -2804,96 +2888,17 @@ OUTPUT HANDLING:
 IMPORTANT: Always analyze results and adjust your approach based on findings.`,
     inputSchema: ExecuteCommandInput,
     execute: async ({ command, timeout = 30000, toolCallDescription }) => {
-      // If Braintrust disabled or override present, execute directly
-      if (!appConfig || !isBraintrustEnabled(appConfig) || toolOverride?.execute_command) {
-        if (toolOverride?.execute_command) {
-          return toolOverride.execute_command({
-            command,
-            timeout,
-            toolCallDescription,
-          });
-        }
-
-        try {
-          const { stdout, stderr } = await execAsync(command, {
-            timeout,
-            maxBuffer: 10 * 1024 * 1024,
-          });
-          return {
-            success: true,
-            stdout:
-              `${stdout.substring(0, 50000)}... \n\n (truncated) call the command again with grep / tail to paginate the response` ||
-              "(no output)",
-            stderr: stderr || "",
-            command,
-            error: "",
-          };
-        } catch (error: any) {
-          return {
-            success: false,
-            error: error.message,
-            stdout: error.stdout || "",
-            stderr: error.stderr || "",
-            command,
-          };
-        }
+      // Check for override first
+      if (toolOverride?.execute_command) {
+        return toolOverride.execute_command({
+          command,
+          timeout,
+          toolCallDescription,
+        });
       }
 
-      // Wrap with Braintrust tracing
-      return await traceToolCall(
-        appConfig,
-        'execute_command',
-        {
-          tool_name: 'execute_command',
-          command: sanitizeToolInput({ command }).command,
-          timeout,
-        },
-        async (updateMetadata) => {
-          const startTime = Date.now();
-
-          try {
-            const { stdout, stderr } = await execAsync(command, {
-              timeout,
-              maxBuffer: 10 * 1024 * 1024,
-            });
-
-            const duration = Date.now() - startTime;
-
-            updateMetadata({
-              success: true,
-              duration_ms: duration,
-              stdout_length: stdout.length,
-              stderr_length: stderr.length,
-            });
-
-            return {
-              success: true,
-              stdout:
-                `${stdout.substring(0, 50000)}... \n\n (truncated) call the command again with grep / tail to paginate the response` ||
-                "(no output)",
-              stderr: stderr || "",
-              command,
-              error: "",
-            };
-          } catch (error: any) {
-            const duration = Date.now() - startTime;
-
-            updateMetadata({
-              success: false,
-              duration_ms: duration,
-              error_type: error.code || 'unknown',
-            });
-
-            return {
-              success: false,
-              error: error.message,
-              stdout: error.stdout || "",
-              stderr: error.stderr || "",
-              command,
-            };
-          }
-        }
-      );
+      // Use traced implementation (automatically handles enabled/disabled)
+      return await tracedExecuteCommand({ command, timeout, toolCallDescription });
     },
   });
 
@@ -2921,151 +2926,21 @@ COMMON TESTING PATTERNS:
 - Test for backup files (.bak, .old, ~, .swp)`,
     inputSchema: HttpRequestInput,
     execute: async ({ url, method, headers, body, followRedirects, timeout, toolCallDescription }) => {
-      // If Braintrust disabled or override present, execute directly
-      if (!appConfig || !isBraintrustEnabled(appConfig) || toolOverride?.http_request) {
-        if (toolOverride?.http_request) {
-          return toolOverride.http_request({
-            url,
-            method,
-            headers,
-            body,
-            followRedirects,
-            timeout,
-            toolCallDescription,
-          });
-        }
-
-        try {
-          const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), timeout);
-
-          const response = await fetch(url, {
-            method,
-            headers: headers || {},
-            body: body || undefined,
-            redirect: followRedirects ? "follow" : "manual",
-            signal: controller.signal,
-          });
-
-          clearTimeout(timeoutId);
-
-          const responseHeaders: Record<string, string> = {};
-          response.headers.forEach((value, key) => {
-            responseHeaders[key] = value;
-          });
-
-          let responseBody = "";
-          try {
-            responseBody = await response.text();
-          } catch (e) {
-            responseBody = "(unable to read response body)";
-          }
-
-          return {
-            success: true,
-            status: response.status,
-            statusText: response.statusText,
-            headers: responseHeaders,
-            body: `${responseBody.substring(0, 5000)}... \n\n (truncated) use execute_command with grep / tail to paginate the response`,
-            url: response.url,
-            redirected: response.redirected,
-          };
-        } catch (error: any) {
-          return {
-            success: false,
-            error: error.message,
-            url,
-            method,
-            status: 0,
-            statusText: "",
-            headers: {},
-            body: "",
-            redirected: false,
-          };
-        }
+      // Check for override first
+      if (toolOverride?.http_request) {
+        return toolOverride.http_request({
+          url,
+          method,
+          headers,
+          body,
+          followRedirects,
+          timeout,
+          toolCallDescription,
+        });
       }
 
-      // Wrap with Braintrust tracing
-      return await traceToolCall(
-        appConfig,
-        'http_request',
-        {
-          tool_name: 'http_request',
-          url: sanitizeToolInput({ url }).url,
-          method,
-          has_body: !!body,
-        },
-        async (updateMetadata) => {
-          const startTime = Date.now();
-
-          try {
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), timeout);
-
-            const response = await fetch(url, {
-              method,
-              headers: headers || {},
-              body: body || undefined,
-              redirect: followRedirects ? "follow" : "manual",
-              signal: controller.signal,
-            });
-
-            clearTimeout(timeoutId);
-
-            const duration = Date.now() - startTime;
-
-            const responseHeaders: Record<string, string> = {};
-            response.headers.forEach((value, key) => {
-              responseHeaders[key] = value;
-            });
-
-            let responseBody = "";
-            try {
-              responseBody = await response.text();
-            } catch (e) {
-              responseBody = "(unable to read response body)";
-            }
-
-            updateMetadata({
-              success: true,
-              duration_ms: duration,
-              status_code: response.status,
-              redirected: response.redirected,
-              response_size: responseBody.length,
-            });
-
-            return {
-              success: true,
-              status: response.status,
-              statusText: response.statusText,
-              headers: responseHeaders,
-              body: `${responseBody.substring(0, 5000)}... \n\n (truncated) use execute_command with grep / tail to paginate the response`,
-              url: response.url,
-              redirected: response.redirected,
-            };
-          } catch (error: any) {
-            const duration = Date.now() - startTime;
-
-            updateMetadata({
-              success: false,
-              duration_ms: duration,
-              error_type: error.name || 'unknown',
-            });
-
-            return {
-              success: false,
-              error: error.message,
-              url,
-              method,
-              status: 0,
-              statusText: "",
-              headers: {},
-              body: "",
-              redirected: false,
-            };
-          }
-        }
-      );
+      // Use traced implementation (automatically handles enabled/disabled)
+      return await tracedHttpRequest({ url, method, headers, body, followRedirects, timeout, toolCallDescription });
     },
   });
 
@@ -3078,7 +2953,7 @@ COMMON TESTING PATTERNS:
     check_testing_coverage: createCheckTestingCoverageTool(session),
     validate_completeness: createValidateCompletenessTool(session),
     enumerate_endpoints: createEnumerateEndpointsTool(session),
-    analyze_scan: createAnalyzeScanTool(appConfig),
+    analyze_scan: createAnalyzeScanTool(),
     scratchpad: createScratchpadTool(session),
     generate_report: createGenerateReportTool(session),
     get_attack_surface: getAttackSurfaceAgent(),
