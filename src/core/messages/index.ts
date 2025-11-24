@@ -1,21 +1,15 @@
-import type { ModelMessage } from "ai";
 import type { Session } from "../agent/sessions";
 import fs from "fs";
-export interface ToolMessage {
-  role: "tool";
-  status: "pending" | "completed";
-  toolCallId: string;
-  content: string;
-  args: Record<string, any>;
-  toolName: string;
-  createdAt: Date;
-}
+import { z } from 'zod';
+import { ModelMessageObject } from "./types";
+import type { ToolMessage } from "./types";
 
-export type Message = (ModelMessage & { createdAt: Date }) | ToolMessage;
+type Message = z.infer<typeof ModelMessageObject>;
+
 
 export function getMessages(session: Session): Message[] {
   const messages = fs.readFileSync(session.rootPath + "/messages.json", "utf8");
-  return JSON.parse(messages);
+  return ModelMessageObject.array().parse(JSON.parse(messages));
 }
 
 export function saveMessages(session: Session, messages: Message[]) {
@@ -50,3 +44,8 @@ export function saveSubagentMessages(
     JSON.stringify(messages, null, 2)
   );
 }
+
+export {
+  type Message,
+  type ToolMessage
+};
