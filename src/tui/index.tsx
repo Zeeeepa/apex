@@ -27,6 +27,7 @@ import { createSwitch } from "./components/switch";
 import { type RoutePath, RouteProvider, useRoute } from "./context/route";
 import { ResponsibleUseDisclosure } from "./components/responsible-use-disclosure";
 import { hasAnyProviderConfigured } from "../core/providers";
+import { AsciiHeader } from "./components/ascii-header";
 
 // Get the directory of the current module
 const __filename = fileURLToPath(import.meta.url);

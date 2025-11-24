@@ -1,6 +1,7 @@
 import { useState } from "react";
 import Autocomplete from "./components/autocomplete";
 import { useCommand } from "./command-provider";
+import { AsciiHeader } from "./components/ascii-header";
 
 interface CommandInputProps {
   focused?: boolean;
@@ -24,10 +25,15 @@ export default function CommandInput({
     <box
       flexDirection="column"
       justifyContent="center"
+      alignItems="center"
       width={60}
-      flexGrow={1}
+      // flexGrow={1}
       gap={2}
     >
+      <box>
+      <AsciiHeader/>
+      <text alignSelf={'flex-end'}>0.01</text>
+      </box>
       <Autocomplete
         key={inputKey}
         label="Command"

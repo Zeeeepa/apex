@@ -101,7 +101,7 @@ export default function Autocomplete({
   };
 
   return (
-    <box flexDirection="column" width="100%">
+    <box width="100%" flexDirection="column">
       <Input
         label={label}
         value={value}
@@ -117,13 +117,13 @@ export default function Autocomplete({
         }}
         {...inputProps}
       />
-
       {showSuggestions && suggestions.length > 0 && (
         <box
-          border={true}
+          border={["left"]}
           borderColor="green"
           backgroundColor="black"
-          width="100%"
+          // top={15}
+          // left={"50%"}
           flexDirection="column"
         >
           {suggestions.map((suggestion, index) => (
@@ -134,6 +134,7 @@ export default function Autocomplete({
               }
               flexDirection="row"
               gap={1}
+              paddingLeft={1}
             >
               <text fg={index === selectedIndex ? "green" : "white"}>
                 {index === selectedIndex ? "▶" : " "}
