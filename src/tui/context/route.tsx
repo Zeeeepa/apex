@@ -10,6 +10,7 @@ export type RoutePath =
     | "config"
     | "sessions"
     | "models"
+    | "providers"
     | "disclosure";
 
 export type Route = 

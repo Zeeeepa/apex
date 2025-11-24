@@ -5,6 +5,7 @@ import { config as _config } from "../../core/config";
 type ConfigContext = {
     data: Config;
     update: (newConfig: Partial<Config>) => Promise<void>;
+    reload: () => Promise<void>;
 };
 
 const ctx = createContext<ConfigContext | null>(null);
@@ -26,6 +27,10 @@ export function ConfigProvider({ children, config }: ConfigProviderProps) {
                 ...appConfig,
                 ...newConfig
             })
+        },
+        reload: async () => {
+            const freshConfig = await _config.get();
+            setAppConfig(freshConfig);
         }
     }), [appConfig]);
 

@@ -90,6 +90,17 @@ export const commands: CommandConfig[] = [
       });
     },
   },
+  {
+    name: "providers",
+    description: "Manage AI providers and API keys",
+    category: "General",
+    handler: async (args, ctx) => {
+      ctx.navigate({
+        type: "base",
+        path: "providers"
+      });
+    },
+  },
 
   // Add more commands here...
   // Example:

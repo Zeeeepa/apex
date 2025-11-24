@@ -15,6 +15,7 @@ import PentestAgentDisplay from "./components/commands/pentest-agent-display";
 import ThoroughPentestAgentDisplay from "./components/commands/thorough-pentest-agent-display";
 import SessionsDisplay from "./components/commands/sessions-display";
 import ModelsDisplay from "./components/commands/models-display";
+import ProviderManager from "./components/commands/provider-manager";
 import type { Config } from "../core/config/config";
 import { config } from "../core/config";
 import { fileURLToPath } from "url";
@@ -25,6 +26,7 @@ import { ConfigProvider, useConfig } from "./context/config";
 import { createSwitch } from "./components/switch";
 import { type RoutePath, RouteProvider, useRoute } from "./context/route";
 import { ResponsibleUseDisclosure } from "./components/responsible-use-disclosure";
+import { hasAnyProviderConfigured } from "../core/providers";
 
 // Get the directory of the current module
 const __filename = fileURLToPath(import.meta.url);
@@ -137,10 +139,27 @@ function AppContent({
   const route = useRoute();
   const config = useConfig();
 
-  !config.data.responsibleUseAccepted && route.navigate({
-    type: "base",
-    path: "disclosure"
-  });
+  // First check: responsible use disclosure
+  if (!config.data.responsibleUseAccepted && route.data.type === "base" && route.data.path !== "disclosure") {
+    route.navigate({
+      type: "base",
+      path: "disclosure"
+    });
+  }
+
+  // Second check: provider configuration (only if not already on providers page)
+  if (
+    config.data.responsibleUseAccepted &&
+    !hasAnyProviderConfigured(config.data) &&
+    route.data.type === "base" &&
+    route.data.path !== "providers" &&
+    route.data.path !== "disclosure"
+  ) {
+    route.navigate({
+      type: "base",
+      path: "providers"
+    });
+  }
 
   // Auto-clear the exit warning after 1 second
   useEffect(() => {
@@ -263,6 +282,9 @@ function CommandDisplay({
           </RouteSwitch.Case>
           <RouteSwitch.Case when="models">
             <ModelsDisplay/>
+          </RouteSwitch.Case>
+          <RouteSwitch.Case when="providers">
+            <ProviderManager/>
           </RouteSwitch.Case>
           <RouteSwitch.Case when="config">
             <ConfigDialog/>
