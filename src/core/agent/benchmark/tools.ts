@@ -96,7 +96,7 @@ This is the MAIN TESTING PHASE. Wait for it to complete before proceeding.`,
 
         // Run the thorough pentest agent with subagent callbacks
         const { streamResult, session: pentestSession } =
-          runThoroughPentestAgent({
+          await runThoroughPentestAgent({
             target,
             model,
             abortSignal,

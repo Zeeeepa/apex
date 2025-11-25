@@ -1105,6 +1105,8 @@ export type HttpRequestResult = {
   body: string;
   url: string;
   redirected: boolean;
+  error?: string;
+  method?: string;
 };
 
 

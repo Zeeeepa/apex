@@ -112,7 +112,7 @@ export async function swarm(
       }
 
       try {
-        const { streamResult } = runAgent({
+        const { streamResult } = await runAgent({
           session,
           target: target.target,
           objective: target.objective,
