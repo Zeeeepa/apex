@@ -32,6 +32,8 @@ import {
   type DocumentFindingResult,
 } from './types';
 import { nanoid } from 'nanoid';
+import { createTracedAgent } from '../../braintrust';
+import type { AgentSpanMetadata } from '../../braintrust';
 
 const execAsync = promisify(exec);
 
@@ -55,16 +57,21 @@ const FindingObject = z.object({
 
 export type Finding = z.infer<typeof FindingObject>;
 
-export async function documentFindingAgent(
-  finding: Finding,
-  model: AIModel,
-  session: Session,
-  authConfig?: AIAuthConfig,
+interface DocumentFindingAgentProps {
+  finding: Finding;
+  model: AIModel;
+  session: Session;
+  authConfig?: AIAuthConfig;
   toolOverride?: {
     create_poc?: (opts: CreatePocOpts) => Promise<CreatePocResult>;
-  },
-  onStepFinish?: StreamTextOnStepFinishCallback<ToolSet>
+  };
+  onStepFinish?: StreamTextOnStepFinishCallback<ToolSet>;
+}
+
+async function documentFindingAgentImpl(
+  props: DocumentFindingAgentProps & { updateMetadata?: (updates: Partial<AgentSpanMetadata>) => void }
 ) {
+  const { finding, model, session, authConfig, toolOverride, onStepFinish } = props;
   const logger = new Logger(session, 'documentFindingAgent.log');
   // Create pocs directory for pentest agent
   const pocsPath = join(session.rootPath, 'pocs');
@@ -694,3 +701,17 @@ Begin your analysis now.
     success: documentationResult.action === 'documented',
   };
 }
+
+// Wrap with decorator for automatic Braintrust tracing
+export const documentFindingAgent = createTracedAgent(
+  'documentFinding',
+  documentFindingAgentImpl,
+  (props) => ({
+    agent_type: 'documentFinding',
+    session_id: props.session.id,
+    target: props.session.target,
+    model: props.model,
+    finding_severity: props.finding.severity,
+    finding_title: props.finding.title,
+  })
+);
