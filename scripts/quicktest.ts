@@ -9,6 +9,7 @@ interface QuicktestOptions {
   model?: AIModel;
   headerMode?: 'none' | 'default' | 'custom';
   customHeaders?: Record<string, string>;
+  rps?: number;
 }
 
 async function runQuicktest(options: QuicktestOptions): Promise<void> {
@@ -17,7 +18,8 @@ async function runQuicktest(options: QuicktestOptions): Promise<void> {
     objective,
     model = "claude-sonnet-4-5" as AIModel,
     headerMode = 'default',
-    customHeaders
+    customHeaders,
+    rps
   } = options;
 
   console.log("=".repeat(80));
@@ -26,6 +28,7 @@ async function runQuicktest(options: QuicktestOptions): Promise<void> {
   console.log(`Target: ${target}`);
   console.log(`Objective: ${objective}`);
   console.log(`Model: ${model}`);
+  console.log(`Rate Limit: ${rps ? `${rps} req/s` : 'Unlimited'}`);
   console.log(`Headers: ${headerMode === 'none' ? 'None' : headerMode === 'default' ? 'Default (pensar-apex)' : 'Custom'}`);
   if (headerMode === 'custom' && customHeaders) {
     for (const [key, value] of Object.entries(customHeaders)) {
@@ -41,6 +44,11 @@ async function runQuicktest(options: QuicktestOptions): Promise<void> {
         mode: headerMode,
         headers: headerMode === 'custom' ? customHeaders : undefined,
       },
+      ...(rps && {
+        rateLimiter: {
+          requestsPerSecond: rps,
+        },
+      }),
     };
 
     // Run the pentest agent
@@ -115,6 +123,9 @@ async function main() {
       "  --model <model>          AI model to use (default: claude-sonnet-4-5)"
     );
     console.error(
+      "  --rps <number>           Rate limit: requests per second (default: unlimited)"
+    );
+    console.error(
       "  --headers <mode>         Header mode: none, default, or custom (default: default)"
     );
     console.error(
@@ -140,7 +151,7 @@ async function main() {
       "  pensar quicktest --target 192.168.1.100 --objective 'Test auth bypass' --headers none"
     );
     console.error(
-      "  pensar quicktest --target api.example.com --objective 'API testing' \\"
+      "  pensar quicktest --target api.example.com --objective 'API testing' --rps 5 \\"
     );
     console.error(
       "    --headers custom --header 'User-Agent: pensar_client123' --header 'X-Bug-Bounty: researcher'"
@@ -185,6 +196,23 @@ async function main() {
       process.exit(1);
     }
     model = modelArg as AIModel;
+  }
+
+  // Parse RPS option
+  const rpsIndex = args.indexOf("--rps");
+  let rps: number | undefined;
+  if (rpsIndex !== -1) {
+    const rpsArg = args[rpsIndex + 1];
+    if (!rpsArg) {
+      console.error("Error: --rps must be followed by a number");
+      process.exit(1);
+    }
+    const parsedRps = parseInt(rpsArg, 10);
+    if (isNaN(parsedRps) || parsedRps <= 0) {
+      console.error("Error: --rps must be a positive number");
+      process.exit(1);
+    }
+    rps = parsedRps;
   }
 
   // Parse header options
@@ -246,6 +274,7 @@ async function main() {
       ...(model && { model }),
       headerMode,
       ...(headerMode === 'custom' && { customHeaders }),
+      ...(rps && { rps }),
     });
   } catch (error: any) {
     console.error("Fatal error:", error.message);

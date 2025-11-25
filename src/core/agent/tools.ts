@@ -12,6 +12,7 @@ import {
 import { join } from "path";
 import type { Session } from "./sessions";
 import { getOffensiveHeaders } from "./sessions";
+import { RateLimiter } from '../services/rateLimiter';
 import { runAgent } from "./pentestAgent";
 import type { AIModel } from "../ai";
 import { generateObjectResponse } from "../ai";
@@ -2760,6 +2761,9 @@ export function createPentestTools(
   // Get offensive headers from session config
   const offensiveHeaders = getOffensiveHeaders(session);
 
+  // Get rate limiter from session (initialized eagerly in createSession)
+  const rateLimiter = session._rateLimiter;
+
   const executeCommand = tool({
     name: "execute_command",
     description: `Execute a shell command for penetration testing activities.
@@ -2804,6 +2808,11 @@ IMPORTANT: Always analyze results and adjust your approach based on findings.`,
     inputSchema: ExecuteCommandInput,
     execute: async ({ command, timeout = 30000, toolCallDescription }) => {
       try {
+        // Apply rate limiting before command execution
+        if (rateLimiter) {
+          await rateLimiter.acquireSlot();
+        }
+
         if (toolOverride?.execute_command) {
           return toolOverride.execute_command({
             command,
@@ -2870,6 +2879,11 @@ COMMON TESTING PATTERNS:
     inputSchema: HttpRequestInput,
     execute: async ({ url, method, headers, body, followRedirects, timeout, toolCallDescription }) => {
       try {
+        // Apply rate limiting before HTTP request
+        if (rateLimiter) {
+          await rateLimiter.acquireSlot();
+        }
+
         if (toolOverride?.http_request) {
           return toolOverride.http_request({
             url,
