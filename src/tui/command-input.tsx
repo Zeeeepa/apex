@@ -2,6 +2,8 @@ import { useState } from "react";
 import Autocomplete from "./components/autocomplete";
 import { useCommand } from "./command-provider";
 import { AsciiHeader } from "./components/ascii-header";
+import { Installation } from "../core/installation";
+import { useConfig } from "./context/config";
 
 interface CommandInputProps {
   focused?: boolean;
@@ -14,6 +16,8 @@ export default function CommandInput({
 }: CommandInputProps) {
   const [command, setCommand] = useState("");
   const { autocompleteOptions, executeCommand } = useCommand();
+
+  const config = useConfig();
 
   const handleSubmit = async (value: string) => {
     const raw = value ?? "";
@@ -32,7 +36,7 @@ export default function CommandInput({
     >
       <box>
       <AsciiHeader/>
-      <text alignSelf={'flex-end'}>0.01</text>
+      <text alignSelf={'flex-end'}>{config.data.version}</text>
       </box>
       <Autocomplete
         key={inputKey}
