@@ -10,7 +10,8 @@ export default function Input(
       width="100%"
       backgroundColor="black"
       flexDirection="column"
-      padding={1}
+      paddingBottom={1}
+      paddingTop={1}
       border={['left']}
       borderColor={'green'}
     >

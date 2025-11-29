@@ -69,17 +69,6 @@ export const commands: CommandConfig[] = [
     },
   },
   {
-    name: "sessions",
-    description: "Show available sessions",
-    category: "General",
-    handler: async (args, ctx) => {
-      ctx.navigate({
-        type: "base",
-        path: "sessions"
-      });
-    },
-  },
-  {
     name: "models",
     description: "Show available AI models",
     category: "General",

@@ -1,4 +1,4 @@
-import { createRoot, useKeyboard } from "@opentui/react";
+import { createRoot, useKeyboard, useRenderer } from "@opentui/react";
 import {
   convertImageToColoredAscii,
   ColoredAsciiArt,
@@ -16,6 +16,7 @@ import ThoroughPentestAgentDisplay from "./components/commands/thorough-pentest-
 import SessionsDisplay from "./components/commands/sessions-display";
 import ModelsDisplay from "./components/commands/models-display";
 import ProviderManager from "./components/commands/provider-manager";
+import CreateSessionDialog from "./components/commands/create-session-dialog";
 import type { Config } from "../core/config/config";
 import { config } from "../core/config";
 import { fileURLToPath } from "url";
@@ -28,6 +29,8 @@ import { type RoutePath, RouteProvider, useRoute } from "./context/route";
 import { ResponsibleUseDisclosure } from "./components/responsible-use-disclosure";
 import { hasAnyProviderConfigured } from "../core/providers";
 import { AsciiHeader } from "./components/ascii-header";
+import { SessionProvider } from "./context/session";
+import { DialogProvider } from "./components/dialog";
 
 // Get the directory of the current module
 const __filename = fileURLToPath(import.meta.url);
@@ -91,24 +94,28 @@ function App(props: AppProps) {
 
   return (
     <ConfigProvider config={appConfig}>
-      <RouteProvider>
-        <AgentProvider>
-          <CommandProvider>
-            <AppContent
-              focusIndex={focusIndex}
-              setFocusIndex={setFocusIndex}
-              cwd={cwd}
-              ctrlCPressTime={ctrlCPressTime}
-              setCtrlCPressTime={setCtrlCPressTime}
-              showExitWarning={showExitWarning}
-              setShowExitWarning={setShowExitWarning}
-              inputKey={inputKey}
-              setInputKey={setInputKey}
-              navigableItems={navigableItems}
-            />
-          </CommandProvider>
-        </AgentProvider>
-      </RouteProvider>
+      <SessionProvider>
+        <RouteProvider>
+          <DialogProvider>
+            <AgentProvider>
+              <CommandProvider>
+                <AppContent
+                  focusIndex={focusIndex}
+                  setFocusIndex={setFocusIndex}
+                  cwd={cwd}
+                  ctrlCPressTime={ctrlCPressTime}
+                  setCtrlCPressTime={setCtrlCPressTime}
+                  showExitWarning={showExitWarning}
+                  setShowExitWarning={setShowExitWarning}
+                  inputKey={inputKey}
+                  setInputKey={setInputKey}
+                  navigableItems={navigableItems}
+                />
+              </CommandProvider>
+            </AgentProvider>
+          </DialogProvider>
+        </RouteProvider>
+      </SessionProvider>
     </ConfigProvider>
   );
 }
@@ -139,6 +146,9 @@ function AppContent({
 
   const route = useRoute();
   const config = useConfig();
+  const renderer = useRenderer();
+  const [showCreateSessionDialog, setShowCreateSessionDialog] = useState(false);
+  const [showSessionsDialog, setShowSessionsDialog] = useState(false);
 
   // First check: responsible use disclosure
   if (!config.data.responsibleUseAccepted && route.data.type === "base" && route.data.path !== "disclosure") {
@@ -190,6 +200,31 @@ function AppContent({
       return;
     }
 
+    if(key.ctrl && key.name === "k") {
+      renderer.console.toggle();
+    }
+
+    // Escape - Return to home from session view
+    if (key.name === "escape" && route.data.type === "session") {
+      route.navigate({
+        type: "base",
+        path: "home"
+      });
+      return;
+    }
+
+    // Ctrl+N - Create new session (only on home view)
+    if (key.ctrl && key.name === "n" && route.data.type === "base" && route.data.path === "home") {
+      setShowCreateSessionDialog(true);
+      return;
+    }
+
+    // Ctrl+S - Show sessions (only on home view)
+    if (key.ctrl && key.name === "s" && route.data.type === "base" && route.data.path === "home") {
+      setShowSessionsDialog(true);
+      return;
+    }
+
     // Tab - Next item
     if (key.name === "tab" && !key.shift) {
       setFocusIndex((prev) => (prev + 1) % navigableItems.length);
@@ -211,6 +246,25 @@ function AppContent({
     }
   });
 
+  const handleCreateSessionSuccess = (sessionId: string) => {
+    setShowCreateSessionDialog(false);
+    setInputKey((prev) => prev + 1);
+    route.navigate({
+      type: "session",
+      sessionId: sessionId
+    });
+  };
+
+  const handleCloseCreateDialog = () => {
+    setShowCreateSessionDialog(false);
+    setInputKey((prev) => prev + 1);
+  };
+
+  const handleCloseSessionsDialog = () => {
+    setShowSessionsDialog(false);
+    setInputKey((prev) => prev + 1);
+  };
+
   return (
     <box
       flexDirection="column"
@@ -224,6 +278,17 @@ function AppContent({
       <ColoredAsciiArt ascii={coloredAscii} />
       <CommandDisplay focusIndex={focusIndex} inputKey={inputKey} />
       <Footer cwd={cwd} showExitWarning={showExitWarning} />
+
+      {showCreateSessionDialog && (
+        <CreateSessionDialog
+          onClose={handleCloseCreateDialog}
+          onSuccess={handleCreateSessionSuccess}
+        />
+      )}
+
+      {showSessionsDialog && (
+        <SessionsDisplay onClose={handleCloseSessionsDialog} />
+      )}
     </box>
   );
 }
@@ -278,9 +343,6 @@ function CommandDisplay({
           <RouteSwitch.Case when="thorough">
             <ThoroughPentestAgentDisplay/>
           </RouteSwitch.Case>
-          <RouteSwitch.Case when="sessions">
-            <SessionsDisplay />
-          </RouteSwitch.Case>
           <RouteSwitch.Case when="models">
             <ModelsDisplay/>
           </RouteSwitch.Case>
@@ -300,8 +362,26 @@ function CommandDisplay({
       </box>
     );
   }
-  
-  // TODO: implement session display
+
+  // Session route - show message for now
+  if(route.data.type === "session") {
+    return (
+      <box
+        flexDirection="column"
+        width="100%"
+        maxHeight="100%"
+        alignItems="center"
+        justifyContent="center"
+        flexGrow={1}
+        gap={2}
+      >
+        <text fg="green">Session created successfully!</text>
+        <text fg="white">Session ID: {route.data.sessionId}</text>
+        <text fg="gray">Press ESC to return home</text>
+      </box>
+    );
+  }
+
   return null;
 }
 

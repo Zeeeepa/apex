@@ -8,7 +8,6 @@ export type RoutePath =
     | "thorough"
     | "dns"
     | "config"
-    | "sessions"
     | "models"
     | "providers"
     | "disclosure";
