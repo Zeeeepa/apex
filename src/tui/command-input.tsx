@@ -1,9 +1,12 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useCommand } from "./command-provider";
 import { useConfig } from "./context/config";
+import { useInput } from "./context/input";
+import { useFocus } from "./context/focus";
 import { Session } from "../core/session";
 import { AgentStatus } from "./components/footer";
 import os from "os";
+import type { Renderable } from "@opentui/core";
 
 interface CommandInputProps {
   focused?: boolean;
@@ -18,6 +21,9 @@ export default function CommandInput({
   const [recentSessions, setRecentSessions] = useState<Session.SessionInfo[]>([]);
   const { executeCommand } = useCommand();
   const config = useConfig();
+  const { setInputValue } = useInput();
+  const { commandInputRef } = useFocus();
+  const inputRef = useRef<Renderable | null>(null);
 
   // Load recent sessions
   useEffect(() => {
@@ -34,12 +40,36 @@ export default function CommandInput({
     loadRecentSessions();
   }, []);
 
+  // Sync input state with context
+  useEffect(() => {
+    setInputValue(command);
+  }, [command, setInputValue]);
+
+  // Reset input when inputKey changes
+  useEffect(() => {
+    setCommand("");
+    setInputValue("");
+  }, [inputKey, setInputValue]);
+
+  // Register input ref with focus context
+  useEffect(() => {
+    if (inputRef.current) {
+      commandInputRef.current = inputRef.current;
+    }
+  }, [commandInputRef]);
+
   const handleSubmit = async (value: string) => {
     const raw = value ?? "";
     if (raw.trim()) {
       await executeCommand(raw);
       setCommand("");
+      setInputValue("");
     }
+  };
+
+  const handleInput = (value: string) => {
+    setCommand(value);
+    setInputValue(value);
   };
 
   const cwd = "~" + process.cwd().split(os.homedir()).pop() || "";
@@ -48,13 +78,14 @@ export default function CommandInput({
     <box width={"100%"} columnGap={1} flexDirection="row" height={3} border={["top", "bottom"]} borderColor={"green"} alignItems="center">
       <text height={1} fg={"white"}><span>{`>`}</span></text>
       <input
+       ref={inputRef}
        placeholder="enter a command"
        focused
        width={"100%"}
        height={1}
        backgroundColor={"transparent"}
        value={command}
-       onInput={setCommand}
+       onInput={handleInput}
       />
     </box>
   );

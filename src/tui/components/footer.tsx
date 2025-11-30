@@ -3,6 +3,7 @@ import { useAgent } from "../agentProvider";
 import { ProgressBar, SpinnerDots } from "./sprites";
 import { useSession } from "../context/session";
 import { useRoute } from "../context/route";
+import { useInput } from "../context/input";
 import { useEffect } from "react";
 
 interface FooterProps {
@@ -27,10 +28,14 @@ export default function Footer({
   const { model, tokenCount, thinking, isExecuting } = useAgent();
   const session = useSession();
   const route = useRoute();
+  const { isInputEmpty } = useInput();
 
   const hotkeys = isExecuting
     ? [{ key: "Ctrl+C", label: "Stop Execution" }]
-    : [{ key: "Ctrl+C", label: "Clear/Exit" }];
+    : [
+        { key: "Ctrl+C", label: "Clear/Exit" },
+        ...(isInputEmpty ? [{ key: "?", label: "Shortcuts" }] : [])
+      ];
 
   return (
     <box

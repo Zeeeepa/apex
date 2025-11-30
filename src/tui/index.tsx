@@ -30,9 +30,12 @@ import { ResponsibleUseDisclosure } from "./components/responsible-use-disclosur
 import { hasAnyProviderConfigured } from "../core/providers";
 import { AsciiHeader } from "./components/ascii-header";
 import { SessionProvider } from "./context/session";
+import { InputProvider, useInput } from "./context/input";
+import { FocusProvider } from "./context/focus";
 import { DialogProvider } from "./components/dialog";
 import { SessionDisplay } from "./session/session";
 import { Session } from "../core/session";
+import ShortcutsDialog from "./components/commands/shortcuts-dialog";
 
 // Get the directory of the current module
 const __filename = fileURLToPath(import.meta.url);
@@ -98,24 +101,28 @@ function App(props: AppProps) {
     <ConfigProvider config={appConfig}>
       <SessionProvider>
         <RouteProvider>
-          <DialogProvider>
-            <AgentProvider>
-              <CommandProvider>
-                <AppContent
-                  focusIndex={focusIndex}
-                  setFocusIndex={setFocusIndex}
-                  cwd={cwd}
-                  ctrlCPressTime={ctrlCPressTime}
-                  setCtrlCPressTime={setCtrlCPressTime}
-                  showExitWarning={showExitWarning}
-                  setShowExitWarning={setShowExitWarning}
-                  inputKey={inputKey}
-                  setInputKey={setInputKey}
-                  navigableItems={navigableItems}
-                />
-              </CommandProvider>
-            </AgentProvider>
-          </DialogProvider>
+          <FocusProvider>
+            <InputProvider>
+              <DialogProvider>
+                <AgentProvider>
+                  <CommandProvider>
+                    <AppContent
+                      focusIndex={focusIndex}
+                      setFocusIndex={setFocusIndex}
+                      cwd={cwd}
+                      ctrlCPressTime={ctrlCPressTime}
+                      setCtrlCPressTime={setCtrlCPressTime}
+                      showExitWarning={showExitWarning}
+                      setShowExitWarning={setShowExitWarning}
+                      inputKey={inputKey}
+                      setInputKey={setInputKey}
+                      navigableItems={navigableItems}
+                    />
+                  </CommandProvider>
+                </AgentProvider>
+              </DialogProvider>
+            </InputProvider>
+          </FocusProvider>
         </RouteProvider>
       </SessionProvider>
     </ConfigProvider>
@@ -149,8 +156,10 @@ function AppContent({
   const route = useRoute();
   const config = useConfig();
   const renderer = useRenderer();
+  const { isInputEmpty } = useInput();
   const [showCreateSessionDialog, setShowCreateSessionDialog] = useState(false);
   const [showSessionsDialog, setShowSessionsDialog] = useState(false);
+  const [showShortcutsDialog, setShowShortcutsDialog] = useState(false);
 
   // First check: responsible use disclosure
   if (!config.data.responsibleUseAccepted && route.data.type === "base" && route.data.path !== "disclosure") {
@@ -227,6 +236,12 @@ function AppContent({
       return;
     }
 
+    // ? - Show keyboard shortcuts (when input is empty)
+    if (key.sequence === "?" && isInputEmpty) {
+      setShowShortcutsDialog(true);
+      return;
+    }
+
     // Tab - Next item
     if (key.name === "tab" && !key.shift) {
       setFocusIndex((prev) => (prev + 1) % navigableItems.length);
@@ -267,6 +282,11 @@ function AppContent({
     setInputKey((prev) => prev + 1);
   };
 
+  const handleCloseShortcutsDialog = () => {
+    setShowShortcutsDialog(false);
+    setInputKey((prev) => prev + 1);
+  };
+
   // Check if we're on the home route
   const isHomeRoute = route.data.type === "base" && route.data.path === "home";
 
@@ -297,6 +317,10 @@ function AppContent({
 
       {showSessionsDialog && (
         <SessionsDisplay onClose={handleCloseSessionsDialog} />
+      )}
+
+      {showShortcutsDialog && (
+        <ShortcutsDialog open={showShortcutsDialog} onClose={handleCloseShortcutsDialog} />
       )}
     </box>
   );

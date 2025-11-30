@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useKeyboard } from "@opentui/react";
 import { Session } from "../../../core/session";
+import { useFocus } from "../../context/focus";
 import { Dialog } from "../dialog";
 
 interface CreateSessionDialogProps {
@@ -9,6 +10,7 @@ interface CreateSessionDialogProps {
 }
 
 export default function CreateSessionDialog({ onClose, onSuccess }: CreateSessionDialogProps) {
+  const { refocusCommandInput } = useFocus();
   const [name, setName] = useState("");
   const [error, setError] = useState("");
 
@@ -42,10 +44,11 @@ export default function CreateSessionDialog({ onClose, onSuccess }: CreateSessio
   useKeyboard(async (key) => {
     // Escape - Close dialog or go back
     if (key.name === "escape") {
+      refocusCommandInput();
       onClose();
       return;
     }
-    
+
     if (key.name === "return") {
       if (!name.trim()) {
         setError("Session name is required");
@@ -58,8 +61,13 @@ export default function CreateSessionDialog({ onClose, onSuccess }: CreateSessio
 
   });
 
+  const handleClose = () => {
+    refocusCommandInput();
+    onClose();
+  };
+
   return (
-    <Dialog size="medium" onClose={onClose}>
+    <Dialog size="medium" onClose={handleClose}>
       <box
         flexDirection="column"
         padding={2}

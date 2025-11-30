@@ -4,6 +4,7 @@ import { exec } from "child_process";
 import { existsSync } from "fs";
 import { useRoute } from "../../context/route";
 import { useSession } from "../../context/session";
+import { useFocus } from "../../context/focus";
 import { Session } from "../../../core/session";
 import { Storage } from "../../../core/storage";
 import { Dialog } from "../dialog";
@@ -14,6 +15,7 @@ interface SessionsDisplayProps {
 }
 
 export default function SessionsDisplay({ onClose }: SessionsDisplayProps) {
+  const { refocusCommandInput } = useFocus();
   const [sessions, setSessions] = useState<(Session.SessionInfo)[]>([]);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -120,6 +122,7 @@ export default function SessionsDisplay({ onClose }: SessionsDisplayProps) {
   useKeyboard(async (key) => {
     // Escape - Close sessions display
     if (key.name === "escape") {
+      refocusCommandInput();
       onClose();
       return;
     }
@@ -134,6 +137,7 @@ export default function SessionsDisplay({ onClose }: SessionsDisplayProps) {
         console.error("Error loading session");
         return;
       }
+      refocusCommandInput();
       onClose();
       route.navigate({
         type: "session",
@@ -199,8 +203,13 @@ export default function SessionsDisplay({ onClose }: SessionsDisplayProps) {
     group.sessions.push({ ...session, index });
   });
 
+  const handleClose = () => {
+    refocusCommandInput();
+    onClose();
+  };
+
   return (
-    <Dialog size="large" onClose={onClose}>
+    <Dialog size="large" onClose={handleClose}>
       <box
         flexDirection="column"
         padding={2}
