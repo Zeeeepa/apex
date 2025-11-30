@@ -39,8 +39,6 @@ export default function Footer({
       width="100%"
       maxWidth="100%"
       flexShrink={0}
-      border={true}
-      borderColor="green"
     >
       <box flexDirection="row" gap={1}>
         <text fg="gray">{cwd}</text>

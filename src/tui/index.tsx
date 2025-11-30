@@ -22,7 +22,7 @@ import { config } from "../core/config";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
 import { existsSync } from "fs";
-import { createCliRenderer } from "@opentui/core";
+import { createCliRenderer, RGBA } from "@opentui/core";
 import { ConfigProvider, useConfig } from "./context/config";
 import { createSwitch } from "./components/switch";
 import { type RoutePath, RouteProvider, useRoute } from "./context/route";
@@ -32,6 +32,7 @@ import { AsciiHeader } from "./components/ascii-header";
 import { SessionProvider } from "./context/session";
 import { DialogProvider } from "./components/dialog";
 import { SessionDisplay } from "./session/session";
+import { Session } from "../core/session";
 
 // Get the directory of the current module
 const __filename = fileURLToPath(import.meta.url);
@@ -266,6 +267,9 @@ function AppContent({
     setInputKey((prev) => prev + 1);
   };
 
+  // Check if we're on the home route
+  const isHomeRoute = route.data.type === "base" && route.data.path === "home";
+
   return (
     <box
       flexDirection="column"
@@ -276,8 +280,12 @@ function AppContent({
       overflow="hidden"
       backgroundColor={'transparent'}
     >
-      <ColoredAsciiArt ascii={coloredAscii} />
+      {/* Only show large logo on non-home routes */}
+      {/* {!isHomeRoute && <ColoredAsciiArt ascii={coloredAscii} />} */}
+
       <CommandDisplay focusIndex={focusIndex} inputKey={inputKey} />
+
+      {/* Only show footer on non-home routes */}
       <Footer cwd={cwd} showExitWarning={showExitWarning} />
 
       {showCreateSessionDialog && (
@@ -336,22 +344,11 @@ function CommandDisplay({
             <ResponsibleUseDisclosure onAccept={handleAcceptPolicy}/>
           </RouteSwitch.Case>
           <RouteSwitch.Case when="home">
-            <CommandInput focused={focusIndex === 0} inputKey={inputKey}/>
-          </RouteSwitch.Case>
-          <RouteSwitch.Case when="pentest">
-            <PentestAgentDisplay/>
-          </RouteSwitch.Case>
-          <RouteSwitch.Case when="thorough">
-            <ThoroughPentestAgentDisplay/>
-          </RouteSwitch.Case>
-          <RouteSwitch.Case when="models">
-            <ModelsDisplay/>
-          </RouteSwitch.Case>
-          <RouteSwitch.Case when="providers">
-            <ProviderManager/>
-          </RouteSwitch.Case>
-          <RouteSwitch.Case when="config">
-            <ConfigDialog/>
+            <box width={"100%"} flexDirection="column" gap={2}>
+              <ColoredAsciiArt ascii={coloredAscii} />
+              <Home/>
+              <CommandInput focused={focusIndex === 0} inputKey={inputKey}/>
+            </box>
           </RouteSwitch.Case>
           <RouteSwitch.Case when="help">
             <HelpDialog/>
@@ -386,6 +383,48 @@ function CommandDisplay({
   }
 
   return null;
+}
+
+
+function Home () {
+  const config = useConfig();
+  const [recentSessions, setRecentSessions] = useState<Session.SessionInfo[]>([]);
+
+  useEffect(() => {
+    const loadRecentSessions = async () => {
+      const sessions: Session.SessionInfo[] = [];
+      for await(const session of Session.list()) {
+        sessions.push(session);
+      }
+      sessions.sort((a, b) => b.time.updated - a.time.updated);
+      setRecentSessions(sessions.slice(0, 4));
+    }
+    loadRecentSessions();
+  }, []);
+
+  return (
+    <box width={"100%"} height={"100%"} flexDirection="column" justifyContent="center" alignItems="center">
+      <box padding={1} rowGap={1} border title={`v${config.data.version}`} width={70} flexDirection="column" borderColor={"green"} justifyContent="center">
+        {/* <AsciiHeader/> */}
+        <text fg={"white"}>
+          {`>_ `}<span>Apex cli</span><span fg={"gray"}>{" (by Pensar)"}</span>
+        </text>
+        <box flexDirection="column">
+          <text fg={"green"}>Tips for getting started</text>
+          <text>・Run /init to start a new session</text>
+          <text>・Use /providers to add a new model provider</text>
+        </box>
+        <box flexDirection="column" border={["top"]} borderColor={"green"} width={"100%"}>
+          <text fg={"green"}>Recent sessions</text>
+          {
+            recentSessions.length > 0 ?
+            recentSessions.map((s) => <text>{s.name}</text>)
+            : <text fg={"gray"}>No recent activity</text>
+          }
+        </box>
+      </box>
+    </box>
+  )
 }
 
 async function main() {

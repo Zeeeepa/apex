@@ -1,6 +1,6 @@
 export function AsciiHeader() {
     return(
-        <box padding={1} border borderColor={'green'} backgroundColor={'black'}>
+        <box padding={1}>
         <text fg={"white"}>
             {/* {` █████╗ ██████╗ ███████╗██╗  ██╗
 ██╔══██╗██╔══██╗██╔════╝╚██╗██╔╝

@@ -209,7 +209,7 @@ export function ColoredAsciiArt({ ascii, title }: ColoredAsciiArtProps) {
       {ascii.map((row, y) => (
         <text key={y}>
           {row.map((pixel, x) => {
-            const color = RGBA.fromInts(pixel.r, pixel.g, pixel.b, 50);
+            const color = RGBA.fromInts(pixel.r, pixel.g, pixel.b, 30);
             return (
               <span key={x} fg={color}>
                 {pixel.char}
