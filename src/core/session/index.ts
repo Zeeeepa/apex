@@ -13,14 +13,14 @@ export namespace Session {
     });
 
     const SessionConfig = z.object({
-        offensiveHeaders: OffensiveHeadersConfig.optional()
+        offensiveHeaders: OffensiveHeadersConfig.optional(),
+        mode: z.enum(['auto', 'plan']).default('auto')
     });
 
     export const SessionInfo = z.object({
         id: Identifier.schema("session"),
         name: z.string(),
         version: z.string(),
-        target: z.string().optional(),
         targets: z.array(z.string()).optional(),
         config: SessionConfig.optional(),
         time: z.object({

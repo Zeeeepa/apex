@@ -5,11 +5,12 @@ import {
   type TextChunk,
 } from "@opentui/core";
 import { SpinnerDots } from "./sprites";
-import type { Message, ToolMessage } from "../../core/messages";
+import { Messages } from "../../core/messages";
 import { useState, memo } from "react";
 import { marked } from "marked";
 import type { Subagent } from "./hooks/pentestAgent";
 import fs from "fs";
+import type { Message, ToolMessage } from "../../core/messages/types";
 
 // File logger
 const LOG_FILE = "/tmp/apex-debug.log";

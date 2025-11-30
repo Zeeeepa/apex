@@ -176,8 +176,7 @@ export default function SessionsDisplay({ onClose }: SessionsDisplayProps) {
     if (!searchTerm) return true;
     const searchLower = searchTerm.toLowerCase();
     return (
-      session.id.toLowerCase().includes(searchLower) ||
-      session.target?.toLowerCase().includes(searchLower)
+      session.id.toLowerCase().includes(searchLower)
     );
   });
 

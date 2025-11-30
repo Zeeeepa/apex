@@ -8,7 +8,6 @@ import { Storage } from "../storage";
 
 export namespace Messages {
 
-
   const StreamInput = z.object({
     sessionId: Identifier.schema("session"),
   });

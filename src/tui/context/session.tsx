@@ -36,7 +36,7 @@ export function SessionProvider({ children, session }: SessionProviderProps) {
             setActiveSession(_session);
             return _session;
         }
-    }), []);
+    }), [activeSession]);
 
     return <ctx.Provider value={value}>{ children }</ctx.Provider>
 }

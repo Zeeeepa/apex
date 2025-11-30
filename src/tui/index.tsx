@@ -31,6 +31,7 @@ import { hasAnyProviderConfigured } from "../core/providers";
 import { AsciiHeader } from "./components/ascii-header";
 import { SessionProvider } from "./context/session";
 import { DialogProvider } from "./components/dialog";
+import { SessionDisplay } from "./session/session";
 
 // Get the directory of the current module
 const __filename = fileURLToPath(import.meta.url);
@@ -365,7 +366,9 @@ function CommandDisplay({
 
   // Session route - show message for now
   if(route.data.type === "session") {
+    
     return (
+      // <SessionDisplay sessionId={route.data.sessionId}/>
       <box
         flexDirection="column"
         width="100%"
