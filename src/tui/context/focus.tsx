@@ -1,4 +1,4 @@
-import { createContext, useContext, useRef, useCallback, ReactNode } from "react";
+import { createContext, useContext, useRef, useCallback, type ReactNode } from "react";
 import type { Renderable } from "@opentui/core";
 
 interface FocusContextType {

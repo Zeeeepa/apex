@@ -6,7 +6,7 @@ import { useFocus } from "./context/focus";
 import { Session } from "../core/session";
 import { AgentStatus } from "./components/footer";
 import os from "os";
-import type { Renderable } from "@opentui/core";
+import type { InputRenderable, Renderable } from "@opentui/core";
 
 interface CommandInputProps {
   focused?: boolean;
@@ -23,7 +23,7 @@ export default function CommandInput({
   const config = useConfig();
   const { setInputValue } = useInput();
   const { commandInputRef } = useFocus();
-  const inputRef = useRef<Renderable | null>(null);
+  const inputRef = useRef<InputRenderable | null>(null);
 
   // Load recent sessions
   useEffect(() => {
