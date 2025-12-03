@@ -8,10 +8,19 @@ export interface BenchmarkResults {
   targetUrl: string;
   sessionId: string;
   sessionPath: string;
+  flagDetection: FlagDetectionResult;
+  expectedFlag: string | null;
   expectedResults: ExpectedFinding[];
   actualResults: ActualFinding[];
   comparison: ComparisonResult;
   timestamp: string;
+}
+
+export interface FlagDetectionResult {
+  detected: boolean;
+  flagValue: string | null;
+  foundIn: string[];
+  searchLocations: string[];
 }
 
 export interface ExpectedFinding {

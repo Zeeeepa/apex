@@ -7,6 +7,7 @@ import type { AIModel } from "../../ai";
 import { runAgent as runThoroughPentestAgent } from "../thoroughPentestAgent/agent";
 import { startDevEnvironment, stopDevEnvironment } from "./subagents";
 import { runComparisonAgent } from "./comparisonAgent";
+import { extractFlagFromRepo, detectFlagInArtifacts } from "./flag-detector";
 import type { BenchmarkResults } from "./types";
 
 /**
@@ -306,6 +307,29 @@ Use this as the FINAL step after all testing and comparison is complete.`,
       comparison,
     }) => {
       try {
+        // Extract expected flag from repo
+        console.log(`\n[Benchmark] Extracting flag from repository...`);
+        const expectedFlag = await extractFlagFromRepo(repoPath, branch);
+
+        // Detect flag in pentest artifacts
+        let flagDetection;
+        if (expectedFlag) {
+          console.log(`[Benchmark] Searching for flag in pentest artifacts...`);
+          flagDetection = await detectFlagInArtifacts(
+            sessionPath,
+            expectedFlag,
+            branch
+          );
+        } else {
+          console.log(`[Benchmark] No flag found in repository - skipping flag detection`);
+          flagDetection = {
+            detected: false,
+            flagValue: null,
+            foundIn: [],
+            searchLocations: [],
+          };
+        }
+
         // Collect all expected results (matched + missed)
         const allExpectedResults = [
           ...comparison.matched.map((m: any) => m.expected),
@@ -324,6 +348,8 @@ Use this as the FINAL step after all testing and comparison is complete.`,
           targetUrl,
           sessionId: session.id,
           sessionPath,
+          flagDetection,
+          expectedFlag,
           expectedResults: allExpectedResults,
           actualResults: allActualResults,
           comparison,
@@ -333,23 +359,33 @@ Use this as the FINAL step after all testing and comparison is complete.`,
         const reportPath = join(session.rootPath, "benchmark_results.json");
         writeFileSync(reportPath, JSON.stringify(results, null, 2));
 
-        console.log(`[Benchmark] Report saved to: ${reportPath}`);
+        console.log(`\n[Benchmark] Report saved to: ${reportPath}`);
         console.log(`[Benchmark] Results summary:`);
-        console.log(`  - Total Expected: ${comparison.totalExpected}`);
-        console.log(`  - Total Actual: ${comparison.totalActual}`);
-        console.log(`  - Matched: ${comparison.matched.length}`);
-        console.log(`  - Missed: ${comparison.missed.length}`);
-        console.log(`  - Extra: ${comparison.extra.length}`);
-        console.log(`  - Accuracy: ${Math.round(comparison.accuracy * 100)}%`);
-        console.log(
-          `  - Precision: ${Math.round(comparison.precision * 100)}%`
-        );
-        console.log(`  - Recall: ${Math.round(comparison.recall * 100)}%`);
+        console.log(`\n  🎯 FLAG DETECTION:`);
+        console.log(`     - Expected Flag: ${expectedFlag || 'N/A'}`);
+        console.log(`     - Flag Detected: ${flagDetection.detected ? '✅ YES' : '❌ NO'}`);
+        if (flagDetection.detected) {
+          console.log(`     - Found In: ${flagDetection.foundIn.join(', ')}`);
+        }
+        console.log(`\n  📊 VULNERABILITY COMPARISON:`);
+        console.log(`     - Total Expected: ${comparison.totalExpected}`);
+        console.log(`     - Total Actual: ${comparison.totalActual}`);
+        console.log(`     - Matched: ${comparison.matched.length}`);
+        console.log(`     - Missed: ${comparison.missed.length}`);
+        console.log(`     - Extra: ${comparison.extra.length}`);
+        console.log(`     - Accuracy: ${Math.round(comparison.accuracy * 100)}%`);
+        console.log(`     - Precision: ${Math.round(comparison.precision * 100)}%`);
+        console.log(`     - Recall: ${Math.round(comparison.recall * 100)}%`);
 
         return {
           success: true,
           reportPath,
-          message: `Benchmark report saved to ${reportPath}`,
+          flagDetected: flagDetection.detected,
+          message: flagDetection.detected
+            ? `✅ Benchmark PASSED - Flag detected!\n\nFlag found in: ${flagDetection.foundIn.join(', ')}\nReport: ${reportPath}`
+            : expectedFlag
+            ? `❌ Benchmark FAILED - Flag not detected\n\nExpected: ${expectedFlag}\nReport: ${reportPath}`
+            : `⚠️  Benchmark complete (no flag to detect)\n\nReport: ${reportPath}`,
         };
       } catch (error: any) {
         return {

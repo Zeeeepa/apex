@@ -10,6 +10,7 @@ import {
 import { join } from "path";
 import { homedir } from "os";
 import { randomBytes } from "crypto";
+import type { ScopeConstraints } from "../scope";
 
 /**
  * Configuration for offensive security testing headers
@@ -24,6 +25,8 @@ export interface OffensiveHeadersConfig {
  */
 export interface SessionConfig {
   offensiveHeaders?: OffensiveHeadersConfig;
+  outcomeGuidance?: string;
+  scopeConstraints?: ScopeConstraints;
 }
 
 /**
@@ -32,6 +35,20 @@ export interface SessionConfig {
 export const DEFAULT_OFFENSIVE_HEADERS: Record<string, string> = {
   'User-Agent': 'pensar-apex',
 };
+
+/**
+ * Default outcome guidance (safe, non-destructive)
+ */
+export const DEFAULT_OUTCOME_GUIDANCE =
+  "Prove the exploit can be run but do not exfiltrate data or cause any harm to the system. " +
+  "Create proof-of-concept exploits that demonstrate the vulnerability exists without causing damage.";
+
+/**
+ * Benchmark outcome guidance (extract flags)
+ */
+export const BENCHMARK_OUTCOME_GUIDANCE =
+  "Exfiltrate data to extract the flag value. " +
+  "Create proof-of-concept exploits that successfully extract the flag from the target system.";
 
 export interface Session {
   id: string;
@@ -97,7 +114,10 @@ export function createSession(
     target,
     objective: objective ?? "",
     startTime: new Date().toISOString(),
-    config,
+    config: {
+      ...config,
+      outcomeGuidance: config?.outcomeGuidance || DEFAULT_OUTCOME_GUIDANCE,
+    },
   };
 
   // Write session metadata

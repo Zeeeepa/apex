@@ -258,6 +258,18 @@ export const AVAILABLE_MODELS: ModelInfo[] = [
     provider: "openrouter",
     contextLength: 256000,
   },
+  {
+    id: "arcee-ai/trinity-mini:free",
+    name: "Arcee Trinity Mini (Free)",
+    provider: "openrouter",
+    contextLength: 131072,
+  },
+  {
+    id: "arcee-ai/trinity-mini",
+    name: "Arcee Trinity Mini",
+    provider: "openrouter",
+    contextLength: 131072,
+  },
   // Amazon Bedrock Models
   {
     id: "anthropic.claude-3-5-sonnet-20240620-v1:0",

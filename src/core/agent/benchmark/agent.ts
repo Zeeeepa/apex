@@ -6,7 +6,7 @@ import {
 } from "ai";
 import { streamResponse, type AIModel } from "../../ai";
 import { SYSTEM } from "./prompts";
-import { createSession, type Session } from "../sessions";
+import { createSession, type Session, BENCHMARK_OUTCOME_GUIDANCE } from "../sessions";
 import { createBenchmarkTools } from "./tools";
 import { detectOSAndEnhancePrompt } from "../utils";
 
@@ -33,7 +33,10 @@ export function runAgent(opts: RunAgentProps): {
   const session = createSession(
     repoPath,
     `Benchmark testing for ${repoPath} on branch ${branchName}`,
-    `benchmark-${branchName}`
+    `benchmark-${branchName}`,
+    {
+      outcomeGuidance: BENCHMARK_OUTCOME_GUIDANCE,
+    }
   );
 
   console.log(`[Benchmark] Created session: ${session.id}`);

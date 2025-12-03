@@ -1405,9 +1405,11 @@ The report will be saved as 'pentest-report.md' in the session root directory.`,
         .string()
         .optional()
         .describe("Additional details about the scope and limitations"),
-      keyFindings: z
-        .array(z.string())
-        .describe("List of the most critical findings"),
+      keyFindings:
+        z.preprocess((val) => Array.isArray(val) ? val : [val],
+        z.array(z.string())
+          .describe("List of the most critical findings"),
+      ),
       recommendations: z
         .string()
         .describe("Overall recommendations and next steps"),

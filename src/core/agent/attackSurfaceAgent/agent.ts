@@ -14,6 +14,7 @@ import { z } from 'zod';
 import { join } from 'path';
 import { writeFileSync, mkdirSync, existsSync } from 'fs';
 import { detectOSAndEnhancePrompt } from '../utils';
+import { getScopeDescription } from '../scope';
 
 export interface RunAgentProps {
   target: string;
@@ -22,6 +23,10 @@ export interface RunAgentProps {
   onStepFinish?: StreamTextOnStepFinishCallback<ToolSet>;
   abortSignal?: AbortSignal;
   session?: Session;
+  toolOverride?: {
+    execute_command?: (opts: any) => Promise<any>;
+    http_request?: (opts: any) => Promise<any>;
+  };
 }
 
 export interface RunAgentResult extends StreamTextResult<ToolSet, never> {
@@ -32,13 +37,28 @@ export function runAgent(opts: RunAgentProps): {
   streamResult: RunAgentResult;
   session: Session;
 } {
-  const { target, model, onStepFinish, abortSignal } = opts;
+  const { target, model, onStepFinish, abortSignal, toolOverride } = opts;
 
   // Create a new session for this attack surface analysis
   const session = opts.session || createSession(target);
 
   console.log(`Created attack surface session: ${session.id}`);
   console.log(`Session path: ${session.rootPath}`);
+
+  // Read scope constraints from session config
+  const scopeConstraints = session.config?.scopeConstraints;
+
+  // Log scope constraints if strict
+  if (scopeConstraints?.strictScope) {
+    console.log(`\n🎯 SCOPE CONSTRAINTS ENABLED:`);
+    if (scopeConstraints.allowedHosts) {
+      console.log(`   Allowed hosts: ${scopeConstraints.allowedHosts.join(', ')}`);
+    }
+    if (scopeConstraints.allowedPorts) {
+      console.log(`   Allowed ports: ${scopeConstraints.allowedPorts.join(', ')}`);
+    }
+    console.log(`   Mode: STRICT - Only in-scope targets will be tested\n`);
+  }
 
   // Create assets directory for attack surface agent
   const assetsPath = join(session.rootPath, 'assets');
@@ -49,7 +69,8 @@ export function runAgent(opts: RunAgentProps): {
   // Create tools with session context
   const { analyze_scan, execute_command, http_request } = createPentestTools(
     session,
-    model
+    model,
+    toolOverride
   );
 
   // Attack Surface specific tool: document_asset
@@ -92,36 +113,64 @@ Each asset creates a JSON file in the assets directory for tracking and analysis
           "Detailed description of the asset including what it is and why it's relevant"
         ),
       details: z
-        .object({
-          url: z.string().optional().describe('URL if applicable'),
-          ip: z.string().optional().describe('IP address if known'),
-          ports: z.array(z.number()).optional().describe('Open ports'),
-          services: z
-            .array(z.string())
-            .optional()
-            .describe("Running services (e.g., 'nginx 1.18', 'SSH 8.2')"),
-          technology: z
-            .array(z.string())
-            .optional()
-            .describe(
-              "Technology stack (e.g., 'Node.js', 'Express', 'MongoDB')"
-            ),
-          endpoints: z
-            .array(z.string())
-            .optional()
-            .describe('Discovered endpoints for web apps/APIs'),
-          authentication: z
-            .string()
-            .optional()
-            .describe('Authentication type if known'),
-          status: z
-            .string()
-            .optional()
-            .describe('Status (active, inactive, redirect, error)'),
-        })
+        .preprocess(
+          (val) => {
+            // If a string is provided, try to parse it as JSON
+            if (typeof val === 'string') {
+              try {
+                return JSON.parse(val);
+              } catch {
+                // If parsing fails, return empty object
+                return {};
+              }
+            }
+            return val;
+          },
+          z.object({
+            url: z.string().optional().describe('URL if applicable'),
+            ip: z.string().optional().describe('IP address if known'),
+            ports: z.array(z.number()).optional().describe('Open ports'),
+            services: z
+              .array(z.string())
+              .optional()
+              .describe("Running services (e.g., 'nginx 1.18', 'SSH 8.2')"),
+            technology: z
+              .array(z.string())
+              .optional()
+              .describe(
+                "Technology stack (e.g., 'Node.js', 'Express', 'MongoDB')"
+              ),
+            endpoints: z
+              .array(z.string())
+              .optional()
+              .describe('Discovered endpoints for web apps/APIs'),
+            authentication: z
+              .string()
+              .optional()
+              .describe('Authentication type if known'),
+            status: z
+              .union([z.string(), z.number()])
+              .optional()
+              .describe('Status (active, inactive, redirect, error) or HTTP status code'),
+          })
+        )
         .describe('Additional details about the asset'),
       riskLevel: z
-        .enum(['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'])
+        .preprocess(
+          (val) => {
+            // Extract enum value from strings like ">HIGH", "HIGH!", "- CRITICAL", etc.
+            if (typeof val === 'string') {
+              const upper = val.toUpperCase();
+              // Try to extract the severity level
+              if (upper.includes('CRITICAL')) return 'CRITICAL';
+              if (upper.includes('HIGH')) return 'HIGH';
+              if (upper.includes('MEDIUM')) return 'MEDIUM';
+              if (upper.includes('LOW')) return 'LOW';
+            }
+            return val;
+          },
+          z.enum(['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'])
+        )
         .describe('Risk level: LOW-CRITICAL (exposed/sensitive)'),
       notes: z
         .string()
@@ -193,11 +242,13 @@ Call this at the END of your analysis with:
           })
         )
         .describe('ALL targets for deep penetration testing'),
-      keyFindings: z
-        .array(z.string())
+      keyFindings:
+      z.preprocess((val) => Array.isArray(val) ? val : [val],
+      z.array(z.string())
         .describe(
           "Key findings from reconnaissance. Format: '[SEVERITY] Finding description'"
         ),
+    )
     }),
     execute: async (results) => {
       // Save the results to the session for the orchestrator to access
@@ -214,6 +265,8 @@ Call this at the END of your analysis with:
   });
 
   // Build the enhanced prompt with target context
+  const scopeDescription = getScopeDescription(scopeConstraints);
+
   const enhancedPrompt = `
 TARGET: ${target}
 
@@ -221,25 +274,38 @@ Session Information:
 - Session ID: ${session.id}
 - Assets will be saved to: ${assetsPath}
 
+SCOPE CONSTRAINTS:
+${scopeDescription}
+
 Begin your attack surface analysis by:
 1. Understanding the target scope (is it a domain, IP, URL, network range, or organization?)
-2. Performing comprehensive reconnaissance to map the entire attack surface
-3. Identifying all assets, services, endpoints, and potential entry points
+2. Performing comprehensive reconnaissance to map the attack surface WITHIN SCOPE
+3. Identifying assets, services, endpoints, and potential entry points
 4. Categorizing discovered targets by type and risk level
 5. Document each significant asset using the document_asset tool
-6. When complete, call the create_attack_surface_report tool to generate a detailed report of the attack surface analysis
+6. When complete, call the create_attack_surface_report tool
+
+IMPORTANT SCOPING RULES:
+${scopeConstraints?.strictScope ? `
+- ONLY test URLs/endpoints within the allowed hosts and ports
+- DO NOT perform port scans or subdomain enumeration outside the target
+- DO NOT test infrastructure services (databases, caches, etc.)
+- Focus ONLY on the web application at the target URL
+` : `
+- You may discover and test any related targets
+- Prioritize in-scope targets but can explore adjacent services
+`}
 
 Your goal is to provide a comprehensive map of the attack surface, NOT to perform deep exploitation.
 Focus on breadth of discovery rather than depth of testing.
 
 Document all discovered assets using the document_asset tool - this creates an inventory of:
-- Domains and subdomains
+- Domains and subdomains (if in scope)
 - Web applications and APIs
-- Infrastructure services
-- Cloud resources
-- Development environments
+- Endpoints and routes
+- Authentication mechanisms
 
-You MUST provide the details final report using create_attack_surface_report tool.
+You MUST provide the final report using create_attack_surface_report tool.
 `.trim();
 
   const systemPrompt = detectOSAndEnhancePrompt(SYSTEM);

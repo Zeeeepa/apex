@@ -36,7 +36,22 @@ const execAsync = promisify(exec);
 
 const FindingObject = z.object({
   title: z.string().describe('Finding title'),
-  severity: z.enum(['CRITICAL', 'HIGH', 'MEDIUM', 'LOW']),
+  severity: z
+    .preprocess(
+      (val) => {
+        // Extract enum value from strings like ">HIGH", "HIGH!", "- CRITICAL", etc.
+        if (typeof val === 'string') {
+          const upper = val.toUpperCase();
+          // Try to extract the severity level
+          if (upper.includes('CRITICAL')) return 'CRITICAL';
+          if (upper.includes('HIGH')) return 'HIGH';
+          if (upper.includes('MEDIUM')) return 'MEDIUM';
+          if (upper.includes('LOW')) return 'LOW';
+        }
+        return val;
+      },
+      z.enum(['CRITICAL', 'HIGH', 'MEDIUM', 'LOW'])
+    ),
   description: z.string().describe('Detailed description of the finding'),
   impact: z.string().describe('Potential impact if exploited'),
   endpoint: z
