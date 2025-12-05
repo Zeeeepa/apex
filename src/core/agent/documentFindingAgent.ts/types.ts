@@ -35,7 +35,7 @@ export const ApexFindingObject = z.object({
   references: z.string().optional().describe('CVE, CWE, or related references'),
   toolCallDescription: z
     .string()
-    .describe('Concise description of this tool call'),
+    .describe('Concise description of this tool call').optional(),
 });
 
 export type ApexFinding = z.infer<typeof ApexFindingObject>;
@@ -57,7 +57,7 @@ export const CreatePocObject = z.object({
     .describe('Brief description of what this POC demonstrates'),
   toolCallDescription: z
     .string()
-    .describe('Concise description of this tool call'),
+    .describe('Concise description of this tool call').optional(),
 });
 
 export type CreatePocOpts = z.infer<typeof CreatePocObject>;

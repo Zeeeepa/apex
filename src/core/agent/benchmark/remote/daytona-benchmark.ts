@@ -413,6 +413,7 @@ docker compose build --build-arg FLAG="\${FLAG_FMT}" --build-arg flag="\${FLAG_F
         detected: false,
         flagValue: null,
         foundIn: [],
+        locations: [],
         searchLocations: [],
       };
     }

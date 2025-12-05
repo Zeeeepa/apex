@@ -205,6 +205,12 @@ export const AVAILABLE_MODELS: ModelInfo[] = [
     contextLength: 2000000,
   },
   {
+    id: "google/gemini-3-pro-preview",
+    name: "Gemini 3 Pro Preview",
+    provider: "openrouter",
+    contextLength: 1000000,
+  },
+  {
     id: "meta-llama/llama-3.3-70b-instruct",
     name: "Llama 3.3 70B Instruct",
     provider: "openrouter",
@@ -270,7 +276,19 @@ export const AVAILABLE_MODELS: ModelInfo[] = [
     provider: "openrouter",
     contextLength: 131072,
   },
+  {
+    id: "x-ai/grok-4.1-fast:free",
+    name: "Grok 4.1 Fast (Free)",
+    provider: "openrouter",
+    contextLength: 2000000,
+  },
   // Amazon Bedrock Models
+  {
+    id: "global.anthropic.claude-haiku-4-5-20251001-v1:0",
+    name: "Claude Haiku 4.5 (Bedrock)",
+    provider: "bedrock",
+    contextLength: 200000,
+  },
   {
     id: "anthropic.claude-3-5-sonnet-20240620-v1:0",
     name: "Claude 3.5 Sonnet (Bedrock)",

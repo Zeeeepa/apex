@@ -156,7 +156,7 @@ export async function runDevEnvironmentAgent(
         ),
       toolCallDescription: z
         .string()
-        .describe("Brief description of why reading this file"),
+        .describe("Brief description of why reading this file").optional(),
     }),
     execute: async ({ filePath }) => {
       try {

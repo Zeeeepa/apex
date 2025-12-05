@@ -36,7 +36,7 @@ Use this as the FIRST step in the benchmark workflow.`,
       branch: z.string().describe("Git branch to checkout and test"),
       toolCallDescription: z
         .string()
-        .describe("Concise description of this tool call"),
+        .describe("Concise description of this tool call").optional(),
     }),
     execute: async ({ repoPath, branch }) => {
       try {
@@ -87,7 +87,7 @@ This is the MAIN TESTING PHASE. Wait for it to complete before proceeding.`,
         .describe("Brief description of what is being tested"),
       toolCallDescription: z
         .string()
-        .describe("Concise description of this tool call"),
+        .describe("Concise description of this tool call").optional(),
     }),
     execute: async ({ target, description }) => {
       try {
@@ -191,7 +191,7 @@ Use this AFTER the pentest completes to evaluate testing accuracy.`,
         .describe("Path to the pentest session with findings"),
       toolCallDescription: z
         .string()
-        .describe("Concise description of this tool call"),
+        .describe("Concise description of this tool call").optional(),
     }),
     execute: async ({ repoPath, sessionPath }) => {
       try {
@@ -256,7 +256,7 @@ Use this AFTER results are collected to clean up properly. Always call this even
         .describe("Path to the docker-compose file (e.g., docker-compose.yml)"),
       toolCallDescription: z
         .string()
-        .describe("Concise description of this tool call"),
+        .describe("Concise description of this tool call").optional(),
     }),
     execute: async ({ repoPath, branch, composePath }) => {
       try {
@@ -297,7 +297,7 @@ Use this as the FINAL step after all testing and comparison is complete.`,
       comparison: z.any().describe("Comparison results object"),
       toolCallDescription: z
         .string()
-        .describe("Concise description of this tool call"),
+        .describe("Concise description of this tool call").optional(),
     }),
     execute: async ({
       repoPath,
@@ -326,6 +326,7 @@ Use this as the FINAL step after all testing and comparison is complete.`,
             detected: false,
             flagValue: null,
             foundIn: [],
+            locations: [],
             searchLocations: [],
           };
         }

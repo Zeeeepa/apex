@@ -21,12 +21,24 @@ export interface OffensiveHeadersConfig {
 }
 
 /**
+ * Authentication credentials for testing
+ */
+export interface AuthCredentials {
+  username: string;
+  password: string;
+  loginUrl?: string;
+  additionalFields?: Record<string, string>;
+}
+
+/**
  * Session-level configuration
  */
 export interface SessionConfig {
   offensiveHeaders?: OffensiveHeadersConfig;
   outcomeGuidance?: string;
   scopeConstraints?: ScopeConstraints;
+  authCredentials?: AuthCredentials;
+  authenticationInstructions?: string;
 }
 
 /**

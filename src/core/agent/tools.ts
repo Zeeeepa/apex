@@ -17,6 +17,7 @@ import type { AIModel } from "../ai";
 import { generateObjectResponse } from "../ai";
 import { getProviderModel } from "../ai/utils";
 import { generateText } from "ai";
+import pLimit from "p-limit";
 
 const execAsync = promisify(exec);
 
@@ -1056,7 +1057,7 @@ export const ExecuteCommandInput = z.object({
     .describe("Timeout in milliseconds (default: 30000)"),
   toolCallDescription: z
     .string()
-    .describe("Concise description of this tool call"),
+    .describe("Concise description of this tool call").optional(),
 });
 
 export type ExecuteCommandOpts = z.infer<typeof ExecuteCommandInput>;
@@ -1090,7 +1091,7 @@ export const HttpRequestInput = z.object({
   timeout: z.number().default(10000),
   toolCallDescription: z
     .string()
-    .describe("Concise description of this tool call"),
+    .describe("Concise description of this tool call").optional(),
 });
 
 export type HttpRequestOpts = z.infer<typeof HttpRequestInput>;
@@ -1143,7 +1144,7 @@ FINDING STRUCTURE:
         .describe("CVE, CWE, or related references"),
       toolCallDescription: z
         .string()
-        .describe("Concise description of this tool call"),
+        .describe("Concise description of this tool call").optional(),
     }),
     execute: async (finding) => {
       try {
@@ -1253,7 +1254,7 @@ The scratchpad is session-specific and helps maintain context during long assess
         .default("general"),
       toolCallDescription: z
         .string()
-        .describe("Concise description of this tool call"),
+        .describe("Concise description of this tool call").optional(),
     }),
     execute: async ({ note, category }) => {
       try {
@@ -1419,7 +1420,7 @@ The report will be saved as 'pentest-report.md' in the session root directory.`,
         .describe("Summary of testing activities performed"),
       toolCallDescription: z
         .string()
-        .describe("Concise description of this tool call"),
+        .describe("Concise description of this tool call").optional(),
     }),
     execute: async ({
       executiveSummary,
@@ -1871,7 +1872,7 @@ Example workflow:
       conclusion: z.string().describe("Overall conclusion of the test"),
       evidence: z.string().optional().describe("Evidence if vulnerability found"),
       confidence: z.enum(['high', 'medium', 'low']).optional().describe("Confidence level if vulnerable"),
-      toolCallDescription: z.string(),
+      toolCallDescription: z.string().optional(),
     }),
     execute: async (params) => recordTestResultCore(session, params),
   });
@@ -2082,7 +2083,7 @@ test_parameter({
         techStack: z.string().optional(),
         observations: z.string().optional()
       }).optional().describe("Additional context about the target"),
-      toolCallDescription: z.string()
+      toolCallDescription: z.string().optional()
     }),
 
     execute: async ({parameter, endpoint, attackType, context}) => {
@@ -2287,7 +2288,7 @@ Use this when:
 
     inputSchema: z.object({
       objective: z.string().optional().describe("The penetration testing objective to compare coverage against"),
-      toolCallDescription: z.string()
+      toolCallDescription: z.string().optional()
     }),
 
     execute: async ({ objective }) => {
@@ -2458,7 +2459,7 @@ This is the difference between amateur and professional pentesting.`,
       objective: z.string().describe("Original penetration testing objective"),
       discoveryAttempts: z.number().describe("How many times did you try to discover new endpoints?"),
       anomaliesInvestigated: z.array(z.string()).describe("List of anomalies (404/500/errors) you investigated"),
-      toolCallDescription: z.string()
+      toolCallDescription: z.string().optional()
     }),
 
     execute: async ({ objective, discoveryAttempts, anomaliesInvestigated }) => {
@@ -2603,7 +2604,7 @@ This tool is faster than manual curl loops and automatically records results.`,
         max: z.number().default(100)
       }).describe("Range to enumerate"),
       methods: z.array(z.enum(['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'])).default(['GET']).describe("HTTP methods to test"),
-      toolCallDescription: z.string()
+      toolCallDescription: z.string().optional()
     }),
 
     execute: async ({ baseUrl, pattern, range, methods }) => {
@@ -2761,6 +2762,42 @@ export function createPentestTools(
 ) {
   // Get offensive headers from session config
   const offensiveHeaders = getOffensiveHeaders(session);
+
+
+  const fuzzEndpoint = tool({
+    name: "fuzz_endpoint",
+    description: "Fuzz an endpoint with values between a given range to test for IDOR vulnerabilities. Only try to fuzz at most 50 values with each call of this tool.",
+    inputSchema: z.object({
+      url: z.string().describe("The base url/endpoint to make fuzzing requests against. Wrap dyanmic parameters in {}, e.g. {userId}."),
+      parameter: z.string().describe("The paramter value to replace when fuzzing"),
+      headers: z.record(z.string(), z.string()).describe("Headers to use in the request e.g. cookies").optional(),
+      method: z.enum(["GET", "POST"]).describe("The request method to use"),
+      startNumber: z.number().describe("The start of the range of values to fuzz"),
+      endNumber: z.number().describe("The end of the range of values to fuzz")
+    }),
+    execute: async ({ url, startNumber, endNumber, parameter, method, headers }) => {
+      const length = Math.floor((endNumber - startNumber)) + 1;
+      const ids = Array.from({ length }, (_, i) => startNumber + i);
+      
+      const fuzz = async (value: number) => {
+        const result = await fetch(url.replace(`{${parameter}}`, value.toLocaleString()), { 
+          method: method,
+          headers: {...offensiveHeaders, ...headers}
+         });
+         const body = await result.text();
+         return body;
+      }
+
+      const limit = pLimit(20);
+
+      const input = ids.map((id) => limit(() => fuzz(id)));
+
+      const results = await Promise.allSettled(input);
+
+      // TODO: probably a better way to do this
+      return results.filter(r => r.status === "fulfilled").map(r => r.value).slice(0, 50);
+    }
+  })
 
   const executeCommand = tool({
     name: "execute_command",
@@ -2941,6 +2978,7 @@ COMMON TESTING PATTERNS:
   });
 
   return {
+    fuzz_endpoint: fuzzEndpoint,
     execute_command: executeCommand,
     http_request: httpRequest,
     document_finding: createDocumentFindingTool(session),

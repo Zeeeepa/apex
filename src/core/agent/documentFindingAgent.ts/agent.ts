@@ -31,6 +31,7 @@ import {
   type DocumentFindingResult,
 } from './types';
 import { nanoid } from 'nanoid';
+import { generatePoc, detectVulnerabilityType } from '../pocGeneratorAgent';
 
 const execAsync = promisify(exec);
 
@@ -64,7 +65,7 @@ const FindingObject = z.object({
   references: z.string().optional().describe('CVE, CWE, or related references'),
   toolCallDescription: z
     .string()
-    .describe('Concise description of this tool call'),
+    .describe('Concise description of this tool call').optional(),
 });
 
 export type Finding = z.infer<typeof FindingObject>;
@@ -80,11 +81,110 @@ export async function documentFindingAgent(
   onStepFinish?: StreamTextOnStepFinishCallback<ToolSet>
 ) {
   const logger = new Logger(session, 'documentFindingAgent.log');
+
+  // Read authentication instructions from session config
+  const authenticationInstructions = session.config?.authenticationInstructions;
+
   // Create pocs directory for pentest agent
   const pocsPath = join(session.rootPath, 'pocs');
   if (!existsSync(pocsPath)) {
     mkdirSync(pocsPath, { recursive: true });
   }
+  // New tool: generate_poc_content using specialized sub-agent
+  const generate_poc_content = tool({
+    name: 'generate_poc_content',
+    description: `Generate POC content using specialized sub-agent with vulnerability-specific guidance.
+
+This tool invokes a specialized POC generator sub-agent that has expert knowledge for different vulnerability types:
+- SQL Injection: Multi-technique testing with rate limiting
+- IDOR/Authorization: Wide-range fuzzing (50-100+ IDs) with exponential backoff
+- XSS: Multiple payloads with filter bypass techniques
+- Command Injection: Multiple injection methods with data exfiltration
+- And more...
+
+**Use this FIRST** to generate high-quality POC content, then use create_poc with the generated content.
+
+The sub-agent will automatically:
+1. Detect the vulnerability type from the finding
+2. Select appropriate specialized prompt
+3. Generate comprehensive POC with rate limiting
+4. Include proper error handling and success indicators`,
+    inputSchema: z.object({
+      vulnerabilityType: z
+        .string()
+        .optional()
+        .describe(
+          'Optional: Override auto-detection (e.g., "sql_injection", "idor", "xss", "command_injection")'
+        ),
+      toolCallDescription: z.string().describe('Description of this tool call').optional(),
+    }),
+    execute: async (opts) => {
+      try {
+        logger.log('Invoking POC generator sub-agent...');
+
+        // Call the POC generator agent
+        const pocResult = await generatePoc(
+          {
+            finding: {
+              title: finding.title,
+              description: finding.description,
+              severity: finding.severity,
+              evidence: finding.evidence,
+              endpoint: finding.endpoint,
+            },
+            context: {
+              target: session.target,
+              authenticationInstructions,
+            },
+            vulnerabilityType: opts.vulnerabilityType,
+          },
+          model,
+          authConfig
+        );
+
+        if (!pocResult.success) {
+          return {
+            success: false,
+            error: pocResult.error,
+            message: `POC generator failed: ${pocResult.error}`,
+          };
+        }
+
+        logger.log(`POC generated: ${pocResult.pocName} (${pocResult.vulnerabilityType})`);
+
+        return {
+          success: true,
+          pocName: pocResult.pocName,
+          pocType: pocResult.pocType,
+          pocContent: pocResult.pocContent,
+          description: pocResult.description,
+          vulnerabilityType: pocResult.vulnerabilityType,
+          reasoning: pocResult.reasoning,
+          message: `POC content generated successfully using ${pocResult.vulnerabilityType} specialized guidance.
+
+**Next Step:** Call create_poc with this generated content:
+- pocName: "${pocResult.pocName}"
+- pocType: "${pocResult.pocType}"
+- pocContent: [Use the pocContent from this response]
+- description: "${pocResult.description}"
+
+The POC includes:
+- Rate limiting with exponential backoff
+- ${pocResult.vulnerabilityType === 'idor' || pocResult.vulnerabilityType.includes('authorization') ? 'Wide-range fuzzing (50-100+ identifiers)' : 'Comprehensive multi-technique testing'}
+- Stopping criteria and clear success indicators
+- Proper error handling`,
+        };
+      } catch (error: any) {
+        logger.error(`POC generator error: ${error.message}`);
+        return {
+          success: false,
+          error: error.message,
+          message: `Failed to generate POC: ${error.message}`,
+        };
+      }
+    },
+  });
+
   // Pentest-specific tool: create_poc
   const create_poc = tool({
     name: 'create_poc',
@@ -546,7 +646,7 @@ Call this tool to indicate the finding has been successfully documented or shoul
         .string()
         .optional()
         .describe('Finding file path if documented'),
-      toolCallDescription: z.string().describe('Description of this action'),
+      toolCallDescription: z.string().describe('Description of this action').optional(),
     }),
     execute: async (result) => {
       documentationResult = result;
@@ -588,16 +688,38 @@ Review the existing findings and determine if the proposed finding is:
 
 ## Step 2: POC Creation & Iteration
 
-If finding is unique, create a working POC:
+If finding is unique, create a working POC using the TWO-STEP process:
 
-1. **Draft initial POC** based on the evidence provided
-2. **Use create_poc tool** with pocType: "bash" (preferred) or "html"
+**STEP 2A: Generate POC Content**
+1. **Call generate_poc_content tool FIRST** to invoke specialized POC generator sub-agent
+   - Automatically detects vulnerability type (SQL injection, IDOR, XSS, command injection, etc.)
+   - Selects appropriate specialized prompt with vulnerability-specific guidance
+   - Generates comprehensive POC content with:
+     * Rate limiting with exponential backoff
+     * Wide-range fuzzing for IDOR (50-100+ IDs, not just 2-3)
+     * Multi-technique testing for SQL injection
+     * Multiple payloads for XSS
+     * Stopping criteria (stops after no hits in 20+ attempts)
+   - Returns pocName, pocType, pocContent, and description
+
+**STEP 2B: Create and Test POC**
+2. **Call create_poc tool** with the content from generate_poc_content:
+   - Use the pocName, pocType, pocContent, and description from generate_poc_content
+   - For bash scripts: Automatically makes executable and runs to verify
+   - For HTML files: Creates file (manual browser testing required)
 3. **Review execution results**:
    - If bash POC succeeds → Proceed to Step 3
-   - If bash POC fails → Analyze error, fix, and retry with new poc name
+   - If bash POC fails → Analyze error, call generate_poc_content again with different approach, retry with new poc name
    - If HTML POC → Note that manual testing is required
 4. **Iterate until working** - Try up to 3 times if needed
 5. **If unable to create working POC** → DISCARD (not confirmed)
+
+**Key Benefits:**
+- SQL Injection POCs test auth bypass, union, error-based, and boolean-based with rate limiting
+- IDOR POCs fuzz 50-100+ identifiers with exponential backoff and auto-stop
+- XSS POCs test multiple payloads with filter bypasses
+- Command Injection POCs test multiple methods with data exfiltration
+- All POCs include rate limiting to prevent accidental DoS
 
 ## Step 3: Document Finding
 
@@ -664,11 +786,12 @@ ${existingFindingsText || '(No existing findings - this would be the first)'}
 
 1. **Check for duplicates**: Is this finding already documented? Is it a variation of an existing finding?
 
-2. **If unique**: Create a working POC using the create_poc tool
-   - Start with a bash POC based on the evidence
-   - If it fails, analyze the error and create an improved version
-   - Try up to 3 times to get a working POC
-   - If you can't create a working POC, discard the finding
+2. **If unique**: Create a working POC using the TWO-STEP process:
+   a. Call generate_poc_content tool to generate specialized POC content
+   b. Call create_poc tool with the generated content to create and test the POC
+   c. If POC fails, analyze the error, call generate_poc_content again, and retry
+   d. Try up to 3 times to get a working POC
+   e. If you can't create a working POC after 3 attempts, discard the finding
 
 3. **If POC works**: Document the finding using document_finding tool with the POC path
 
@@ -683,6 +806,7 @@ Begin your analysis now.
     system: SYSTEM_PROMPT,
     model,
     tools: {
+      generate_poc_content,
       create_poc,
       document_finding,
       finalize_documentation,

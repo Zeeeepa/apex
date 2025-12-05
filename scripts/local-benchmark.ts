@@ -9,11 +9,189 @@ import pLimit from "p-limit";
 import type { BenchmarkResults } from "../src/core/agent/benchmark/types";
 import { parseDockerComposePort, getActualDockerPort } from "../src/core/agent/benchmark/docker-utils";
 import { createSession, BENCHMARK_OUTCOME_GUIDANCE } from "../src/core/agent/sessions";
-import { runAgent as runThoroughPentestAgent } from "../src/core/agent/thoroughPentestAgent/agent";
+import { runStreamlinedPentest } from "../src/core/agent/thoroughPentestAgent/streamlined";
 import { runComparisonAgent } from "../src/core/agent/benchmark/comparisonAgent";
 import { extractFlagFromRepo, detectFlagInArtifacts } from "../src/core/agent/benchmark/flag-detector";
 
 const exec = promisify(nodeExec);
+
+interface PocRunResult {
+  pocFile: string;
+  pocName: string;
+  exitCode: number | null;
+  stdout: string;
+  stderr: string;
+  duration: number;
+  success: boolean;
+  error?: string;
+}
+
+/**
+ * Re-run all POC scripts in a session and save their outputs
+ */
+async function rerunAllPocs(
+  sessionPath: string,
+  benchmarkName: string,
+  targetUrl: string
+): Promise<{ total: number; passed: number; failed: number; results: PocRunResult[] }> {
+  const pocsDir = path.join(sessionPath, "pocs");
+  const logsDir = path.join(pocsDir, "logs");
+
+  // Check if pocs directory exists
+  if (!existsSync(pocsDir)) {
+    console.log(`[${benchmarkName}] 📁 No POCs directory found, skipping POC re-run`);
+    return { total: 0, passed: 0, failed: 0, results: [] };
+  }
+
+  // Create logs directory
+  mkdirSync(logsDir, { recursive: true });
+
+  // Find all POC files
+  const files = readdirSync(pocsDir);
+  const pocFiles = files.filter(
+    (f) => f.endsWith(".sh") || f.endsWith(".html")
+  );
+
+  if (pocFiles.length === 0) {
+    console.log(`[${benchmarkName}] 📁 No POC files found in ${pocsDir}`);
+    return { total: 0, passed: 0, failed: 0, results: [] };
+  }
+
+  console.log(`[${benchmarkName}] 🔄 Re-running ${pocFiles.length} POC(s)...`);
+
+  const results: PocRunResult[] = [];
+  let passed = 0;
+  let failed = 0;
+
+  for (const pocFile of pocFiles) {
+    const pocPath = path.join(pocsDir, pocFile);
+    const pocName = pocFile.replace(/\.(sh|html)$/, "");
+    const logFileName = `${pocName}-${new Date().toISOString().replace(/[:.]/g, "-")}.log`;
+    const logPath = path.join(logsDir, logFileName);
+
+    if (pocFile.endsWith(".html")) {
+      // HTML POCs can't be executed automatically
+      const result: PocRunResult = {
+        pocFile,
+        pocName,
+        exitCode: null,
+        stdout: "",
+        stderr: "",
+        duration: 0,
+        success: false,
+        error: "HTML POCs cannot be executed automatically (requires browser)",
+      };
+      results.push(result);
+
+      const logContent = `POC: ${pocFile}
+Type: HTML
+Status: SKIPPED (HTML POCs require manual browser execution)
+Timestamp: ${new Date().toISOString()}
+`;
+      writeFileSync(logPath, logContent);
+      console.log(`[${benchmarkName}]   ⏭️  ${pocFile} (HTML - skipped)`);
+      continue;
+    }
+
+    // Execute bash POC
+    const startTime = Date.now();
+    let result: PocRunResult;
+
+    try {
+      // Make script executable
+      await exec(`chmod +x "${pocPath}"`);
+
+      // Run the POC with a timeout of 2 minutes
+      // Set TARGET environment variable to override any hardcoded target
+      const { stdout, stderr } = await exec(`bash "${pocPath}"`, {
+        timeout: 120000,
+        env: {
+          ...process.env,
+          TARGET: targetUrl,
+        },
+        cwd: pocsDir,
+      });
+
+      const duration = Date.now() - startTime;
+      result = {
+        pocFile,
+        pocName,
+        exitCode: 0,
+        stdout,
+        stderr,
+        duration,
+        success: true,
+      };
+      passed++;
+      console.log(`[${benchmarkName}]   ✅ ${pocFile} (${(duration / 1000).toFixed(1)}s)`);
+    } catch (error: any) {
+      const duration = Date.now() - startTime;
+      result = {
+        pocFile,
+        pocName,
+        exitCode: error.code ?? 1,
+        stdout: error.stdout || "",
+        stderr: error.stderr || error.message || "",
+        duration,
+        success: false,
+        error: error.message,
+      };
+      failed++;
+      console.log(`[${benchmarkName}]   ❌ ${pocFile} (exit code: ${result.exitCode})`);
+    }
+
+    results.push(result);
+
+    // Save log file
+    const logContent = `POC: ${pocFile}
+Type: Bash Script
+Exit Code: ${result.exitCode}
+Success: ${result.success}
+Duration: ${result.duration}ms
+Timestamp: ${new Date().toISOString()}
+Target: ${targetUrl}
+
+${"=".repeat(60)}
+STDOUT:
+${"=".repeat(60)}
+${result.stdout || "(empty)"}
+
+${"=".repeat(60)}
+STDERR:
+${"=".repeat(60)}
+${result.stderr || "(empty)"}
+
+${result.error ? `\n${"=".repeat(60)}\nERROR:\n${"=".repeat(60)}\n${result.error}\n` : ""}
+`;
+    writeFileSync(logPath, logContent);
+  }
+
+  // Save summary
+  const summaryPath = path.join(logsDir, "poc-run-summary.json");
+  const summary = {
+    timestamp: new Date().toISOString(),
+    benchmarkName,
+    targetUrl,
+    total: pocFiles.length,
+    passed,
+    failed,
+    skipped: pocFiles.filter((f) => f.endsWith(".html")).length,
+    results: results.map((r) => ({
+      pocFile: r.pocFile,
+      pocName: r.pocName,
+      exitCode: r.exitCode,
+      success: r.success,
+      duration: r.duration,
+      error: r.error,
+    })),
+  };
+  writeFileSync(summaryPath, JSON.stringify(summary, null, 2));
+
+  console.log(`[${benchmarkName}] 📊 POC Re-run Summary: ${passed} passed, ${failed} failed, ${summary.skipped} skipped`);
+  console.log(`[${benchmarkName}] 📁 POC logs saved to: ${logsDir}`);
+
+  return { total: pocFiles.length, passed, failed, results };
+}
 
 interface CLIOptions {
   repoPath: string;
@@ -143,32 +321,36 @@ async function runSingleBenchmark(
 
     console.log(`[${benchmarkName}] 📝 Local session created: ${session.id}`);
 
-    // Step 8: Run thorough pentest (scope constraints are in session config)
-    console.log(`[${benchmarkName}] 🔍 Starting thorough pentest...`);
-    const { streamResult } = runThoroughPentestAgent({
+    // Step 8: Run streamlined pentest (scope constraints are in session config)
+    console.log(`[${benchmarkName}] 🔍 Starting streamlined pentest...`);
+    const pentestResult = await runStreamlinedPentest({
       target: targetUrl,
       model,
       session,
+      onProgress: (status) => {
+        const progressParts: string[] = [`[${benchmarkName}] [${status.phase}]`];
+
+        if (status.tasksCompleted !== undefined && status.totalTasks !== undefined) {
+          progressParts.push(`[${status.tasksCompleted}/${status.totalTasks} tasks]`);
+        }
+        if (status.activeAgents !== undefined && status.activeAgents > 0) {
+          progressParts.push(`[${status.activeAgents} active]`);
+        }
+        progressParts.push(status.message);
+
+        console.log(progressParts.join(' '));
+
+        if (status.findingsCount !== undefined && status.findingsCount > 0) {
+          console.log(`[${benchmarkName}]   Findings so far: ${status.findingsCount}`);
+        }
+      },
     });
 
-    // Consume the stream
-    for await (const delta of streamResult.fullStream) {
-      if (delta.type === "text-delta") {
-        process.stdout.write(delta.text);
-      } else if (delta.type === "tool-call") {
-        console.log(
-          `\n\n[${benchmarkName}] [Tool] ${delta.toolName}${
-            delta.input?.toolCallDescription
-              ? `: ${delta.input.toolCallDescription}`
-              : ""
-          }`
-        );
-      } else if (delta.type === "tool-result") {
-        console.log(`[${benchmarkName}] [Tool Complete]\n`);
-      }
+    if (!pentestResult.success) {
+      console.log(`[${benchmarkName}] ⚠️  Pentest completed with error: ${pentestResult.error}`);
     }
 
-    console.log(`[${benchmarkName}] ✅ Pentest completed`);
+    console.log(`[${benchmarkName}] ✅ Pentest completed. Total findings: ${pentestResult.totalFindings}`);
 
     // Step 9: Run comparison agent
     console.log(`[${benchmarkName}] 📊 Running comparison agent...`);
@@ -207,11 +389,16 @@ async function runSingleBenchmark(
         detected: false,
         flagValue: null,
         foundIn: [],
+        locations: [],
         searchLocations: [],
       };
     }
 
-    // Step 11: Generate benchmark results
+    // Step 11: Re-run all POCs and save their outputs
+    console.log(`[${benchmarkName}] 🔄 Re-running POCs...`);
+    const pocRunResults = await rerunAllPocs(session.rootPath, benchmarkName, targetUrl);
+
+    // Step 12: Generate benchmark results
     const results: BenchmarkResults = {
       repoPath: benchmarkPath,
       branch: benchmarkName,
@@ -229,6 +416,20 @@ async function runSingleBenchmark(
         ...comparison.extra,
       ],
       comparison,
+      pocRunSummary: pocRunResults.total > 0 ? {
+        total: pocRunResults.total,
+        passed: pocRunResults.passed,
+        failed: pocRunResults.failed,
+        skipped: pocRunResults.results.filter(r => r.exitCode === null).length,
+        results: pocRunResults.results.map(r => ({
+          pocFile: r.pocFile,
+          pocName: r.pocName,
+          exitCode: r.exitCode,
+          success: r.success,
+          duration: r.duration,
+          error: r.error,
+        })),
+      } : undefined,
       timestamp: new Date().toISOString(),
     };
 
@@ -239,6 +440,18 @@ async function runSingleBenchmark(
     console.log(`\n[${benchmarkName}] 🎯 FLAG STATUS: ${flagDetection.detected ? "✅ DETECTED" : "❌ NOT DETECTED"}`);
     if (flagDetection.detected) {
       console.log(`[${benchmarkName}]    Found in: ${flagDetection.foundIn.join(", ")}`);
+      if (flagDetection.locations && flagDetection.locations.length > 0) {
+        console.log(`[${benchmarkName}]    Exact locations:`);
+        for (const loc of flagDetection.locations.slice(0, 5)) { // Show first 5 locations
+          console.log(`[${benchmarkName}]      ${loc.file}:${loc.line}`);
+        }
+        if (flagDetection.locations.length > 5) {
+          console.log(`[${benchmarkName}]      ... and ${flagDetection.locations.length - 5} more`);
+        }
+      }
+    }
+    if (pocRunResults.total > 0) {
+      console.log(`\n[${benchmarkName}] 🧪 POC RESULTS: ${pocRunResults.passed}/${pocRunResults.total} passed`);
     }
 
     const duration = ((Date.now() - startTime) / 1000 / 60).toFixed(2);
@@ -260,6 +473,7 @@ async function runSingleBenchmark(
         detected: false,
         flagValue: null,
         foundIn: [],
+        locations: [],
         searchLocations: [],
       },
       expectedFlag: null,
@@ -279,7 +493,7 @@ async function runSingleBenchmark(
       timestamp: new Date().toISOString(),
     };
   } finally {
-    // Step 12: Cleanup - Stop docker compose
+    // Step 13: Cleanup - Stop docker compose
     try {
       console.log(`[${benchmarkName}] 🧹 Stopping docker compose...`);
       await exec("docker compose down", { cwd: benchmarkPath });
@@ -327,6 +541,11 @@ async function runMultipleBenchmarks(
   const successful = results.filter(r => !(r.comparison as any).error).length;
   const failed = results.filter(r => !!(r.comparison as any).error).length;
 
+  // Aggregate POC results
+  const totalPocs = results.reduce((sum, r) => sum + (r.pocRunSummary?.total || 0), 0);
+  const passedPocs = results.reduce((sum, r) => sum + (r.pocRunSummary?.passed || 0), 0);
+  const failedPocs = results.reduce((sum, r) => sum + (r.pocRunSummary?.failed || 0), 0);
+
   console.log("\n" + "=".repeat(80));
   console.log("📊 BENCHMARK SUMMARY");
   console.log("=".repeat(80));
@@ -336,6 +555,9 @@ async function runMultipleBenchmarks(
   console.log(`Failed: ${failed}/${benchmarks.length}`);
   console.log(`Flags Detected: ${flagsDetected}/${benchmarks.length} (${Math.round((flagsDetected / benchmarks.length) * 100)}%)`);
   console.log(`Flags Missed: ${flagsMissed}/${benchmarks.length}`);
+  if (totalPocs > 0) {
+    console.log(`POCs Passed: ${passedPocs}/${totalPocs} (${Math.round((passedPocs / totalPocs) * 100)}%)`);
+  }
   console.log("=".repeat(80));
 
   // Generate summary report
@@ -359,6 +581,11 @@ async function runMultipleBenchmarks(
     failed,
     flagsDetected,
     flagsMissed,
+    pocStats: {
+      total: totalPocs,
+      passed: passedPocs,
+      failed: failedPocs,
+    },
     duration: totalDuration,
     benchmarks: results.map((r) => ({
       benchmark: r.branch,
@@ -373,6 +600,11 @@ async function runMultipleBenchmarks(
         precision: Math.round((r.comparison.precision || 0) * 100),
         recall: Math.round((r.comparison.recall || 0) * 100),
       },
+      pocResults: r.pocRunSummary ? {
+        total: r.pocRunSummary.total,
+        passed: r.pocRunSummary.passed,
+        failed: r.pocRunSummary.failed,
+      } : undefined,
     })),
   };
 
@@ -411,10 +643,16 @@ function generateMarkdownSummary(summary: any): string {
     `- Failed: ${summary.failed}/${summary.totalBenchmarks}`,
     `- Flags Detected: ${summary.flagsDetected}/${summary.totalBenchmarks} (${Math.round((summary.flagsDetected / summary.totalBenchmarks) * 100)}%)`,
     `- Flags Missed: ${summary.flagsMissed}/${summary.totalBenchmarks}`,
-    "",
-    "## Benchmark Results",
-    "",
   ];
+
+  // Add POC stats if available
+  if (summary.pocStats && summary.pocStats.total > 0) {
+    lines.push(`- POCs Passed: ${summary.pocStats.passed}/${summary.pocStats.total} (${Math.round((summary.pocStats.passed / summary.pocStats.total) * 100)}%)`);
+  }
+
+  lines.push("");
+  lines.push("## Benchmark Results");
+  lines.push("");
 
   for (const benchmark of summary.benchmarks) {
     const statusIcon = benchmark.status === "success" ? "✅" : "❌";
@@ -434,6 +672,9 @@ function generateMarkdownSummary(summary: any): string {
       lines.push(`  - Accuracy: ${benchmark.metrics.accuracy}%`);
       lines.push(`  - Precision: ${benchmark.metrics.precision}%`);
       lines.push(`  - Recall: ${benchmark.metrics.recall}%`);
+      if (benchmark.pocResults) {
+        lines.push(`- **POC Results**: ${benchmark.pocResults.passed}/${benchmark.pocResults.total} passed`);
+      }
       lines.push(`- **Session**: [${benchmark.sessionPath}](${benchmark.sessionPath})`);
     } else {
       lines.push(`- **Error**: ${benchmark.error}`);
