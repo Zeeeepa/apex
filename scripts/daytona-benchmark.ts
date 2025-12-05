@@ -20,10 +20,10 @@ interface CLIOptions {
 }
 
 /**
- * Enumerate all XBOW-* benchmark directories in /benchmarks
+ * Enumerate all XBEN-* benchmark directories in /benchmarks
  */
-function enumerateXBOWBenchmarks(repoPath: string): string[] {
-  console.log(`🔍 Enumerating XBOW benchmarks in ${repoPath}/benchmarks...`);
+function enumerateXBENBenchmarks(repoPath: string): string[] {
+  console.log(`🔍 Enumerating XBEN benchmarks in ${repoPath}/benchmarks...`);
 
   const benchmarksDir = path.join(repoPath, "benchmarks");
 
@@ -34,16 +34,16 @@ function enumerateXBOWBenchmarks(repoPath: string): string[] {
   try {
     const entries = readdirSync(benchmarksDir);
 
-    const xbowBenchmarks = entries.filter((entry) => {
+    const xbenBenchmarks = entries.filter((entry) => {
       const fullPath = path.join(benchmarksDir, entry);
       const isDirectory = statSync(fullPath).isDirectory();
-      const isXBOW = entry.startsWith("XBEN");
-      return isDirectory && isXBOW;
+      const isXBEN = entry.startsWith("XBEN");
+      return isDirectory && isXBEN;
     });
 
-    console.log(`✅ Found ${xbowBenchmarks.length} XBOW benchmarks: ${xbowBenchmarks.join(", ")}`);
+    console.log(`✅ Found ${xbenBenchmarks.length} XBEN benchmarks: ${xbenBenchmarks.join(", ")}`);
 
-    return xbowBenchmarks;
+    return xbenBenchmarks;
   } catch (error: any) {
     throw new Error(`Failed to enumerate benchmarks: ${error.message}`);
   }
@@ -53,10 +53,10 @@ async function main() {
   const args = process.argv.slice(2);
 
   if (args.length === 0) {
-    console.error("Usage: bun run scripts/daytona-benchmark.ts <repo-path> [options] [XBOW-001-24 XBOW-002-24 ...]");
+    console.error("Usage: bun run scripts/daytona-benchmark.ts <repo-path> [options] [XBEN-001-24 XBEN-002-24 ...]");
     console.error();
     console.error("Arguments:");
-    console.error("  <repo-path>          Local path to XBOW challenges repository");
+    console.error("  <repo-path>          Local path to XBEN challenges repository");
     console.error();
     console.error("Options:");
     console.error("  --model <model>              AI model to use (default: claude-sonnet-4-5)");
@@ -75,28 +75,38 @@ async function main() {
     console.error("  DAYTONA_ORG_ID               Daytona organization ID");
     console.error();
     console.error("Benchmark Selection:");
-    console.error("  • If no benchmarks specified: Automatically runs ALL benchmarks in /benchmarks/XBOW-*");
-    console.error("  • If benchmarks specified: Runs only those specific XBOW benchmarks");
+    console.error("  • If no benchmarks specified: Automatically runs ALL benchmarks in /benchmarks/XBEN-*");
+    console.error("  • If benchmarks specified: Runs only those specific XBEN benchmarks");
     console.error();
     console.error("Examples:");
-    console.error("  # Run ALL XBOW benchmarks (auto-discovers all /benchmarks/XBOW-* directories)");
-    console.error("  bun run scripts/daytona-benchmark.ts /path/to/xbow-challenges");
+    console.error("  # Run ALL XBEN benchmarks (auto-discovers all /benchmarks/XBEN-* directories)");
+    console.error("  bun run scripts/daytona-benchmark.ts /path/to/xben-challenges");
     console.error();
-    console.error("  # Run specific XBOW benchmark(s)");
-    console.error("  bun run scripts/daytona-benchmark.ts /path/to/xbow-challenges XBOW-001-24");
-    console.error("  bun run scripts/daytona-benchmark.ts /path/to/xbow-challenges XBOW-001-24 XBOW-002-24");
+    console.error("  # Run specific XBEN benchmark(s)");
+    console.error("  bun run scripts/daytona-benchmark.ts /path/to/xben-challenges XBEN-001-24");
+    console.error("  bun run scripts/daytona-benchmark.ts /path/to/xben-challenges XBEN-001-24 XBEN-002-24");
     console.error();
     console.error("  # Run with custom model and parallel limit");
-    console.error("  bun run scripts/daytona-benchmark.ts /path/to/xbow-challenges \\");
+    console.error("  bun run scripts/daytona-benchmark.ts /path/to/xben-challenges \\");
     console.error("    --model claude-haiku-4-5 --max-parallel 2");
     console.error();
     console.error("How it works:");
-    console.error("  - Enumerates XBOW-* directories in /benchmarks");
+    console.error("  - Uses Daytona Docker-in-Docker sandboxes for isolation");
+    console.error("  - Enumerates XBEN-* directories in /benchmarks");
     console.error("  - Uploads each benchmark directory to Daytona sandbox");
     console.error("  - Parses docker-compose to determine target port/URL");
-    console.error("  - Runs docker compose up in sandbox");
-    console.error("  - Agent runs locally but commands execute in sandbox via tool overrides");
-    console.error("  - Results saved locally for comparison and flag detection");
+    console.error("  - Runs docker compose up inside sandbox (DinD)");
+    console.error("  - Agent runs locally with tool overrides for sandbox execution");
+    console.error("  - Re-runs POCs in sandbox and saves outputs");
+    console.error("  - Detects flags in pentest artifacts");
+    console.error("  - Generates comprehensive reports (JSON + Markdown)");
+    console.error();
+    console.error("Differences from local-benchmark:");
+    console.error("  ✓ Full isolation between benchmarks (separate sandboxes)");
+    console.error("  ✓ Each benchmark runs in its own Docker-in-Docker environment");
+    console.error("  ✓ Can run many benchmarks in parallel safely");
+    console.error("  ✗ Requires Daytona API key");
+    console.error("  ✗ Slower startup due to sandbox provisioning");
     console.error();
     process.exit(1);
   }
@@ -217,15 +227,15 @@ async function main() {
     benchmarks.push(arg);
   }
 
-  // If no benchmarks specified, enumerate all XBOW benchmarks
+  // If no benchmarks specified, enumerate all XBEN benchmarks
   let targetBenchmarks: string[];
   if (benchmarks.length === 0) {
-    console.log("No benchmarks specified, enumerating all XBOW-* benchmarks...\n");
-    targetBenchmarks = enumerateXBOWBenchmarks(repoPath);
+    console.log("No benchmarks specified, enumerating all XBEN-* benchmarks...\n");
+    targetBenchmarks = enumerateXBENBenchmarks(repoPath);
 
     if (targetBenchmarks.length === 0) {
-      console.error("Error: No XBOW benchmarks found in /benchmarks directory");
-      console.error("Please ensure the repository has /benchmarks/XBOW-* directories");
+      console.error("Error: No XBEN benchmarks found in /benchmarks directory");
+      console.error("Please ensure the repository has /benchmarks/XBEN-* directories");
       console.error("Or specify benchmarks manually as arguments");
       process.exit(1);
     }
@@ -257,7 +267,7 @@ async function main() {
 
   // Display configuration
   console.log("\n" + "=".repeat(80));
-  console.log("DAYTONA HYBRID BENCHMARK RUNNER");
+  console.log("DAYTONA DOCKER-IN-DOCKER BENCHMARK RUNNER");
   console.log("=".repeat(80));
   console.log(`Repository: ${options.repoPath}`);
   console.log(`Benchmarks: ${targetBenchmarks.join(", ")}`);
@@ -271,12 +281,15 @@ async function main() {
   console.log("=".repeat(80));
   console.log();
   console.log("Architecture:");
-  console.log("  • Uploads benchmark directory to Daytona sandbox");
+  console.log("  • Creates Daytona sandbox with Docker-in-Docker (DinD)");
+  console.log("  • Uploads benchmark directory to sandbox");
   console.log("  • Parses docker-compose for target port");
-  console.log("  • Daytona sandbox hosts target application (docker compose)");
+  console.log("  • Runs docker compose inside sandbox (nested containers)");
   console.log("  • Agent runs locally with tool overrides");
-  console.log("  • Commands/requests execute in sandbox");
-  console.log("  • Results saved locally for analysis");
+  console.log("  • Commands/HTTP requests execute in sandbox");
+  console.log("  • Re-runs POCs in sandbox and saves outputs");
+  console.log("  • Detects flags in pentest artifacts");
+  console.log("  • Generates JSON + Markdown reports");
   console.log("=".repeat(80) + "\n");
 
   try {

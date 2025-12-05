@@ -1,53 +1,26 @@
-FROM debian:bookworm-slim
+# Docker-in-Docker image for Daytona benchmark sandboxes
+# Based on official Docker DinD image for reliable nested container support
+FROM docker:28.0.1-dind
 
-RUN apt-get update && apt-get install -y \
-    ca-certificates \
+# Install additional tools needed for benchmarks
+RUN apk add --no-cache \
+    bash \
     curl \
-    gnupg \
-    iptables \
-    supervisor \
-    && rm -rf /var/lib/apt/lists/*
+    git \
+    make \
+    openssl \
+    jq \
+    python3 \
+    py3-pip \
+    nodejs \
+    npm
 
-RUN install -m 0755 -d /etc/apt/keyrings \
-    && curl -fsSL https://download.docker.com/linux/debian/gpg -o /etc/apt/keyrings/docker.asc \
-    && chmod a+r /etc/apt/keyrings/docker.asc \
-    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/debian \
-    $(. /etc/os-release && echo "$VERSION_CODENAME") stable" > /etc/apt/sources.list.d/docker.list
+# Install docker-compose standalone (in addition to compose plugin)
+RUN curl -SL "https://github.com/docker/compose/releases/download/v2.24.5/docker-compose-linux-$(uname -m)" -o /usr/local/bin/docker-compose \
+    && chmod +x /usr/local/bin/docker-compose
 
-# Install Docker + Compose plugin
-RUN apt-get update && apt-get install -y \
-    docker-ce \
-    docker-ce-cli \
-    containerd.io \
-    docker-compose-plugin \
-    && rm -rf /var/lib/apt/lists/*
+# Create working directory
+WORKDIR /home/daytona
 
-# Create docker group and add root user
-RUN groupadd -f docker && usermod -aG docker root
-
-# Setup entrypoint to start Docker daemon
-RUN echo '#!/bin/sh' > /docker-entrypoint.sh \
-    && echo 'set -e' >> /docker-entrypoint.sh \
-    && echo '' >> /docker-entrypoint.sh \
-    && echo '# Start Docker daemon in the background' >> /docker-entrypoint.sh \
-    && echo 'dockerd --host=unix:///var/run/docker.sock --host=tcp://0.0.0.0:2375 &' >> /docker-entrypoint.sh \
-    && echo '' >> /docker-entrypoint.sh \
-    && echo '# Wait for Docker to be ready' >> /docker-entrypoint.sh \
-    && echo 'timeout=30' >> /docker-entrypoint.sh \
-    && echo 'while ! docker info >/dev/null 2>&1; do' >> /docker-entrypoint.sh \
-    && echo '  timeout=$((timeout - 1))' >> /docker-entrypoint.sh \
-    && echo '  if [ $timeout -le 0 ]; then' >> /docker-entrypoint.sh \
-    && echo '    echo "Docker daemon failed to start"' >> /docker-entrypoint.sh \
-    && echo '    exit 1' >> /docker-entrypoint.sh \
-    && echo '  fi' >> /docker-entrypoint.sh \
-    && echo '  sleep 1' >> /docker-entrypoint.sh \
-    && echo 'done' >> /docker-entrypoint.sh \
-    && echo '' >> /docker-entrypoint.sh \
-    && echo 'echo "Docker daemon is ready"' >> /docker-entrypoint.sh \
-    && echo '' >> /docker-entrypoint.sh \
-    && echo '# Keep container running' >> /docker-entrypoint.sh \
-    && echo 'exec "$@"' >> /docker-entrypoint.sh \
-    && chmod +x /docker-entrypoint.sh
-
-ENTRYPOINT ["/docker-entrypoint.sh"]
-CMD ["tail", "-f", "/dev/null"]
+# The DinD image already has proper entrypoint for Docker daemon
+# We just need to ensure it stays running
