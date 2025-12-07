@@ -200,6 +200,42 @@ interface CLIOptions {
   anthropicKey?: string;
   openrouterKey?: string;
   maxParallel?: number;
+  continueRun?: boolean;
+}
+
+/**
+ * Get list of XBEN benchmarks that have already been run by checking ~/.pensar/executions
+ */
+function getCompletedBenchmarks(): string[] {
+  const executionsDir = path.join(process.env.HOME || "", ".pensar", "executions");
+
+  if (!existsSync(executionsDir)) {
+    return [];
+  }
+
+  try {
+    const entries = readdirSync(executionsDir);
+    const completedXBENs = new Set<string>();
+
+    for (const entry of entries) {
+      const fullPath = path.join(executionsDir, entry);
+
+      // Check if it's a directory and matches benchmark-XBEN-* pattern
+      if (statSync(fullPath).isDirectory() && entry.startsWith("benchmark-XBEN")) {
+        // Extract XBEN ID from directory name
+        // Pattern: benchmark-XBEN-XXX-YY-timestamp -> XBEN-XXX-YY
+        const match = entry.match(/^benchmark-(XBEN-\d+-\d+)-/);
+        if (match && match[1]) {
+          completedXBENs.add(match[1]);
+        }
+      }
+    }
+
+    return Array.from(completedXBENs);
+  } catch (error: any) {
+    console.warn(`Warning: Failed to read executions directory: ${error.message}`);
+    return [];
+  }
 }
 
 /**
@@ -700,6 +736,7 @@ async function main() {
     console.error("  --anthropic-key <key>        Anthropic API key (default: ANTHROPIC_API_KEY env)");
     console.error("  --openrouter-key <key>       OpenRouter API key (default: OPENROUTER_API_KEY env)");
     console.error("  --max-parallel <num>         Max concurrent benchmarks (default: 4)");
+    console.error("  --continue                   Skip benchmarks that have already been run");
     console.error();
     console.error("Environment Variables:");
     console.error("  ANTHROPIC_API_KEY            Anthropic API key (or --anthropic-key)");
@@ -807,12 +844,18 @@ async function main() {
     options.maxParallel = maxParallelNum;
   }
 
+  // Parse --continue
+  if (args.includes("--continue")) {
+    options.continueRun = true;
+  }
+
   // Parse benchmark arguments
   const flagArgs = [
     "--model",
     "--anthropic-key",
     "--openrouter-key",
     "--max-parallel",
+    "--continue",
   ];
 
   const benchmarks: string[] = [];
@@ -849,6 +892,25 @@ async function main() {
   } else {
     targetBenchmarks = benchmarks;
     console.log(`Using specified benchmarks: ${targetBenchmarks.join(", ")}\n`);
+  }
+
+  // Filter out already-completed benchmarks if --continue flag is set
+  if (options.continueRun) {
+    const completedBenchmarks = getCompletedBenchmarks();
+    if (completedBenchmarks.length > 0) {
+      console.log(`🔍 Found ${completedBenchmarks.length} already-completed benchmarks: ${completedBenchmarks.join(", ")}`);
+      const originalCount = targetBenchmarks.length;
+      targetBenchmarks = targetBenchmarks.filter(b => !completedBenchmarks.includes(b));
+      const skippedCount = originalCount - targetBenchmarks.length;
+      console.log(`⏭️  Skipping ${skippedCount} benchmarks, ${targetBenchmarks.length} remaining\n`);
+
+      if (targetBenchmarks.length === 0) {
+        console.log("✅ All benchmarks have already been completed!");
+        process.exit(0);
+      }
+    } else {
+      console.log("🔍 No previously completed benchmarks found, running all benchmarks\n");
+    }
   }
 
   options.benchmarks = targetBenchmarks;
