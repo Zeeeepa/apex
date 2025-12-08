@@ -1,9 +1,9 @@
-import { createOpenAI } from "@ai-sdk/openai";
-import { streamResponse, type AIModel, type StreamResponseOpts } from "./ai";
-import { createOpenRouter } from "@openrouter/ai-sdk-provider";
-import { createAmazonBedrock } from "@ai-sdk/amazon-bedrock";
-import { createAnthropic } from "@ai-sdk/anthropic";
-import { getModelInfo } from "./models";
+import { createOpenAI } from '@ai-sdk/openai';
+import { streamResponse, type AIModel, type StreamResponseOpts } from './ai';
+import { createOpenRouter } from '@openrouter/ai-sdk-provider';
+import { createAmazonBedrock } from '@ai-sdk/amazon-bedrock';
+import { createAnthropic } from '@ai-sdk/anthropic';
+import { getModelInfo } from './models';
 import {
   generateText,
   type LanguageModel,
@@ -11,17 +11,17 @@ import {
   type StreamTextResult,
   type TextStreamPart,
   type ToolSet,
-} from "ai";
+} from 'ai';
 
 export type AIAuthConfig = {
   openAiAPIKey?: string;
   anthropicAPIKey?: string;
   openRouterAPIKey?: string;
   bedrock?: {
-    enabled?: boolean;
     accessKeyId?: string;
     secretAccessKey?: string;
     region?: string;
+    credentialProvider?: any;
   };
   local?: {
     baseURL: string;
@@ -47,44 +47,45 @@ export function getProviderModel(
   const localBaseURL =
     authConfig?.local?.baseURL ||
     process.env.LOCAL_MODEL_URL ||
-    "http://127.0.0.1:1234/v1";
+    'http://127.0.0.1:1234/v1';
 
   let providerModel;
 
   switch (provider) {
-    case "openai":
+    case 'openai':
       const openai = createOpenAI({
         apiKey: openAiAPIKey,
       });
       providerModel = openai(model);
       break;
 
-    case "openrouter":
+    case 'openrouter':
       const openrouter = createOpenRouter({
         apiKey: openRouterAPIKey,
       });
       providerModel = openrouter(model);
       break;
 
-    case "bedrock":
+    case 'bedrock':
       const bedrock = createAmazonBedrock({
         region: bedrockRegion,
         accessKeyId: bedrockAccessKeyId,
         secretAccessKey: bedrockSecretAccessKey,
+        credentialProvider: authConfig?.bedrock?.credentialProvider,
       });
       providerModel = bedrock(model);
       break;
 
-    case "anthropic":
+    case 'anthropic':
       providerModel = createAnthropic({
         apiKey: anthropicAPIKey,
       }).chat(model);
       break;
 
-    case "local":
+    case 'local':
       providerModel = createOpenAI({
         baseURL: localBaseURL,
-        apiKey: "",
+        apiKey: '',
       }).chat(model);
       break;
 
@@ -111,9 +112,9 @@ export async function summarizeConversation(
       // If content is an array, filter out tool-use and tool-result blocks
       if (Array.isArray(msg.content)) {
         const textContent = msg.content
-          .filter((part: any) => part.type === "text")
+          .filter((part: any) => part.type === 'text')
           .map((part: any) => part.text)
-          .join("\n");
+          .join('\n');
 
         // Skip messages that have no text content
         if (!textContent.trim()) return null;
@@ -132,16 +133,16 @@ export async function summarizeConversation(
   let slicedMessages: ModelMessage[] = [];
   if (
     cleanMessages.length === 1 &&
-    typeof cleanMessages[0]!.content === "string"
+    typeof cleanMessages[0]!.content === 'string'
   ) {
     // For a single message with very long content, take just the last portion
     const content = cleanMessages[0]!.content;
-    const lines = content.split("\n");
-    const truncatedContent = lines.slice(-50).join("\n"); // Last 50 lines
+    const lines = content.split('\n');
+    const truncatedContent = lines.slice(-50).join('\n'); // Last 50 lines
 
     slicedMessages = [
       {
-        role: "user",
+        role: 'user',
         content: truncatedContent,
       },
     ];
@@ -153,7 +154,7 @@ export async function summarizeConversation(
   const summarizedMessages: ModelMessage[] = [
     ...slicedMessages,
     {
-      role: "user",
+      role: 'user',
       content: `Summarize this conversation to pass to another agent. This was the system prompt: ${opts.system} `,
     },
   ];
@@ -166,7 +167,7 @@ export async function summarizeConversation(
 
   // For very long prompts, replace with just the summary instead of appending
   const originalLength =
-    typeof opts.prompt === "string" ? opts.prompt.length : 0;
+    typeof opts.prompt === 'string' ? opts.prompt.length : 0;
   const enhancedPrompt =
     originalLength > 100000
       ? `Context: The previous conversation contained very long content that was summarized.\n\nSummary: ${summary}\n\nOriginal task: Please respond based on this summary.`
@@ -183,20 +184,20 @@ export async function summarizeConversation(
 
 // Helper function to check if an error is related to context length
 export function checkIfContextLengthError(error: any): boolean {
-  const errorMessage = error?.message?.toLowerCase() || "";
-  const errorCode = String(error?.code || "").toLowerCase();
+  const errorMessage = error?.message?.toLowerCase() || '';
+  const errorCode = String(error?.code || '').toLowerCase();
 
   return (
-    errorMessage.includes("context length") ||
-    errorMessage.includes("context_length") ||
-    errorMessage.includes("too long") ||
-    errorMessage.includes("token limit") ||
-    errorMessage.includes("maximum context") ||
-    errorMessage.includes("context_length_exceeded") ||
-    errorMessage.includes("tokens_exceeded") ||
-    errorMessage.includes("maximum token") ||
-    errorCode === "context_length_exceeded" ||
-    errorCode === "tokens_exceeded"
+    errorMessage.includes('context length') ||
+    errorMessage.includes('context_length') ||
+    errorMessage.includes('too long') ||
+    errorMessage.includes('token limit') ||
+    errorMessage.includes('maximum context') ||
+    errorMessage.includes('context_length_exceeded') ||
+    errorMessage.includes('tokens_exceeded') ||
+    errorMessage.includes('maximum token') ||
+    errorCode === 'context_length_exceeded' ||
+    errorCode === 'tokens_exceeded'
   );
 }
 
@@ -220,11 +221,11 @@ export function createSummarizationStream(
   const wrappedFullStream = (async function* () {
     // First, emit a synthetic tool-call event
     const toolCallEvent: any = {
-      type: "tool-call",
+      type: 'tool-call',
       toolCallId,
-      toolName: "summarize_conversation",
+      toolName: 'summarize_conversation',
       input: JSON.stringify({
-        reason: "Context length exceeded, summarizing conversation to continue",
+        reason: 'Context length exceeded, summarizing conversation to continue',
         messageCount: messages.length,
       }),
     };
@@ -235,15 +236,15 @@ export function createSummarizationStream(
 
     // Emit a synthetic tool-result event
     const toolResultEvent: any = {
-      type: "tool-result",
+      type: 'tool-result',
       toolCallId,
-      toolName: "summarize_conversation",
+      toolName: 'summarize_conversation',
       input: JSON.stringify({
-        reason: "Context length exceeded, summarizing conversation to continue",
+        reason: 'Context length exceeded, summarizing conversation to continue',
         messageCount: messages.length,
       }),
       result:
-        "Conversation summarized successfully. Resuming with condensed context...",
+        'Conversation summarized successfully. Resuming with condensed context...',
     };
     yield toolResultEvent;
 
@@ -278,11 +279,11 @@ export function createSummarizationStream(
       return stream.pipeTextStreamToResponse(response, init);
     },
     toDataStream: (options?: any) => {
-      throw new Error("toDataStream not supported on summarization stream");
+      throw new Error('toDataStream not supported on summarization stream');
     },
     toDataStreamResponse: (options?: any) => {
       throw new Error(
-        "toDataStreamResponse not supported on summarization stream"
+        'toDataStreamResponse not supported on summarization stream'
       );
     },
   } as unknown as StreamTextResult<ToolSet, never>;
@@ -296,22 +297,22 @@ export async function consumeStream(
     onToolResult,
   }: {
     onTextDelta?: (
-      delta: Extract<TextStreamPart<ToolSet>, { type: "text-delta" }>
+      delta: Extract<TextStreamPart<ToolSet>, { type: 'text-delta' }>
     ) => void;
     onToolCall?: (
-      delta: Extract<TextStreamPart<ToolSet>, { type: "tool-call" }>
+      delta: Extract<TextStreamPart<ToolSet>, { type: 'tool-call' }>
     ) => void;
     onToolResult?: (
-      delta: Extract<TextStreamPart<ToolSet>, { type: "tool-result" }>
+      delta: Extract<TextStreamPart<ToolSet>, { type: 'tool-result' }>
     ) => void;
   }
 ) {
   for await (const delta of stream.fullStream) {
-    if (delta.type === "text-delta") {
+    if (delta.type === 'text-delta') {
       onTextDelta?.(delta);
-    } else if (delta.type === "tool-call") {
+    } else if (delta.type === 'tool-call') {
       onToolCall?.(delta);
-    } else if (delta.type === "tool-result") {
+    } else if (delta.type === 'tool-result') {
       onToolResult?.(delta);
     }
   }
