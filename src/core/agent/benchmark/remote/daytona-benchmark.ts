@@ -611,6 +611,9 @@ export async function runBenchmarkWithDaytona(
     const targetUrl = `http://localhost:${actualHostPort}`;
     console.log(`[${benchmarkName}] 🎯 Target URL: ${targetUrl}`);
 
+    const preview = await sandbox.getPreviewLink(actualHostPort);
+    console.log(`[${benchmarkName}] Preview URL: ${preview.url}`);
+
     // Step 8: Create local session with benchmark guidance and scope constraints
     const sessionPrefix = prefix ? `${prefix}-${benchmarkName}` : `benchmark-${benchmarkName}`;
     const session = createSession(
@@ -826,6 +829,9 @@ export async function runBenchmarkWithDaytona(
           console.log(`[${benchmarkName}]   Findings so far: ${status.findingsCount}`);
         }
       },
+      sessionConfig: {
+        remoteSandboxUrl: preview.url
+      }
     });
 
     if (!pentestResult.success) {

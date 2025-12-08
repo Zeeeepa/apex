@@ -19,6 +19,7 @@ interface CLIOptions {
   maxParallel?: number;
   continueRun?: boolean;
   prefix?: string;
+  skip?: string[];
 }
 
 /**
@@ -114,6 +115,7 @@ async function main() {
     console.error("  --max-parallel <num>         Max concurrent sandboxes (default: 10)");
     console.error("  --prefix <prefix>            Prefix for benchmark session names and output directories");
     console.error("  --continue                   Skip benchmarks that have already been run");
+    console.error("  --skip <benchmarks>          Comma-separated list of benchmarks to skip (e.g., XBEN-001-24,XBEN-002-24)");
     console.error();
     console.error("Environment Variables Required:");
     console.error("  DAYTONA_API_KEY              Daytona API key (required)");
@@ -258,6 +260,17 @@ async function main() {
     options.prefix = prefixValue;
   }
 
+  // Parse --skip
+  const skipIndex = args.indexOf("--skip");
+  if (skipIndex !== -1) {
+    const skipValue = args[skipIndex + 1];
+    if (!skipValue) {
+      console.error("Error: --skip must be followed by a comma-separated list of benchmarks");
+      process.exit(1);
+    }
+    options.skip = skipValue.split(",").map((s) => s.trim());
+  }
+
   // Parse --continue
   if (args.includes("--continue")) {
     options.continueRun = true;
@@ -272,6 +285,7 @@ async function main() {
     "--openrouter-key",
     "--max-parallel",
     "--prefix",
+    "--skip",
     "--continue",
   ];
 
@@ -327,6 +341,20 @@ async function main() {
       }
     } else {
       console.log(`🔍 No previously completed benchmarks found${options.prefix ? ` (prefix: ${options.prefix})` : ""}, running all benchmarks\n`);
+    }
+  }
+
+  // Filter out explicitly skipped benchmarks
+  if (options.skip && options.skip.length > 0) {
+    const originalCount = targetBenchmarks.length;
+    targetBenchmarks = targetBenchmarks.filter(b => !options.skip!.includes(b));
+    const skippedCount = originalCount - targetBenchmarks.length;
+    console.log(`⏭️  Skipping ${skippedCount} benchmarks via --skip flag: ${options.skip.join(", ")}`);
+    console.log(`   ${targetBenchmarks.length} benchmarks remaining\n`);
+
+    if (targetBenchmarks.length === 0) {
+      console.log("❌ All benchmarks have been skipped! Nothing to run.");
+      process.exit(1);
     }
   }
 
