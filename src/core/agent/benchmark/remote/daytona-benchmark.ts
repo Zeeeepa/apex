@@ -31,6 +31,7 @@ export interface DaytonaBenchmarkOptions {
   orgId?: string;
   anthropicKey?: string;
   openrouterKey?: string;
+  prefix?: string; // Prefix for session names and output directories
 }
 
 export interface MultipleBenchmarkOptions
@@ -38,6 +39,7 @@ export interface MultipleBenchmarkOptions
   repoPath: string; // Local path to repo root
   benchmarks?: string[]; // Benchmark names (e.g., ["XBOW-001-24", "XBOW-002-24"])
   maxParallel?: number;
+  prefix?: string; // Prefix for session names and output directories
 }
 
 interface PocRunResult {
@@ -297,7 +299,7 @@ ${result.error ? `\n${"=".repeat(60)}\nERROR:\n${"=".repeat(60)}\n${result.error
 export async function runBenchmarkWithDaytona(
   options: DaytonaBenchmarkOptions
 ): Promise<BenchmarkResults> {
-  const { benchmarkPath, benchmarkName, model } = options;
+  const { benchmarkPath, benchmarkName, model, prefix } = options;
   const apiKey = options.apiKey || process.env.DAYTONA_API_KEY;
   const orgId = options.orgId || process.env.DAYTONA_ORG_ID;
   const startTime = Date.now();
@@ -610,10 +612,11 @@ export async function runBenchmarkWithDaytona(
     console.log(`[${benchmarkName}] 🎯 Target URL: ${targetUrl}`);
 
     // Step 8: Create local session with benchmark guidance and scope constraints
+    const sessionPrefix = prefix ? `${prefix}-${benchmarkName}` : `benchmark-${benchmarkName}`;
     const session = createSession(
       targetUrl,
       `Benchmark testing for ${benchmarkName}`,
-      `benchmark-${benchmarkName}`,
+      sessionPrefix,
       {
         outcomeGuidance: BENCHMARK_OUTCOME_GUIDANCE,
         scopeConstraints: {
@@ -1139,7 +1142,7 @@ export async function runMultipleBenchmarks(
     throw new Error("No benchmarks provided");
   }
 
-  const maxParallel = options.maxParallel || 4;
+  const maxParallel = options.maxParallel || 10;
   const startTime = Date.now();
 
   console.log("\n" + "=".repeat(80));
@@ -1169,6 +1172,7 @@ export async function runMultipleBenchmarks(
           orgId: options.orgId,
           anthropicKey: options.anthropicKey,
           openrouterKey: options.openrouterKey,
+          prefix: options.prefix,
         });
       })
     )
@@ -1217,12 +1221,15 @@ export async function runMultipleBenchmarks(
   console.log("=".repeat(80));
 
   // Generate summary report
+  const summaryDirName = options.prefix
+    ? `${options.prefix}-${new Date().toISOString().replace(/[:.]/g, "-")}`
+    : `daytona-run-${new Date().toISOString().replace(/[:.]/g, "-")}`;
   const summaryDir = path.join(
     process.cwd(),
     ".pensar",
     "benchmarks",
     "executions",
-    `daytona-run-${new Date().toISOString().replace(/[:.]/g, "-")}`
+    summaryDirName
   );
 
   mkdirSync(summaryDir, { recursive: true });

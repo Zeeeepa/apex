@@ -18,12 +18,15 @@ interface CLIOptions {
   openrouterKey?: string;
   maxParallel?: number;
   continueRun?: boolean;
+  prefix?: string;
 }
 
 /**
  * Get list of XBEN benchmarks that have already been run by checking ~/.pensar/executions
+ * A benchmark is considered "complete" only if its directory contains benchmark_results.json
+ * @param prefix Optional prefix to filter by (matches {prefix}-XBEN-* pattern)
  */
-function getCompletedBenchmarks(): string[] {
+function getCompletedBenchmarks(prefix?: string): string[] {
   const executionsDir = path.join(process.env.HOME || "", ".pensar", "executions");
 
   if (!existsSync(executionsDir)) {
@@ -34,16 +37,24 @@ function getCompletedBenchmarks(): string[] {
     const entries = readdirSync(executionsDir);
     const completedXBENs = new Set<string>();
 
+    // Build the pattern based on prefix
+    // If prefix is provided, match {prefix}-XBEN-XXX-YY-*
+    // Otherwise, match benchmark-XBEN-XXX-YY-*
+    const patternPrefix = prefix || "benchmark";
+    const pattern = new RegExp(`^${patternPrefix}-(XBEN-\\d+-\\d+)-`);
+
     for (const entry of entries) {
       const fullPath = path.join(executionsDir, entry);
 
-      // Check if it's a directory and matches benchmark-XBEN-* pattern
-      if (statSync(fullPath).isDirectory() && entry.startsWith("benchmark-XBEN")) {
-        // Extract XBEN ID from directory name
-        // Pattern: benchmark-XBEN-XXX-YY-timestamp -> XBEN-XXX-YY
-        const match = entry.match(/^benchmark-(XBEN-\d+-\d+)-/);
+      // Check if it's a directory and matches the expected pattern
+      if (statSync(fullPath).isDirectory()) {
+        const match = entry.match(pattern);
         if (match && match[1]) {
-          completedXBENs.add(match[1]);
+          // Check if benchmark_results.json exists (indicates completion)
+          const resultsFile = path.join(fullPath, "benchmark_results.json");
+          if (existsSync(resultsFile)) {
+            completedXBENs.add(match[1]);
+          }
         }
       }
     }
@@ -100,7 +111,8 @@ async function main() {
     console.error("  --daytona-org-id <id>        Daytona organization ID (optional, default: DAYTONA_ORG_ID env)");
     console.error("  --anthropic-key <key>        Anthropic API key (default: ANTHROPIC_API_KEY env)");
     console.error("  --openrouter-key <key>       OpenRouter API key (default: OPENROUTER_API_KEY env)");
-    console.error("  --max-parallel <num>         Max concurrent sandboxes (default: 4)");
+    console.error("  --max-parallel <num>         Max concurrent sandboxes (default: 10)");
+    console.error("  --prefix <prefix>            Prefix for benchmark session names and output directories");
     console.error("  --continue                   Skip benchmarks that have already been run");
     console.error();
     console.error("Environment Variables Required:");
@@ -235,6 +247,17 @@ async function main() {
     options.maxParallel = maxParallelNum;
   }
 
+  // Parse --prefix
+  const prefixIndex = args.indexOf("--prefix");
+  if (prefixIndex !== -1) {
+    const prefixValue = args[prefixIndex + 1];
+    if (!prefixValue) {
+      console.error("Error: --prefix must be followed by a prefix string");
+      process.exit(1);
+    }
+    options.prefix = prefixValue;
+  }
+
   // Parse --continue
   if (args.includes("--continue")) {
     options.continueRun = true;
@@ -248,6 +271,7 @@ async function main() {
     "--anthropic-key",
     "--openrouter-key",
     "--max-parallel",
+    "--prefix",
     "--continue",
   ];
 
@@ -289,9 +313,9 @@ async function main() {
 
   // Filter out already-completed benchmarks if --continue flag is set
   if (options.continueRun) {
-    const completedBenchmarks = getCompletedBenchmarks();
+    const completedBenchmarks = getCompletedBenchmarks(options.prefix);
     if (completedBenchmarks.length > 0) {
-      console.log(`🔍 Found ${completedBenchmarks.length} already-completed benchmarks: ${completedBenchmarks.join(", ")}`);
+      console.log(`🔍 Found ${completedBenchmarks.length} already-completed benchmarks${options.prefix ? ` (prefix: ${options.prefix})` : ""}: ${completedBenchmarks.join(", ")}`);
       const originalCount = targetBenchmarks.length;
       targetBenchmarks = targetBenchmarks.filter(b => !completedBenchmarks.includes(b));
       const skippedCount = originalCount - targetBenchmarks.length;
@@ -302,7 +326,7 @@ async function main() {
         process.exit(0);
       }
     } else {
-      console.log("🔍 No previously completed benchmarks found, running all benchmarks\n");
+      console.log(`🔍 No previously completed benchmarks found${options.prefix ? ` (prefix: ${options.prefix})` : ""}, running all benchmarks\n`);
     }
   }
 
@@ -335,9 +359,12 @@ async function main() {
   console.log(`Benchmarks: ${targetBenchmarks.join(", ")}`);
   console.log(`Total Benchmarks: ${targetBenchmarks.length}`);
   console.log(`Model: ${options.model || "claude-sonnet-4-5"}`);
-  console.log(`Max Parallel: ${options.maxParallel || 4}`);
+  console.log(`Max Parallel: ${options.maxParallel || 10}`);
   if (orgId) {
     console.log(`Daytona Org: ${orgId}`);
+  }
+  if (options.prefix) {
+    console.log(`Prefix: ${options.prefix}`);
   }
   console.log(`AI Keys: ${anthropicKey ? "Anthropic ✓" : ""} ${openrouterKey ? "OpenRouter ✓" : ""}`);
   console.log("=".repeat(80));
@@ -367,6 +394,7 @@ async function main() {
         orgId,
         anthropicKey,
         openrouterKey,
+        prefix: options.prefix,
       });
     } else {
       // Multiple benchmarks - run in parallel
@@ -379,7 +407,8 @@ async function main() {
         orgId,
         anthropicKey,
         openrouterKey,
-        maxParallel: options.maxParallel,
+        maxParallel: options.maxParallel || 10,
+        prefix: options.prefix,
       });
     }
 
