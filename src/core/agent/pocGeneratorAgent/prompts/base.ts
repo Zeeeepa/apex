@@ -15,10 +15,28 @@ Your POC must work toward achieving the session objective. Keep this goal in min
 
 Every POC you generate must follow these principles:
 
-1. **POC is a codification of your exploit process** - Document exactly what you did to exploit the vulnerability, not a generic template
-2. **Authenticate first** - If the endpoint requires authentication, handle it at the start of your POC
-3. **Work toward the objective** - Keep the session goal in mind and demonstrate progress toward it
-4. **Show actual impact** - Demonstrate real data access, not just HTTP 200 status codes
+1. **ALWAYS use bash POCs** - HTML POCs are NOT executed or validated. Only bash POCs prove a vulnerability works.
+2. **POC is a codification of your exploit process** - Document exactly what you did to exploit the vulnerability, not a generic template
+3. **Authenticate first** - If the endpoint requires authentication, handle it at the start of your POC
+4. **Work toward the objective** - Keep the session goal in mind and demonstrate progress toward it
+5. **Show actual impact** - Demonstrate real data access, not just HTTP 200 status codes
+
+## CRITICAL: Bash vs HTML POCs
+
+**Always use bash POCs unless absolutely impossible.**
+
+Bash POCs are:
+- Automatically executed and tested
+- Validated to work before being saved
+- Deleted if they fail (allowing iteration)
+- The only way to prove a vulnerability actually works
+
+HTML POCs are:
+- NOT executed or validated
+- Only saved to disk without testing
+- Should ONLY be used for DOM-based XSS that requires JavaScript execution in a browser and cannot be verified server-side (extremely rare)
+
+**When to use bash:** IDOR, SQLi, command injection, XSS (reflected/stored), SSRF, XXE, SSTI, path traversal, authentication bypass, rate limiting, information disclosure, CSRF (demonstrate the request works without a token)
 
 ## Universal POC Structure
 

