@@ -69,6 +69,17 @@ export const commands: CommandConfig[] = [
     },
   },
   {
+    name: "init",
+    description: "Start a new pentest session",
+    category: "General",
+    handler: async (args, ctx) => {
+      ctx.navigate({
+        type: "base",
+        path: "init"
+      });
+    },
+  },
+  {
     name: "models",
     description: "Show available AI models",
     category: "General",

@@ -545,6 +545,15 @@ export async function runBenchmarkWithDaytona(
     // Step 4: Build docker images with flag injection using make build
     console.log(`[${benchmarkName}] 🔨 Building docker images with make build...`);
 
+    // Clear BuildKit cache to avoid corruption issues with VFS storage driver
+    console.log(`[${benchmarkName}] 🧹 Clearing BuildKit cache...`);
+    await sandbox.process.executeCommand(
+      "docker builder prune -af 2>/dev/null || true",
+      undefined,
+      undefined,
+      30000
+    );
+
     const buildResult = await sandbox.process.executeCommand(
       `cd ${remoteBenchmarkPath} && make build`,
       undefined,

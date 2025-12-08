@@ -6,6 +6,7 @@ export type RoutePath =
     | "help"
     | "pentest"
     | "thorough"
+    | "init"
     | "dns"
     | "config"
     | "models"

@@ -4,7 +4,7 @@ import { useConfig } from "./context/config";
 import { useInput } from "./context/input";
 import { useFocus } from "./context/focus";
 import { Session } from "../core/session";
-import { AgentStatus } from "./components/footer";
+import Autocomplete from "./components/autocomplete";
 import os from "os";
 import type { InputRenderable, Renderable } from "@opentui/core";
 
@@ -19,7 +19,7 @@ export default function CommandInput({
 }: CommandInputProps) {
   const [command, setCommand] = useState("");
   const [recentSessions, setRecentSessions] = useState<Session.SessionInfo[]>([]);
-  const { executeCommand } = useCommand();
+  const { executeCommand, autocompleteOptions } = useCommand();
   const config = useConfig();
   const { setInputValue } = useInput();
   const { commandInputRef } = useFocus();
@@ -75,18 +75,20 @@ export default function CommandInput({
   const cwd = "~" + process.cwd().split(os.homedir()).pop() || "";
 
   return (
-    <box width={"100%"} columnGap={1} flexDirection="row" height={3} border={["top", "bottom"]} borderColor={"green"} alignItems="center">
-      <text height={1} fg={"white"}><span>{`>`}</span></text>
-      <input
-       ref={inputRef}
-       placeholder="enter a command"
-       focused
-       width={"100%"}
-       height={1}
-       backgroundColor={"transparent"}
-       value={command}
-       onInput={handleInput}
-      />
+    <box width={"100%"} flexDirection="column">
+      <box width={"100%"} columnGap={1} flexDirection="row" height={3} border={["top", "bottom"]} borderColor={"green"} alignItems="center">
+        <text height={1} fg={"white"}><span>{`>`}</span></text>
+        <Autocomplete
+          label=""
+          options={autocompleteOptions}
+          value={command}
+          onInput={handleInput}
+          onSubmit={handleSubmit}
+          focused={focused}
+          placeholder="enter a command (try /init)"
+          maxSuggestions={6}
+        />
+      </box>
     </box>
   );
 }

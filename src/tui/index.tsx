@@ -13,6 +13,7 @@ import HelpDialog from "./components/commands/help-dialog";
 import ConfigDialog from "./components/commands/config-dialog";
 import PentestAgentDisplay from "./components/commands/pentest-agent-display";
 import ThoroughPentestAgentDisplay from "./components/commands/thorough-pentest-agent-display";
+import InitWizard from "./components/commands/init-wizard";
 import SessionsDisplay from "./components/commands/sessions-display";
 import ModelsDisplay from "./components/commands/models-display";
 import ProviderManager from "./components/commands/provider-manager";
@@ -376,6 +377,9 @@ function CommandDisplay({
           </RouteSwitch.Case>
           <RouteSwitch.Case when="help">
             <HelpDialog/>
+          </RouteSwitch.Case>
+          <RouteSwitch.Case when="init">
+            <InitWizard />
           </RouteSwitch.Case>
           <RouteSwitch.Default>
             <CommandInput focused={focusIndex === 0} inputKey={inputKey}/>
