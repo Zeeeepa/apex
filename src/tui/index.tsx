@@ -30,9 +30,11 @@ import { type RoutePath, RouteProvider, useRoute } from "./context/route";
 import { ResponsibleUseDisclosure } from "./components/responsible-use-disclosure";
 import { hasAnyProviderConfigured } from "../core/providers";
 import { AsciiHeader } from "./components/ascii-header";
+import { BoxLogo } from "./components/box-logo";
+import { AsciiTitle } from "./components/ascii-title";
 import { SessionProvider } from "./context/session";
 import { InputProvider, useInput } from "./context/input";
-import { FocusProvider } from "./context/focus";
+import { FocusProvider, useFocus } from "./context/focus";
 import { DialogProvider } from "./components/dialog";
 import { SessionDisplay } from "./session/session";
 import { Session } from "../core/session";
@@ -158,6 +160,7 @@ function AppContent({
   const config = useConfig();
   const renderer = useRenderer();
   const { isInputEmpty } = useInput();
+  const { refocusCommandInput } = useFocus();
   const [showCreateSessionDialog, setShowCreateSessionDialog] = useState(false);
   const [showSessionsDialog, setShowSessionsDialog] = useState(false);
   const [showShortcutsDialog, setShowShortcutsDialog] = useState(false);
@@ -216,13 +219,17 @@ function AppContent({
       renderer.console.toggle();
     }
 
-    // Escape - Return to home from session view
-    if (key.name === "escape" && route.data.type === "session") {
-      route.navigate({
-        type: "base",
-        path: "home"
-      });
-      return;
+    // Escape - Return to home from any non-home route
+    if (key.name === "escape") {
+      const isHome = route.data.type === "base" && route.data.path === "home";
+      if (!isHome) {
+        route.navigate({
+          type: "base",
+          path: "home"
+        });
+        refocusCommandInput();
+        return;
+      }
     }
 
     // Ctrl+N - Create new session (only on home view)
@@ -276,16 +283,19 @@ function AppContent({
   const handleCloseCreateDialog = () => {
     setShowCreateSessionDialog(false);
     setInputKey((prev) => prev + 1);
+    refocusCommandInput();
   };
 
   const handleCloseSessionsDialog = () => {
     setShowSessionsDialog(false);
     setInputKey((prev) => prev + 1);
+    refocusCommandInput();
   };
 
   const handleCloseShortcutsDialog = () => {
     setShowShortcutsDialog(false);
     setInputKey((prev) => prev + 1);
+    refocusCommandInput();
   };
 
   // Check if we're on the home route
@@ -369,8 +379,7 @@ function CommandDisplay({
             <ResponsibleUseDisclosure onAccept={handleAcceptPolicy}/>
           </RouteSwitch.Case>
           <RouteSwitch.Case when="home">
-            <box width={"100%"} flexDirection="column" gap={2}>
-              <ColoredAsciiArt ascii={coloredAscii} />
+            <box width={"100%"} flexDirection="column" gap={1} paddingLeft={4}>
               <Home/>
               <CommandInput focused={focusIndex === 0} inputKey={inputKey}/>
             </box>
@@ -430,26 +439,65 @@ function Home () {
     loadRecentSessions();
   }, []);
 
+  const greenBullet = RGBA.fromInts(76, 175, 80, 255);
+  const creamText = RGBA.fromInts(255, 248, 220, 255);
+  const dimText = RGBA.fromInts(120, 120, 120, 255);
+
   return (
-    <box width={"100%"} height={"100%"} flexDirection="column" justifyContent="center" alignItems="center">
-      <box padding={1} rowGap={1} border title={`v${config.data.version}`} width={70} flexDirection="column" borderColor={"green"} justifyContent="center">
-        {/* <AsciiHeader/> */}
-        <text fg={"white"}>
-          {`>_ `}<span>Apex cli</span><span fg={"gray"}>{" (by Pensar)"}</span>
+    <box width={"100%"} flexDirection="column" gap={1}>
+      {/* Logo */}
+      <BoxLogo />
+
+      {/* Large Title */}
+      <box marginTop={1}>
+        <AsciiTitle />
+      </box>
+
+      {/* Subtitle */}
+      <text fg={creamText}>
+        <span>Apex CLI</span>
+        <span fg={dimText}>{" (by Pensar)"}</span>
+      </text>
+
+      {/* Tagline */}
+      <box marginTop={1}>
+        <text fg={dimText}>
+          Agentic security testing framework for modern applications.
         </text>
-        <box flexDirection="column">
-          <text fg={"green"}>Tips for getting started</text>
-          <text>・Run /init to start a new session</text>
-          <text>・Use /providers to add a new model provider</text>
-        </box>
-        <box flexDirection="column" border={["top"]} borderColor={"green"} width={"100%"}>
-          <text fg={"green"}>Recent sessions</text>
-          {
-            recentSessions.length > 0 ?
-            recentSessions.map((s) => <text>{s.name}</text>)
-            : <text fg={"gray"}>No recent activity</text>
-          }
-        </box>
+      </box>
+
+      {/* Metadata section */}
+      <box flexDirection="column" marginTop={1} gap={0}>
+        <text>
+          <span fg={greenBullet}>█ </span>
+          <span fg={dimText}>Version: </span>
+          <span fg={creamText}>{config.data.version}</span>
+        </text>
+        <text>
+          <span fg={greenBullet}>█ </span>
+          <span fg={dimText}>Quick start: </span>
+          <span fg={creamText}>/init</span>
+        </text>
+        <text>
+          <span fg={greenBullet}>█ </span>
+          <span fg={dimText}>Configure: </span>
+          <span fg={creamText}>/providers</span>
+        </text>
+      </box>
+
+      {/* Recent Sessions */}
+      <box flexDirection="column" marginTop={1}>
+        <text fg={dimText}>Recent sessions</text>
+        {recentSessions.length > 0 ? (
+          recentSessions.map((s, idx) => (
+            <text key={idx}>
+              <span fg={greenBullet}>█ </span>
+              <span fg={creamText}>{s.name}</span>
+            </text>
+          ))
+        ) : (
+          <text fg={dimText}>  No recent activity</text>
+        )}
       </box>
     </box>
   )

@@ -1,15 +1,15 @@
 import { createContext, useContext, useRef, useCallback, type ReactNode } from "react";
-import type { Renderable } from "@opentui/core";
+import type { InputRenderable } from "@opentui/core";
 
 interface FocusContextType {
-  commandInputRef: React.MutableRefObject<Renderable | null>;
+  commandInputRef: React.MutableRefObject<InputRenderable | null>;
   refocusCommandInput: () => void;
 }
 
 const FocusContext = createContext<FocusContextType | undefined>(undefined);
 
 export function FocusProvider({ children }: { children: ReactNode }) {
-  const commandInputRef = useRef<Renderable | null>(null);
+  const commandInputRef = useRef<InputRenderable | null>(null);
 
   const refocusCommandInput = useCallback(() => {
     setTimeout(() => {

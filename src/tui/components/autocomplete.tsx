@@ -1,7 +1,8 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, forwardRef } from "react";
 import { useKeyboard } from "@opentui/react";
 import Input from "./input";
 import type { InputProps } from "@opentui/react";
+import { RGBA, type InputRenderable } from "@opentui/core";
 
 export interface AutocompleteOption {
   value: string;
@@ -16,7 +17,7 @@ export interface AutocompleteProps extends Omit<InputProps, "onSubmit"> {
   maxSuggestions?: number;
 }
 
-export default function Autocomplete({
+const Autocomplete = forwardRef<InputRenderable, AutocompleteProps>(function Autocomplete({
   label,
   value,
   placeholder,
@@ -26,7 +27,7 @@ export default function Autocomplete({
   onInput,
   maxSuggestions = 5,
   ...inputProps
-}: AutocompleteProps) {
+}, ref) {
   const [selectedIndex, setSelectedIndex] = useState(-1);
   const [showSuggestions, setShowSuggestions] = useState(false);
 
@@ -103,6 +104,7 @@ export default function Autocomplete({
   return (
     <box width="100%" flexDirection="column">
       <Input
+        ref={ref}
         label={label}
         value={value}
         placeholder={placeholder}
@@ -119,36 +121,38 @@ export default function Autocomplete({
       />
       {showSuggestions && suggestions.length > 0 && (
         <box
-          border={["left"]}
-          borderColor="green"
-          backgroundColor="black"
-          // top={15}
-          // left={"50%"}
+          marginTop={1}
+          marginLeft={2}
           flexDirection="column"
         >
-          {suggestions.map((suggestion, index) => (
-            <box
-              key={suggestion.value}
-              backgroundColor={
-                index === selectedIndex ? "#1a1a1a" : "transparent"
-              }
-              flexDirection="row"
-              gap={1}
-              paddingLeft={1}
-            >
-              <text fg={index === selectedIndex ? "green" : "white"}>
-                {index === selectedIndex ? "▶" : " "}
-              </text>
-              <text fg={index === selectedIndex ? "green" : "white"}>
-                {suggestion.label}
-              </text>
-              {suggestion.description ? (
-                <text fg="gray"> - {suggestion.description}</text>
-              ) : null}
-            </box>
-          ))}
+          {suggestions.map((suggestion, index) => {
+            const isSelected = index === selectedIndex;
+            const greenAccent = RGBA.fromInts(76, 175, 80, 255);
+            const creamText = RGBA.fromInts(255, 248, 220, 255);
+            const dimText = RGBA.fromInts(100, 100, 100, 255);
+
+            return (
+              <box
+                key={suggestion.value}
+                flexDirection="row"
+                gap={1}
+              >
+                <text fg={isSelected ? greenAccent : dimText}>
+                  {isSelected ? "█" : "░"}
+                </text>
+                <text fg={isSelected ? creamText : dimText}>
+                  {suggestion.label}
+                </text>
+                {suggestion.description ? (
+                  <text fg={dimText}> {suggestion.description}</text>
+                ) : null}
+              </box>
+            );
+          })}
         </box>
       )}
     </box>
   );
-}
+});
+
+export default Autocomplete;

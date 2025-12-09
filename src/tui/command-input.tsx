@@ -6,7 +6,8 @@ import { useFocus } from "./context/focus";
 import { Session } from "../core/session";
 import Autocomplete from "./components/autocomplete";
 import os from "os";
-import type { InputRenderable, Renderable } from "@opentui/core";
+import type { InputRenderable } from "@opentui/core";
+import { RGBA } from "@opentui/core";
 
 interface CommandInputProps {
   focused?: boolean;
@@ -23,7 +24,13 @@ export default function CommandInput({
   const config = useConfig();
   const { setInputValue } = useInput();
   const { commandInputRef } = useFocus();
-  const inputRef = useRef<InputRenderable | null>(null);
+
+  // Callback ref to register input with focus context
+  const inputRefCallback = (node: InputRenderable | null) => {
+    if (node) {
+      commandInputRef.current = node;
+    }
+  };
 
   // Load recent sessions
   useEffect(() => {
@@ -51,13 +58,6 @@ export default function CommandInput({
     setInputValue("");
   }, [inputKey, setInputValue]);
 
-  // Register input ref with focus context
-  useEffect(() => {
-    if (inputRef.current) {
-      commandInputRef.current = inputRef.current;
-    }
-  }, [commandInputRef]);
-
   const handleSubmit = async (value: string) => {
     const raw = value ?? "";
     if (raw.trim()) {
@@ -74,20 +74,49 @@ export default function CommandInput({
 
   const cwd = "~" + process.cwd().split(os.homedir()).pop() || "";
 
+  const greenAccent = RGBA.fromInts(76, 175, 80, 255);
+  const dimText = RGBA.fromInts(100, 100, 100, 255);
+  const creamText = RGBA.fromInts(255, 248, 220, 255);
+
   return (
-    <box width={"100%"} flexDirection="column">
-      <box width={"100%"} columnGap={1} flexDirection="row" height={3} border={["top", "bottom"]} borderColor={"green"} alignItems="center">
-        <text height={1} fg={"white"}><span>{`>`}</span></text>
+    <box width={"100%"} flexDirection="column" marginTop={1}>
+      {/* Sleek command input bar */}
+      <box
+        width={"100%"}
+        flexDirection="row"
+        alignItems="center"
+        paddingLeft={1}
+        paddingRight={1}
+      >
+        {/* Prompt indicator */}
+        <text fg={greenAccent}>
+          <span>{"❯ "}</span>
+        </text>
+
+        {/* Input field */}
         <Autocomplete
+          ref={inputRefCallback}
           label=""
           options={autocompleteOptions}
           value={command}
           onInput={handleInput}
           onSubmit={handleSubmit}
           focused={focused}
-          placeholder="enter a command (try /init)"
+          placeholder="Type a command..."
           maxSuggestions={6}
         />
+      </box>
+
+      {/* Subtle hint line */}
+      <box paddingLeft={3}>
+        <text fg={dimText}>
+          <span>Press </span>
+          <span fg={creamText}>/</span>
+          <span> for commands</span>
+          <span>  •  </span>
+          <span fg={creamText}>{`[↓][↑]`}</span>
+          <span> to select command</span>
+        </text>
       </box>
     </box>
   );

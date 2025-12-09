@@ -1,7 +1,15 @@
+import { forwardRef } from "react";
 import type { InputProps } from "@opentui/react";
+import type { InputRenderable } from "@opentui/core";
 
-export default function Input(
-  opts: InputProps & { label: string; description?: string }
+interface InputComponentProps extends InputProps {
+  label: string;
+  description?: string;
+}
+
+const Input = forwardRef<InputRenderable, InputComponentProps>(function Input(
+  opts,
+  ref
 ) {
   const { label, focused = true, description, ...inputProps } = opts;
 
@@ -18,6 +26,7 @@ export default function Input(
       <text fg="green">{label}</text>
       {description && <text fg="gray">{description}</text>}
       <input
+        ref={ref}
         paddingLeft={1}
         backgroundColor="black"
         focused={focused}
@@ -25,4 +34,6 @@ export default function Input(
       />
     </box>
   );
-}
+});
+
+export default Input;
