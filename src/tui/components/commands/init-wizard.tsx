@@ -3,17 +3,11 @@ import { useKeyboard } from "@opentui/react";
 import { RGBA } from "@opentui/core";
 import Input from "../input";
 import { useRoute } from "../../context/route";
-import { useAgent } from "../../agentProvider";
-import SwarmDashboard, { type UIMessage, type Subagent } from "../swarm-dashboard";
 import { Session } from "../../../core/session";
-import { runStreamlinedPentest, type StreamlinedPentestProgress } from "../../../core/agent/thoroughPentestAgent/streamlined";
-import type { SubAgentSpawnInfo, SubAgentStreamEvent } from "../../../core/agent/pentestAgent/orchestrator";
-import type { MetaVulnerabilityTestResult } from "../../../core/agent/metaTestingAgent";
-import { existsSync } from "fs";
-import { exec } from "child_process";
+import { SpinnerDots } from "../sprites";
 
 // Simplified wizard step types
-type WizardStep = "target" | "configure" | "running";
+type WizardStep = "target" | "configure" | "creating";
 
 // Random name generator (GitHub-style)
 const adjectives = [
@@ -57,13 +51,6 @@ interface WizardState {
   };
 }
 
-// UIMessage helper for creating messages
-type ToolUIMessage = UIMessage & {
-  role: "tool";
-  toolCallId: string;
-  toolName: string;
-};
-
 // Home view color palette
 const greenBullet = RGBA.fromInts(76, 175, 80, 255);
 const creamText = RGBA.fromInts(255, 248, 220, 255);
@@ -71,7 +58,6 @@ const dimText = RGBA.fromInts(120, 120, 120, 255);
 
 export default function InitWizard() {
   const route = useRoute();
-  const { model, addTokens, setTokenCount, setThinking, isExecuting, setIsExecuting } = useAgent();
 
   // Wizard state
   const [currentStep, setCurrentStep] = useState<WizardStep>("target");
@@ -106,27 +92,15 @@ export default function InitWizard() {
   const [headerNameInput, setHeaderNameInput] = useState("");
   const [headerValueInput, setHeaderValueInput] = useState("");
 
-  // Running state
-  const [messages, setMessages] = useState<UIMessage[]>([]);
-  const [subagents, setSubagents] = useState<Subagent[]>([]);
-  const [sessionPath, setSessionPath] = useState("");
-  const [isCompleted, setIsCompleted] = useState(false);
-  const [abortController, setAbortController] = useState<AbortController | null>(null);
-  const [startTime, setStartTime] = useState<Date | null>(null);
+  // Error state
+  const [error, setError] = useState<string | null>(null);
 
-  // Start the pentest
-  async function startPentest() {
+  // Create session and navigate to session route
+  async function createSessionAndNavigate() {
     if (!state.target.trim()) return;
 
-    setCurrentStep("running");
-    setIsExecuting(true);
-    setThinking(true);
-    setStartTime(new Date());
-
-    const controller = new AbortController();
-    setAbortController(controller);
-
-    let currentDiscoveryText = "";
+    setCurrentStep("creating");
+    setError(null);
 
     try {
       // Build session config
@@ -161,7 +135,7 @@ export default function InitWizard() {
         };
       }
 
-      // Create session using new Session API
+      // Create execution session
       const session = await Session.createExecution({
         target: state.target,
         objective: `Pentest: ${state.target}`,
@@ -169,276 +143,14 @@ export default function InitWizard() {
         config: sessionConfig,
       });
 
-      setSessionPath(session.rootPath);
-
-      // Add initial user message
-      const userMessage: UIMessage = {
-        role: "user",
-        content: `Target: ${state.target}`,
-        createdAt: new Date(),
-      };
-      setMessages([userMessage]);
-
-      // Add discovery subagent
-      setSubagents([{
-        id: "attack-surface-discovery",
-        name: "Attack Surface Discovery",
-        type: "attack-surface",
-        target: state.target,
-        messages: [],
-        status: "pending",
-        createdAt: new Date(),
-      }]);
-
-      // Run streamlined pentest
-      const result = await runStreamlinedPentest({
-        target: state.target,
-        model: model.id,
-        session,
-        sessionConfig,
-        abortSignal: controller.signal,
-
-        onDiscoveryStepFinish: (step) => {
-          const stepTokens = (step.usage?.inputTokens ?? 0) + (step.usage?.outputTokens ?? 0);
-          if (stepTokens > 0) setTokenCount(stepTokens);
-        },
-
-        onDiscoveryStream: (chunk) => {
-          if (chunk.type === "text-delta") {
-            currentDiscoveryText += chunk.textDelta;
-            addTokens(1);
-
-            setSubagents((prev) => {
-              const idx = prev.findIndex((s) => s.id === "attack-surface-discovery");
-              if (idx === -1) return prev;
-
-              const updated = [...prev];
-              const subagent = updated[idx]!;
-              const lastMsg = subagent.messages[subagent.messages.length - 1];
-
-              if (lastMsg && lastMsg.role === "assistant") {
-                const newMessages = [...subagent.messages];
-                newMessages[newMessages.length - 1] = { ...lastMsg, content: currentDiscoveryText };
-                updated[idx] = { ...subagent, messages: newMessages };
-              } else {
-                updated[idx] = {
-                  ...subagent,
-                  messages: [...subagent.messages, { role: "assistant", content: currentDiscoveryText, createdAt: new Date() }],
-                };
-              }
-              return updated;
-            });
-          } else if (chunk.type === "tool-call") {
-            setThinking(false);
-            currentDiscoveryText = "";
-
-            const toolMessage: UIMessage = {
-              role: "tool",
-              status: "pending",
-              toolCallId: chunk.toolCallId,
-              toolName: chunk.toolName,
-              content: (chunk as any).input?.toolCallDescription || `Calling ${chunk.toolName}`,
-              args: (chunk as any).input,
-              createdAt: new Date(),
-            };
-
-            setSubagents((prev) => {
-              const idx = prev.findIndex((s) => s.id === "attack-surface-discovery");
-              if (idx === -1) return prev;
-              const updated = [...prev];
-              updated[idx] = { ...updated[idx]!, messages: [...updated[idx]!.messages, toolMessage] };
-              return updated;
-            });
-          } else if (chunk.type === "tool-result") {
-            setThinking(true);
-
-            setSubagents((prev) => {
-              const idx = prev.findIndex((s) => s.id === "attack-surface-discovery");
-              if (idx === -1) return prev;
-              const updated = [...prev];
-              const subagent = updated[idx]!;
-              const msgIdx = subagent.messages.findIndex(
-                (m) => m.role === "tool" && m.toolCallId === chunk.toolCallId
-              );
-              if (msgIdx === -1) return prev;
-
-              const newMessages = [...subagent.messages];
-              const existingMsg = newMessages[msgIdx] as ToolUIMessage;
-              newMessages[msgIdx] = {
-                ...existingMsg,
-                status: "completed",
-                content: `✓ ${existingMsg.toolName || "tool"}`,
-              };
-              updated[idx] = { ...subagent, messages: newMessages };
-              return updated;
-            });
-          }
-        },
-
-        onPentestAgentSpawn: (info: SubAgentSpawnInfo) => {
-          setSubagents((prev) => {
-            const updated = prev.map((s) =>
-              s.id === "attack-surface-discovery" && s.status === "pending"
-                ? { ...s, status: "completed" as const }
-                : s
-            );
-            return [...updated, {
-              id: info.id,
-              name: info.name,
-              type: "pentest" as const,
-              target: info.target,
-              messages: [],
-              status: "pending" as const,
-              createdAt: new Date(),
-            }];
-          });
-        },
-
-        onPentestAgentStream: (event: SubAgentStreamEvent) => {
-          if (event.type === "step-finish" && event.data) {
-            const { text, toolCalls, toolResults, usage } = event.data;
-
-            if (usage) {
-              const stepTokens = (usage.inputTokens ?? 0) + (usage.outputTokens ?? 0);
-              if (stepTokens > 0) addTokens(stepTokens);
-            }
-
-            setSubagents((prev) => {
-              const idx = prev.findIndex((s) => s.id === event.agentId);
-              if (idx === -1) return prev;
-
-              const updated = [...prev];
-              const subagent = updated[idx]!;
-              const newMessages = [...subagent.messages];
-
-              if (text && text.trim()) {
-                const lastMsg = newMessages[newMessages.length - 1];
-                if (lastMsg && lastMsg.role === "assistant") {
-                  newMessages[newMessages.length - 1] = { ...lastMsg, content: (lastMsg.content || "") + text };
-                } else {
-                  newMessages.push({ role: "assistant", content: text, createdAt: new Date() });
-                }
-              }
-
-              if (toolCalls && toolCalls.length > 0) {
-                for (const tc of toolCalls) {
-                  newMessages.push({
-                    role: "tool",
-                    status: "pending",
-                    toolCallId: tc.toolCallId,
-                    toolName: tc.toolName,
-                    content: tc.args?.toolCallDescription || `${tc.toolName}`,
-                    args: tc.args,
-                    createdAt: new Date(),
-                  });
-                }
-              }
-
-              if (toolResults && toolResults.length > 0) {
-                for (const tr of toolResults) {
-                  const msgIdx = newMessages.findIndex(
-                    (m) => m.role === "tool" && m.toolCallId === tr.toolCallId
-                  );
-                  if (msgIdx !== -1) {
-                    const existingMsg = newMessages[msgIdx] as ToolUIMessage;
-                    newMessages[msgIdx] = { ...existingMsg, status: "completed", content: `✓ ${existingMsg.toolName || "tool"}` };
-                  }
-                }
-              }
-
-              updated[idx] = { ...subagent, messages: newMessages };
-              return updated;
-            });
-          }
-        },
-
-        onPentestAgentComplete: (agentId: string, agentResult: MetaVulnerabilityTestResult) => {
-          setSubagents((prev) =>
-            prev.map((sub) =>
-              sub.id === agentId
-                ? {
-                    ...sub,
-                    status: agentResult.error ? "failed" : "completed",
-                    messages: [...sub.messages, {
-                      role: "assistant",
-                      content: `${agentResult.findingsCount > 0 ? "✅" : "⚪"} ${agentResult.summary}`,
-                      createdAt: new Date(),
-                    }],
-                  }
-                : sub
-            )
-          );
-        },
-
-        onProgress: (status: StreamlinedPentestProgress) => {
-          const phaseIcons: Record<string, string> = {
-            discovery: "🔍",
-            testing: "🔬",
-            reporting: "📝",
-            complete: "✅",
-          };
-
-          const icon = phaseIcons[status.phase] || "⏳";
-          const progressContent = `${icon} [${status.phase.toUpperCase()}] ${status.message}`;
-
-          setMessages((prev) => {
-            const lastMsg = prev[prev.length - 1];
-            if (lastMsg && lastMsg.role === "assistant" && lastMsg.content?.includes(`[${status.phase.toUpperCase()}]`)) {
-              const updated = [...prev];
-              updated[updated.length - 1] = { ...lastMsg, content: progressContent };
-              return updated;
-            }
-            return [...prev, { role: "assistant", content: progressContent, createdAt: new Date() }];
-          });
-        },
+      // Navigate to session route - SessionView will handle execution
+      route.navigate({
+        type: "session",
+        sessionId: session.id,
       });
-
-      // Handle completion
-      if (result.success) {
-        const completionMessage: UIMessage = {
-          role: "assistant",
-          content: `✅ Penetration test complete!\n\n📊 Results:\n- Targets tested: ${result.targets.length}\n- Total findings: ${result.totalFindings}\n${result.reportPath ? `- Report: ${result.reportPath}` : ""}`,
-          createdAt: new Date(),
-        };
-        setMessages((prev) => [...prev, completionMessage]);
-
-        if ((result.reportPath && existsSync(result.reportPath)) || existsSync(result.session.rootPath + "/comprehensive-pentest-report.md")) {
-          setIsCompleted(true);
-        }
-      } else {
-        setMessages((prev) => [...prev, {
-          role: "assistant",
-          content: `⚠️ Pentest completed with error: ${result.error || "Unknown error"}`,
-          createdAt: new Date(),
-        }]);
-      }
-
-      setThinking(false);
-      setIsExecuting(false);
-    } catch (error) {
-      setThinking(false);
-      setIsExecuting(false);
-
-      if (error instanceof Error && error.name === "AbortError") {
-        setMessages((prev) => [...prev, { role: "assistant", content: "⚠️ Execution aborted by user", createdAt: new Date() }]);
-      } else {
-        setMessages((prev) => [...prev, {
-          role: "assistant",
-          content: `Error: ${error instanceof Error ? error.message : "Unknown error occurred"}`,
-          createdAt: new Date(),
-        }]);
-      }
-    }
-  }
-
-  function openReport() {
-    if (sessionPath) {
-      const reportPath = `${sessionPath}/comprehensive-pentest-report.md`;
-      if (existsSync(reportPath)) {
-        exec(`open "${reportPath}"`);
-      } else {
-        exec(`open "${sessionPath}"`);
-      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to create session");
+      setCurrentStep("target");
     }
   }
 
@@ -446,8 +158,8 @@ export default function InitWizard() {
   useKeyboard((key) => {
     // ESC - Go back or close
     if (key.name === "escape") {
-      if (currentStep === "running" && isExecuting && abortController) {
-        abortController.abort();
+      if (currentStep === "creating") {
+        // Can't cancel while creating
         return;
       }
       if (currentStep === "configure") {
@@ -460,24 +172,16 @@ export default function InitWizard() {
       return;
     }
 
-    // Open report when completed
-    if (isCompleted && key.name === "return") {
-      openReport();
-      return;
-    }
-
-    // Don't allow navigation during running
-    if (currentStep === "running") return;
+    // Don't allow navigation while creating
+    if (currentStep === "creating") return;
 
     // Target step: Enter to start, Tab to navigate/configure
     if (currentStep === "target") {
       // Tab navigation between name and target fields
       if (key.name === "tab") {
         if (key.shift) {
-          // Shift+Tab: go to previous field or stay at 0
           setTargetFocusedField((prev) => Math.max(0, prev - 1));
         } else {
-          // Tab: go to next field, or if at target field with value, go to configure
           if (targetFocusedField === 1 && state.target.trim()) {
             setCurrentStep("configure");
           } else {
@@ -488,7 +192,7 @@ export default function InitWizard() {
       }
       // Enter to start if target is filled
       if (key.name === "return" && state.target.trim()) {
-        startPentest();
+        createSessionAndNavigate();
         return;
       }
       return;
@@ -496,7 +200,7 @@ export default function InitWizard() {
 
     // Configure step keyboard handling
     if (currentStep === "configure") {
-      // Enter to start pentest
+      // Enter to create session
       if (key.name === "return") {
         // Check if we should add an item instead of starting
         if (focusedSection === 1 && focusedField === 0 && hostInput.trim()) {
@@ -527,15 +231,14 @@ export default function InitWizard() {
           setHeaderValueInput("");
           return;
         }
-        // Otherwise start pentest
-        startPentest();
+        // Otherwise create session
+        createSessionAndNavigate();
         return;
       }
 
       // Tab navigation between sections and fields
       if (key.name === "tab") {
         if (key.shift) {
-          // Previous field/section
           if (focusedField > 0) {
             setFocusedField(focusedField - 1);
           } else if (focusedSection > 0) {
@@ -543,7 +246,6 @@ export default function InitWizard() {
             setFocusedField(getMaxFieldsForSection(focusedSection - 1) - 1);
           }
         } else {
-          // Next field/section
           const maxFields = getMaxFieldsForSection(focusedSection);
           if (focusedField < maxFields - 1) {
             setFocusedField(focusedField + 1);
@@ -557,7 +259,6 @@ export default function InitWizard() {
 
       // Arrow keys for toggles
       if (key.name === "up" || key.name === "down") {
-        // Scope strictScope toggle
         if (focusedSection === 1 && focusedField === 2) {
           setState((prev) => ({
             ...prev,
@@ -565,7 +266,6 @@ export default function InitWizard() {
           }));
           return;
         }
-        // Headers mode toggle
         if (focusedSection === 2 && focusedField === 0) {
           const modes: Array<"none" | "default" | "custom"> = ["none", "default", "custom"];
           const currentIndex = modes.indexOf(state.headers.mode);
@@ -584,31 +284,28 @@ export default function InitWizard() {
 
   function getMaxFieldsForSection(section: number): number {
     switch (section) {
-      case 0: return 4; // Auth: loginUrl, username, password, instructions
-      case 1: return 3; // Scope: host input, port input, strictScope toggle
-      case 2: return state.headers.mode === "custom" ? 3 : 1; // Headers: mode, [name, value]
+      case 0: return 4;
+      case 1: return 3;
+      case 2: return state.headers.mode === "custom" ? 3 : 1;
       default: return 1;
     }
   }
 
-  // Render running state
-  if (currentStep === "running") {
+  // Render creating state
+  if (currentStep === "creating") {
     return (
-      <SwarmDashboard
-        subagents={subagents}
-        isExecuting={isExecuting}
-        startTime={startTime ?? undefined}
-        sessionPath={sessionPath}
-        isCompleted={isCompleted}
-        onBack={() => {
-          if (isExecuting && abortController) {
-            abortController.abort();
-          } else {
-            route.navigate({ type: "base", path: "home" });
-          }
-        }}
-        onViewReport={openReport}
-      />
+      <box
+        flexDirection="column"
+        width="100%"
+        height="100%"
+        alignItems="center"
+        justifyContent="center"
+        flexGrow={1}
+        gap={2}
+      >
+        <SpinnerDots label="Creating session..." fg="green" />
+        <text fg={dimText}>Target: {state.target}</text>
+      </box>
     );
   }
 
@@ -616,10 +313,10 @@ export default function InitWizard() {
   if (currentStep === "target") {
     return (
       <box width="100%" flexDirection="column" gap={2} paddingLeft={4}>
-        {/* Title */}
         <text fg={creamText}>Configure Penetration Test</text>
 
-        {/* Name input */}
+        {error && <text fg="red">Error: {error}</text>}
+
         <Input
           label="Session Name"
           description="Auto-generated, edit if desired"
@@ -629,7 +326,6 @@ export default function InitWizard() {
           focused={targetFocusedField === 0}
         />
 
-        {/* Target input */}
         <Input
           label="Target URL"
           description="e.g., https://example.com"
@@ -639,7 +335,6 @@ export default function InitWizard() {
           focused={targetFocusedField === 1}
         />
 
-        {/* Action hints */}
         <box flexDirection="column" gap={0} marginTop={1}>
           <text>
             <span fg={greenBullet}>█ </span>
@@ -667,7 +362,6 @@ export default function InitWizard() {
   // Render configure step
   return (
     <box width="100%" flexDirection="column" gap={2} paddingLeft={4}>
-      {/* Title */}
       <box flexDirection="column">
         <text fg={creamText}>Optional Configuration</text>
         <text fg={dimText}>All fields are optional - configure only what you need</text>
@@ -812,7 +506,6 @@ export default function InitWizard() {
         )}
       </box>
 
-      {/* Action hints */}
       <box flexDirection="column" gap={0} marginTop={1}>
         <text>
           <span fg={greenBullet}>█ </span>

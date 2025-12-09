@@ -4,19 +4,14 @@ import {
   ColoredAsciiArt,
 } from "./components/ascii-art";
 import { useState, useEffect } from "react";
-import Header from "./components/header";
 import Footer from "./components/footer";
 import CommandInput from "./command-input";
-import { CommandProvider, useCommand } from "./command-provider";
+import { CommandProvider } from "./command-provider";
 import { AgentProvider } from "./agentProvider";
 import HelpDialog from "./components/commands/help-dialog";
-import ConfigDialog from "./components/commands/config-dialog";
-import PentestAgentDisplay from "./components/commands/pentest-agent-display";
-import ThoroughPentestAgentDisplay from "./components/commands/thorough-pentest-agent-display";
 import InitWizard from "./components/commands/init-wizard";
+import SessionView from "./components/session-view";
 import SessionsDisplay from "./components/commands/sessions-display";
-import ModelsDisplay from "./components/commands/models-display";
-import ProviderManager from "./components/commands/provider-manager";
 import CreateSessionDialog from "./components/commands/create-session-dialog";
 import type { Config } from "../core/config/config";
 import { config } from "../core/config";
@@ -29,14 +24,12 @@ import { createSwitch } from "./components/switch";
 import { type RoutePath, RouteProvider, useRoute } from "./context/route";
 import { ResponsibleUseDisclosure } from "./components/responsible-use-disclosure";
 import { hasAnyProviderConfigured } from "../core/providers";
-import { AsciiHeader } from "./components/ascii-header";
 import { BoxLogo } from "./components/box-logo";
 import { AsciiTitle } from "./components/ascii-title";
 import { SessionProvider } from "./context/session";
 import { InputProvider, useInput } from "./context/input";
 import { FocusProvider, useFocus } from "./context/focus";
 import { DialogProvider } from "./components/dialog";
-import { SessionDisplay } from "./session/session";
 import { Session } from "../core/session";
 import ShortcutsDialog from "./components/commands/shortcuts-dialog";
 
@@ -78,12 +71,6 @@ const coloredAscii = await convertImageToColoredAscii(
   CONFIG.maxWidth,
   CONFIG.aspectRatio,
   CONFIG.invert
-);
-
-console.log(
-  `Generated colored ASCII: ${coloredAscii.length} rows x ${
-    coloredAscii[0]?.length || 0
-  } columns (scale: ${CONFIG.scale * 100}%)`
 );
 
 interface AppProps {
@@ -220,9 +207,12 @@ function AppContent({
     }
 
     // Escape - Return to home from any non-home route
+    // Exclude "init" and "session" routes - they handle their own ESC behavior
     if (key.name === "escape") {
       const isHome = route.data.type === "base" && route.data.path === "home";
-      if (!isHome) {
+      const isInit = route.data.type === "base" && route.data.path === "init";
+      const isSession = route.data.type === "session";
+      if (!isHome && !isInit && !isSession) {
         route.navigate({
           type: "base",
           path: "home"
@@ -398,25 +388,9 @@ function CommandDisplay({
     );
   }
 
-  // Session route - show message for now
+  // Session route - render SessionView which handles pentest execution
   if(route.data.type === "session") {
-    
-    return (
-      // <SessionDisplay sessionId={route.data.sessionId}/>
-      <box
-        flexDirection="column"
-        width="100%"
-        maxHeight="100%"
-        alignItems="center"
-        justifyContent="center"
-        flexGrow={1}
-        gap={2}
-      >
-        <text fg="green">Session created successfully!</text>
-        <text fg="white">Session ID: {route.data.sessionId}</text>
-        <text fg="gray">Press ESC to return home</text>
-      </box>
-    );
+    return <SessionView sessionId={route.data.sessionId} />;
   }
 
   return null;
