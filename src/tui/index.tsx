@@ -445,6 +445,7 @@ function Home () {
 
   return (
     <box width={"100%"} flexDirection="column" gap={1}>
+        <ColoredAsciiArt ascii={coloredAscii}/>
       {/* Logo */}
       <BoxLogo />
 

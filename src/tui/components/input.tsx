@@ -16,10 +16,10 @@ const Input = forwardRef<InputRenderable, InputComponentProps>(function Input(
   return (
     <box
       width="100%"
-      backgroundColor="black"
+      backgroundColor="transparent"
       flexDirection="column"
       paddingBottom={1}
-      paddingTop={1}
+      // paddingTop={1}
       border={['left']}
       borderColor={'green'}
     >
@@ -28,7 +28,7 @@ const Input = forwardRef<InputRenderable, InputComponentProps>(function Input(
       <input
         ref={ref}
         paddingLeft={1}
-        backgroundColor="black"
+        backgroundColor="transparent"
         focused={focused}
         {...inputProps}
       />

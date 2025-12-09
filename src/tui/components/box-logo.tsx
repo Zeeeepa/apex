@@ -33,33 +33,38 @@ const GREEN_GRADIENT = [
 
 const BLOCK_CHAR = "█";
 
-export function BoxLogo() {
-  return (
-    <box flexDirection="column" alignItems="center" justifyContent="center">
-      {LOGO_PATTERN.map((row, rowIndex) => {
-        const color = GREEN_GRADIENT[rowIndex] || GREEN_GRADIENT[GREEN_GRADIENT.length - 1];
-        const rgbaColor = RGBA.fromInts(color.r, color.g, color.b, 255);
+// BoxLogo is currently disabled - uncomment to use
+// export function BoxLogo() {
+//   return (
+//     <box flexDirection="column" alignItems="center" justifyContent="center">
+//       {LOGO_PATTERN.map((row, rowIndex) => {
+//         const color = GREEN_GRADIENT[rowIndex] || GREEN_GRADIENT[GREEN_GRADIENT.length - 1];
+//         const rgbaColor = RGBA.fromInts(color.r, color.g, color.b, 255);
+//
+//         return (
+//           <text key={rowIndex}>
+//             {row.map((cell, colIndex) => {
+//               if (cell === 1) {
+//                 return (
+//                   <span key={colIndex} fg={rgbaColor}>
+//                     {BLOCK_CHAR}{BLOCK_CHAR}
+//                   </span>
+//                 );
+//               } else {
+//                 return (
+//                   <span key={colIndex}>
+//                     {"  "}
+//                   </span>
+//                 );
+//               }
+//             })}
+//           </text>
+//         );
+//       })}
+//     </box>
+//   );
+// }
 
-        return (
-          <text key={rowIndex}>
-            {row.map((cell, colIndex) => {
-              if (cell === 1) {
-                return (
-                  <span key={colIndex} fg={rgbaColor}>
-                    {BLOCK_CHAR}{BLOCK_CHAR}
-                  </span>
-                );
-              } else {
-                return (
-                  <span key={colIndex}>
-                    {"  "}
-                  </span>
-                );
-              }
-            })}
-          </text>
-        );
-      })}
-    </box>
-  );
+export function BoxLogo() {
+  return null;
 }

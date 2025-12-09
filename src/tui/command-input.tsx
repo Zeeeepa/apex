@@ -79,7 +79,7 @@ export default function CommandInput({
   const creamText = RGBA.fromInts(255, 248, 220, 255);
 
   return (
-    <box width={"100%"} flexDirection="column" marginTop={1}>
+    <box width={"100%"} flexDirection="column" marginTop={1} rowGap={1}>
       {/* Sleek command input bar */}
       <box
         width={"100%"}
