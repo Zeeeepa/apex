@@ -1,10 +1,11 @@
 import { useState } from "react";
 import { useKeyboard } from "@opentui/react";
+import { RGBA } from "@opentui/core";
 import Input from "../input";
 import { useRoute } from "../../context/route";
 import { useAgent } from "../../agentProvider";
 import AgentDisplay from "../agent-display";
-import { createSession, type SessionConfig } from "../../../core/agent/sessions";
+import { Session } from "../../../core/session";
 import { runStreamlinedPentest, type StreamlinedPentestProgress } from "../../../core/agent/thoroughPentestAgent/streamlined";
 import type { SubAgentSpawnInfo, SubAgentStreamEvent } from "../../../core/agent/pentestAgent/orchestrator";
 import type { MetaVulnerabilityTestResult } from "../../../core/agent/metaTestingAgent";
@@ -12,22 +13,33 @@ import type { Message, ToolMessage } from "../../../core/messages/types";
 import { existsSync } from "fs";
 import { exec } from "child_process";
 
-// Wizard step types
-type WizardStep =
-  | "select-type"
-  | "target"
-  | "auth"
-  | "objective"
-  | "scope"
-  | "headers"
-  | "confirm"
-  | "running";
+// Simplified wizard step types
+type WizardStep = "target" | "configure" | "running";
 
-type PentestType = "quick" | "full";
+// Random name generator (GitHub-style)
+const adjectives = [
+  "swift", "bright", "calm", "bold", "keen", "noble", "quick", "sharp",
+  "vivid", "warm", "agile", "brave", "clever", "daring", "eager", "fierce",
+  "gentle", "humble", "jolly", "lively", "merry", "nimble", "proud", "quiet",
+  "rapid", "serene", "sturdy", "tender", "valiant", "witty", "zealous"
+];
 
-// Wizard state interface
+const nouns = [
+  "falcon", "wolf", "hawk", "bear", "lion", "tiger", "eagle", "raven",
+  "phoenix", "dragon", "panther", "cobra", "viper", "shark", "orca",
+  "mantis", "spider", "scorpion", "hydra", "griffin", "sphinx", "kraken",
+  "cipher", "nexus", "prism", "vector", "matrix", "pulse", "surge", "flux"
+];
+
+function generateRandomName(): string {
+  const adj = adjectives[Math.floor(Math.random() * adjectives.length)]!;
+  const noun = nouns[Math.floor(Math.random() * nouns.length)]!;
+  return `${adj}-${noun}`;
+}
+
+// Simplified wizard state interface
 interface WizardState {
-  pentestType: PentestType;
+  name: string;
   target: string;
   auth: {
     loginUrl: string;
@@ -35,7 +47,6 @@ interface WizardState {
     password: string;
     instructions: string;
   };
-  objectiveGuidance: string;
   scope: {
     allowedHosts: string[];
     allowedPorts: string[];
@@ -58,36 +69,19 @@ type Subagent = {
   status: "pending" | "completed" | "failed";
 };
 
-// Get steps for each pentest type
-function getStepsForType(type: PentestType): WizardStep[] {
-  if (type === "quick") {
-    return ["select-type", "target", "auth", "scope", "confirm", "running"];
-  }
-  return ["select-type", "target", "auth", "objective", "scope", "headers", "confirm", "running"];
-}
-
-function getStepTitle(step: WizardStep): string {
-  const titles: Record<WizardStep, string> = {
-    "select-type": "Select Pentest Type",
-    "target": "Enter Target",
-    "auth": "Authentication",
-    "objective": "Objective Guidance",
-    "scope": "Scope Constraints",
-    "headers": "Request Headers",
-    "confirm": "Confirm Configuration",
-    "running": "Running Pentest",
-  };
-  return titles[step];
-}
+// Home view color palette
+const greenBullet = RGBA.fromInts(76, 175, 80, 255);
+const creamText = RGBA.fromInts(255, 248, 220, 255);
+const dimText = RGBA.fromInts(120, 120, 120, 255);
 
 export default function InitWizard() {
   const route = useRoute();
   const { model, addTokens, setTokenCount, setThinking, isExecuting, setIsExecuting } = useAgent();
 
   // Wizard state
-  const [currentStep, setCurrentStep] = useState<WizardStep>("select-type");
-  const [state, setState] = useState<WizardState>({
-    pentestType: "quick",
+  const [currentStep, setCurrentStep] = useState<WizardStep>("target");
+  const [state, setState] = useState<WizardState>(() => ({
+    name: generateRandomName(),
     target: "",
     auth: {
       loginUrl: "",
@@ -95,7 +89,6 @@ export default function InitWizard() {
       password: "",
       instructions: "",
     },
-    objectiveGuidance: "",
     scope: {
       allowedHosts: [],
       allowedPorts: [],
@@ -105,9 +98,13 @@ export default function InitWizard() {
       mode: "default",
       customHeaders: {},
     },
-  });
+  }));
 
-  // UI state
+  // UI state for target step
+  const [targetFocusedField, setTargetFocusedField] = useState(0); // 0=name, 1=target
+
+  // UI state for configure step
+  const [focusedSection, setFocusedSection] = useState(0); // 0=auth, 1=scope, 2=headers
   const [focusedField, setFocusedField] = useState(0);
   const [hostInput, setHostInput] = useState("");
   const [portInput, setPortInput] = useState("");
@@ -121,37 +118,10 @@ export default function InitWizard() {
   const [isCompleted, setIsCompleted] = useState(false);
   const [abortController, setAbortController] = useState<AbortController | null>(null);
 
-  const steps = getStepsForType(state.pentestType);
-  const currentStepIndex = steps.indexOf(currentStep);
-  const totalSteps = steps.length - 1; // Exclude "running" from count
-
-  // Navigation helpers
-  const canGoBack = currentStepIndex > 0 && currentStep !== "running";
-  const canSkip = ["auth", "objective", "scope", "headers"].includes(currentStep);
-
-  function goToNextStep() {
-    const nextIndex = currentStepIndex + 1;
-    if (nextIndex < steps.length) {
-      setCurrentStep(steps[nextIndex]!);
-      setFocusedField(0);
-    }
-  }
-
-  function goToPrevStep() {
-    if (canGoBack) {
-      setCurrentStep(steps[currentStepIndex - 1]!);
-      setFocusedField(0);
-    }
-  }
-
-  function skipStep() {
-    if (canSkip) {
-      goToNextStep();
-    }
-  }
-
   // Start the pentest
   async function startPentest() {
+    if (!state.target.trim()) return;
+
     setCurrentStep("running");
     setIsExecuting(true);
     setThinking(true);
@@ -163,7 +133,7 @@ export default function InitWizard() {
 
     try {
       // Build session config
-      const sessionConfig: SessionConfig = {};
+      const sessionConfig: Session.SessionConfig = {};
 
       // Auth config
       if (state.auth.instructions || state.auth.username) {
@@ -175,11 +145,6 @@ export default function InitWizard() {
             loginUrl: state.auth.loginUrl || undefined,
           };
         }
-      }
-
-      // Objective guidance
-      if (state.objectiveGuidance) {
-        sessionConfig.outcomeGuidance = state.objectiveGuidance;
       }
 
       // Scope constraints
@@ -199,20 +164,20 @@ export default function InitWizard() {
         };
       }
 
-      // Create session
-      const session = createSession(
-        state.target,
-        `Pentest session for ${state.target}`,
-        "pentest",
-        sessionConfig
-      );
+      // Create session using new Session API
+      const session = await Session.createExecution({
+        target: state.target,
+        objective: `Pentest: ${state.target}`,
+        prefix: state.name || undefined,
+        config: sessionConfig,
+      });
 
       setSessionPath(session.rootPath);
 
       // Add initial user message
       const userMessage: Message = {
         role: "user",
-        content: `Target: ${state.target}\n\nMode: ${state.pentestType === "quick" ? "Quick" : "Full"} Pentest`,
+        content: `Target: ${state.target}`,
         createdAt: new Date(),
       };
       setMessages([userMessage]);
@@ -488,11 +453,13 @@ export default function InitWizard() {
         abortController.abort();
         return;
       }
-      if (canGoBack) {
-        goToPrevStep();
-      } else {
-        route.navigate({ type: "base", path: "home" });
+      if (currentStep === "configure") {
+        setCurrentStep("target");
+        setFocusedSection(0);
+        setFocusedField(0);
+        return;
       }
+      route.navigate({ type: "base", path: "home" });
       return;
     }
 
@@ -505,253 +472,241 @@ export default function InitWizard() {
     // Don't allow navigation during running
     if (currentStep === "running") return;
 
-    // TAB - Next field
-    if (key.name === "tab" && !key.shift) {
-      handleTabNext();
-      return;
-    }
-
-    // Shift+TAB - Previous field
-    if (key.name === "tab" && key.shift) {
-      handleTabPrev();
-      return;
-    }
-
-    // Arrow keys for select-type step
-    if (currentStep === "select-type" && (key.name === "up" || key.name === "down")) {
-      setState((prev) => ({
-        ...prev,
-        pentestType: prev.pentestType === "quick" ? "full" : "quick",
-      }));
-      return;
-    }
-
-    // Arrow keys for scope strictScope toggle
-    if (currentStep === "scope" && focusedField === 2 && (key.name === "up" || key.name === "down")) {
-      setState((prev) => ({
-        ...prev,
-        scope: { ...prev.scope, strictScope: !prev.scope.strictScope },
-      }));
-      return;
-    }
-
-    // Arrow keys for headers mode
-    if (currentStep === "headers" && focusedField === 0 && (key.name === "up" || key.name === "down")) {
-      const modes: Array<"none" | "default" | "custom"> = ["none", "default", "custom"];
-      const currentIndex = modes.indexOf(state.headers.mode);
-      const newIndex = key.name === "up"
-        ? (currentIndex - 1 + modes.length) % modes.length
-        : (currentIndex + 1) % modes.length;
-      setState((prev) => ({
-        ...prev,
-        headers: { ...prev.headers, mode: modes[newIndex]! },
-      }));
-      return;
-    }
-
-    // S or Right Arrow - Skip (on optional steps)
-    if ((key.name === "s" || key.name === "right") && canSkip && !isInputFocused()) {
-      skipStep();
-      return;
-    }
-
-    // ENTER - Proceed
-    if (key.name === "return") {
-      handleEnter();
-      return;
-    }
-  });
-
-  function isInputFocused(): boolean {
-    // Check if we're focused on a text input field
-    if (currentStep === "target") return true;
-    if (currentStep === "auth") return focusedField < 4;
-    if (currentStep === "objective") return true;
-    if (currentStep === "scope") return focusedField < 2;
-    if (currentStep === "headers" && state.headers.mode === "custom") return focusedField > 0;
-    return false;
-  }
-
-  function handleTabNext() {
-    const maxFields = getMaxFieldsForStep();
-    setFocusedField((prev) => (prev + 1) % maxFields);
-  }
-
-  function handleTabPrev() {
-    const maxFields = getMaxFieldsForStep();
-    setFocusedField((prev) => (prev - 1 + maxFields) % maxFields);
-  }
-
-  function getMaxFieldsForStep(): number {
-    switch (currentStep) {
-      case "select-type": return 1;
-      case "target": return 1;
-      case "auth": return 4;
-      case "objective": return 1;
-      case "scope": return 3;
-      case "headers": return state.headers.mode === "custom" ? 3 : 1;
-      case "confirm": return 1;
-      default: return 1;
-    }
-  }
-
-  function handleEnter() {
-    // Handle specific step logic
-    if (currentStep === "select-type") {
-      goToNextStep();
-      return;
-    }
-
+    // Target step: Enter to start, Tab to navigate/configure
     if (currentStep === "target") {
-      if (state.target.trim()) {
-        goToNextStep();
+      // Tab navigation between name and target fields
+      if (key.name === "tab") {
+        if (key.shift) {
+          // Shift+Tab: go to previous field or stay at 0
+          setTargetFocusedField((prev) => Math.max(0, prev - 1));
+        } else {
+          // Tab: go to next field, or if at target field with value, go to configure
+          if (targetFocusedField === 1 && state.target.trim()) {
+            setCurrentStep("configure");
+          } else {
+            setTargetFocusedField((prev) => Math.min(1, prev + 1));
+          }
+        }
+        return;
+      }
+      // Enter to start if target is filled
+      if (key.name === "return" && state.target.trim()) {
+        startPentest();
+        return;
       }
       return;
     }
 
-    if (currentStep === "scope" && focusedField === 0 && hostInput.trim()) {
-      // Add host
-      setState((prev) => ({
-        ...prev,
-        scope: { ...prev.scope, allowedHosts: [...prev.scope.allowedHosts, hostInput.trim()] },
-      }));
-      setHostInput("");
-      return;
-    }
+    // Configure step keyboard handling
+    if (currentStep === "configure") {
+      // Enter to start pentest
+      if (key.name === "return") {
+        // Check if we should add an item instead of starting
+        if (focusedSection === 1 && focusedField === 0 && hostInput.trim()) {
+          setState((prev) => ({
+            ...prev,
+            scope: { ...prev.scope, allowedHosts: [...prev.scope.allowedHosts, hostInput.trim()] },
+          }));
+          setHostInput("");
+          return;
+        }
+        if (focusedSection === 1 && focusedField === 1 && portInput.trim()) {
+          setState((prev) => ({
+            ...prev,
+            scope: { ...prev.scope, allowedPorts: [...prev.scope.allowedPorts, portInput.trim()] },
+          }));
+          setPortInput("");
+          return;
+        }
+        if (focusedSection === 2 && state.headers.mode === "custom" && focusedField === 2 && headerNameInput.trim()) {
+          setState((prev) => ({
+            ...prev,
+            headers: {
+              ...prev.headers,
+              customHeaders: { ...prev.headers.customHeaders, [headerNameInput.trim()]: headerValueInput },
+            },
+          }));
+          setHeaderNameInput("");
+          setHeaderValueInput("");
+          return;
+        }
+        // Otherwise start pentest
+        startPentest();
+        return;
+      }
 
-    if (currentStep === "scope" && focusedField === 1 && portInput.trim()) {
-      // Add port
-      setState((prev) => ({
-        ...prev,
-        scope: { ...prev.scope, allowedPorts: [...prev.scope.allowedPorts, portInput.trim()] },
-      }));
-      setPortInput("");
-      return;
-    }
+      // Tab navigation between sections and fields
+      if (key.name === "tab") {
+        if (key.shift) {
+          // Previous field/section
+          if (focusedField > 0) {
+            setFocusedField(focusedField - 1);
+          } else if (focusedSection > 0) {
+            setFocusedSection(focusedSection - 1);
+            setFocusedField(getMaxFieldsForSection(focusedSection - 1) - 1);
+          }
+        } else {
+          // Next field/section
+          const maxFields = getMaxFieldsForSection(focusedSection);
+          if (focusedField < maxFields - 1) {
+            setFocusedField(focusedField + 1);
+          } else if (focusedSection < 2) {
+            setFocusedSection(focusedSection + 1);
+            setFocusedField(0);
+          }
+        }
+        return;
+      }
 
-    if (currentStep === "headers" && state.headers.mode === "custom" && focusedField === 2 && headerNameInput.trim()) {
-      // Add header
-      setState((prev) => ({
-        ...prev,
-        headers: {
-          ...prev.headers,
-          customHeaders: { ...prev.headers.customHeaders, [headerNameInput.trim()]: headerValueInput },
-        },
-      }));
-      setHeaderNameInput("");
-      setHeaderValueInput("");
-      return;
+      // Arrow keys for toggles
+      if (key.name === "up" || key.name === "down") {
+        // Scope strictScope toggle
+        if (focusedSection === 1 && focusedField === 2) {
+          setState((prev) => ({
+            ...prev,
+            scope: { ...prev.scope, strictScope: !prev.scope.strictScope },
+          }));
+          return;
+        }
+        // Headers mode toggle
+        if (focusedSection === 2 && focusedField === 0) {
+          const modes: Array<"none" | "default" | "custom"> = ["none", "default", "custom"];
+          const currentIndex = modes.indexOf(state.headers.mode);
+          const newIndex = key.name === "up"
+            ? (currentIndex - 1 + modes.length) % modes.length
+            : (currentIndex + 1) % modes.length;
+          setState((prev) => ({
+            ...prev,
+            headers: { ...prev.headers, mode: modes[newIndex]! },
+          }));
+          return;
+        }
+      }
     }
+  });
 
-    if (currentStep === "confirm") {
-      startPentest();
-      return;
+  function getMaxFieldsForSection(section: number): number {
+    switch (section) {
+      case 0: return 4; // Auth: loginUrl, username, password, instructions
+      case 1: return 3; // Scope: host input, port input, strictScope toggle
+      case 2: return state.headers.mode === "custom" ? 3 : 1; // Headers: mode, [name, value]
+      default: return 1;
     }
-
-    // Default: go to next step
-    goToNextStep();
   }
 
-  // Render
-  return (
-    <box
-      flexDirection="column"
-      width="100%"
-      maxHeight="100%"
-      alignItems="center"
-      justifyContent="center"
-      flexGrow={1}
-      gap={1}
-    >
-      {currentStep === "running" ? (
+  // Render running state
+  if (currentStep === "running") {
+    return (
+      <box
+        flexDirection="column"
+        width="100%"
+        maxHeight="100%"
+        alignItems="center"
+        justifyContent="center"
+        flexGrow={1}
+        gap={1}
+      >
         <AgentDisplay messages={messages} isStreaming={isExecuting} subagents={subagents}>
           {isCompleted && (
-            <box border borderColor="green" flexDirection="column" padding={1} gap={1} alignItems="center">
-              <text fg="green">✓ Pentest Completed</text>
-              <text fg="white">Report generated successfully</text>
-              <box flexDirection="row" gap={1}>
-                <text fg="gray">Press</text>
-                <text fg="green">[ENTER]</text>
-                <text fg="gray">to view report or</text>
-                <text fg="green">[ESC]</text>
-                <text fg="gray">to close</text>
+            <box flexDirection="column" gap={1} marginTop={1}>
+              <text>
+                <span fg={greenBullet}>█ </span>
+                <span fg={creamText}>Pentest Completed</span>
+              </text>
+              <text fg={dimText}>  Report generated successfully</text>
+              <box flexDirection="column" marginTop={1}>
+                <text>
+                  <span fg={greenBullet}>█ </span>
+                  <span fg={dimText}>Press </span>
+                  <span fg={creamText}>[Enter]</span>
+                  <span fg={dimText}> to view report</span>
+                </text>
+                <text>
+                  <span fg={greenBullet}>█ </span>
+                  <span fg={dimText}>Press </span>
+                  <span fg={creamText}>[ESC]</span>
+                  <span fg={dimText}> to close</span>
+                </text>
               </box>
-              <text fg="gray">{sessionPath}/comprehensive-pentest-report.md</text>
+              <text fg={dimText}>  {sessionPath}/comprehensive-pentest-report.md</text>
             </box>
           )}
         </AgentDisplay>
-      ) : (
-        <box
-          border
-          borderColor="green"
-          width={70}
-          flexDirection="column"
-          padding={1}
-          gap={1}
-        >
-          {/* Header */}
-          <box flexDirection="row" justifyContent="space-between">
-            <text fg="green">Step {currentStepIndex + 1} of {totalSteps}: {getStepTitle(currentStep)}</text>
-            <text fg="gray">{state.pentestType === "quick" ? "Quick" : "Full"} Mode</text>
-          </box>
-          <text fg="gray">{'─'.repeat(66)}</text>
+      </box>
+    );
+  }
 
-          {/* Step Content */}
-          {renderStepContent()}
+  // Render target step
+  if (currentStep === "target") {
+    return (
+      <box width="100%" flexDirection="column" gap={2} paddingLeft={4}>
+        {/* Title */}
+        <text fg={creamText}>Configure Penetration Test</text>
 
-          {/* Footer */}
-          <text fg="gray">{'─'.repeat(66)}</text>
-          <box flexDirection="row" gap={2}>
-            {canGoBack && <text fg="gray"><span fg="green">[ESC]</span> Back</text>}
-            {canSkip && <text fg="gray"><span fg="green">[S]</span> Skip</text>}
-            <text fg="gray"><span fg="green">[ENTER]</span> {currentStep === "confirm" ? "Start" : "Next"}</text>
-          </box>
+        {/* Name input */}
+        <Input
+          label="Session Name"
+          description="Auto-generated, edit if desired"
+          placeholder="swift-falcon"
+          value={state.name}
+          onInput={(v) => setState((prev) => ({ ...prev, name: v }))}
+          focused={targetFocusedField === 0}
+        />
+
+        {/* Target input */}
+        <Input
+          label="Target URL"
+          description="e.g., https://example.com"
+          placeholder="https://example.com"
+          value={state.target}
+          onInput={(v) => setState((prev) => ({ ...prev, target: v }))}
+          focused={targetFocusedField === 1}
+        />
+
+        {/* Action hints */}
+        <box flexDirection="column" gap={0} marginTop={1}>
+          <text>
+            <span fg={greenBullet}>█ </span>
+            <span fg={dimText}>Press </span>
+            <span fg={creamText}>[Enter]</span>
+            <span fg={dimText}> to start immediately</span>
+          </text>
+          <text>
+            <span fg={greenBullet}>█ </span>
+            <span fg={dimText}>Press </span>
+            <span fg={creamText}>[Tab]</span>
+            <span fg={dimText}> to configure options</span>
+          </text>
+          <text>
+            <span fg={greenBullet}>█ </span>
+            <span fg={dimText}>Press </span>
+            <span fg={creamText}>[ESC]</span>
+            <span fg={dimText}> to cancel</span>
+          </text>
         </box>
-      )}
-    </box>
-  );
+      </box>
+    );
+  }
 
-  function renderStepContent() {
-    switch (currentStep) {
-      case "select-type":
-        return (
-          <box flexDirection="column" gap={1}>
-            <text fg="white">Choose the type of penetration test:</text>
-            <box flexDirection="column">
-              <text fg={state.pentestType === "quick" ? "green" : "gray"}>
-                {state.pentestType === "quick" ? "●" : "○"} Quick Pentest
-                <span fg="gray"> - Faster scan with essential configuration</span>
-              </text>
-              <text fg={state.pentestType === "full" ? "green" : "gray"}>
-                {state.pentestType === "full" ? "●" : "○"} Full Pentest
-                <span fg="gray"> - Comprehensive scan with all options</span>
-              </text>
-            </box>
-            <text fg="gray">Use ↑/↓ to select</text>
-          </box>
-        );
+  // Render configure step
+  return (
+    <box width="100%" flexDirection="column" gap={2} paddingLeft={4}>
+      {/* Title */}
+      <box flexDirection="column">
+        <text fg={creamText}>Optional Configuration</text>
+        <text fg={dimText}>All fields are optional - configure only what you need</text>
+      </box>
 
-      case "target":
-        return (
-          <box flexDirection="column" gap={1}>
-            <Input
-              label="Target URL or Domain"
-              description="e.g., https://example.com or example.com"
-              placeholder="https://example.com"
-              value={state.target}
-              onInput={(v) => setState((prev) => ({ ...prev, target: v }))}
-              focused={true}
-            />
-          </box>
-        );
-
-      case "auth":
-        return (
-          <box flexDirection="column" gap={1}>
-            <text fg="white">Configure authentication (optional):</text>
+      {/* Auth Section */}
+      <box flexDirection="column" gap={1}>
+        <text>
+          <span fg={greenBullet}>█ </span>
+          <span fg={focusedSection === 0 ? creamText : dimText}>Authentication</span>
+        </text>
+        {focusedSection === 0 && (
+          <box flexDirection="column" gap={1} paddingLeft={2}>
             <Input
               label="Login URL"
-              description="URL of the login endpoint"
               placeholder="https://example.com/login"
               value={state.auth.loginUrl}
               onInput={(v) => setState((prev) => ({ ...prev, auth: { ...prev.auth, loginUrl: v } }))}
@@ -772,39 +727,27 @@ export default function InitWizard() {
               focused={focusedField === 2}
             />
             <Input
-              label="Additional Instructions"
-              description="Free-form authentication instructions for the agent"
-              placeholder="Use OAuth flow, then extract bearer token..."
+              label="Auth Instructions"
+              placeholder="Use OAuth flow, extract bearer token..."
               value={state.auth.instructions}
               onInput={(v) => setState((prev) => ({ ...prev, auth: { ...prev.auth, instructions: v } }))}
               focused={focusedField === 3}
             />
           </box>
-        );
+        )}
+      </box>
 
-      case "objective":
-        return (
-          <box flexDirection="column" gap={1}>
-            <text fg="white">Custom objective guidance (optional):</text>
-            <Input
-              label="Objective Guidance"
-              description="Custom instructions for what the pentest should focus on"
-              placeholder="Focus on authentication bypass and data exfiltration..."
-              value={state.objectiveGuidance}
-              onInput={(v) => setState((prev) => ({ ...prev, objectiveGuidance: v }))}
-              focused={true}
-            />
-            <text fg="gray">Leave empty to use default guidance</text>
-          </box>
-        );
-
-      case "scope":
-        return (
-          <box flexDirection="column" gap={1}>
-            <text fg="white">Configure scope constraints (optional):</text>
+      {/* Scope Section */}
+      <box flexDirection="column" gap={1}>
+        <text>
+          <span fg={greenBullet}>█ </span>
+          <span fg={focusedSection === 1 ? creamText : dimText}>Scope Constraints</span>
+        </text>
+        {focusedSection === 1 && (
+          <box flexDirection="column" gap={1} paddingLeft={2}>
             <Input
               label="Add Allowed Host"
-              description="Press ENTER to add"
+              description="Press Enter to add"
               placeholder="example.com"
               value={hostInput}
               onInput={setHostInput}
@@ -812,15 +755,14 @@ export default function InitWizard() {
             />
             {state.scope.allowedHosts.length > 0 && (
               <box flexDirection="column" paddingLeft={2}>
-                <text fg="gray">Allowed hosts:</text>
                 {state.scope.allowedHosts.map((h, i) => (
-                  <text key={i} fg="white">• {h}</text>
+                  <text key={i} fg={dimText}>• {h}</text>
                 ))}
               </box>
             )}
             <Input
               label="Add Allowed Port"
-              description="Press ENTER to add"
+              description="Press Enter to add"
               placeholder="443"
               value={portInput}
               onInput={setPortInput}
@@ -828,45 +770,45 @@ export default function InitWizard() {
             />
             {state.scope.allowedPorts.length > 0 && (
               <box flexDirection="column" paddingLeft={2}>
-                <text fg="gray">Allowed ports:</text>
                 {state.scope.allowedPorts.map((p, i) => (
-                  <text key={i} fg="white">• {p}</text>
+                  <text key={i} fg={dimText}>• {p}</text>
                 ))}
               </box>
             )}
             <box flexDirection="row" gap={1}>
-              <text fg={focusedField === 2 ? "green" : "gray"}>Strict Scope:</text>
-              <text fg={state.scope.strictScope ? "green" : "gray"}>
+              <text fg={focusedField === 2 ? creamText : dimText}>Strict Scope:</text>
+              <text fg={state.scope.strictScope ? greenBullet : dimText}>
                 {state.scope.strictScope ? "● Enabled" : "○ Disabled"}
               </text>
-              {focusedField === 2 && <text fg="gray">(↑/↓ to toggle)</text>}
+              {focusedField === 2 && <text fg={dimText}>(↑/↓ to toggle)</text>}
             </box>
           </box>
-        );
+        )}
+      </box>
 
-      case "headers":
-        return (
-          <box flexDirection="column" gap={1}>
-            <text fg="white">Configure request headers:</text>
+      {/* Headers Section */}
+      <box flexDirection="column" gap={1}>
+        <text>
+          <span fg={greenBullet}>█ </span>
+          <span fg={focusedSection === 2 ? creamText : dimText}>Request Headers</span>
+        </text>
+        {focusedSection === 2 && (
+          <box flexDirection="column" gap={1} paddingLeft={2}>
             <box flexDirection="column">
-              <text fg={state.headers.mode === "none" ? "green" : "gray"}>
+              <text fg={state.headers.mode === "none" ? greenBullet : dimText}>
                 {state.headers.mode === "none" ? "●" : "○"} None
-                <span fg="gray"> - No custom headers</span>
               </text>
-              <text fg={state.headers.mode === "default" ? "green" : "gray"}>
-                {state.headers.mode === "default" ? "●" : "○"} Default
-                <span fg="gray"> - User-Agent: pensar-apex</span>
+              <text fg={state.headers.mode === "default" ? greenBullet : dimText}>
+                {state.headers.mode === "default" ? "●" : "○"} Default (User-Agent: pensar-apex)
               </text>
-              <text fg={state.headers.mode === "custom" ? "green" : "gray"}>
+              <text fg={state.headers.mode === "custom" ? greenBullet : dimText}>
                 {state.headers.mode === "custom" ? "●" : "○"} Custom
-                <span fg="gray"> - Define custom headers</span>
               </text>
             </box>
-            {focusedField === 0 && <text fg="gray">Use ↑/↓ to select mode</text>}
+            {focusedField === 0 && <text fg={dimText}>Use ↑/↓ to select</text>}
 
             {state.headers.mode === "custom" && (
               <box flexDirection="column" gap={1}>
-                <text fg="gray">{'─'.repeat(50)}</text>
                 <Input
                   label="Header Name"
                   placeholder="X-Custom-Header"
@@ -881,47 +823,40 @@ export default function InitWizard() {
                   onInput={setHeaderValueInput}
                   focused={focusedField === 2}
                 />
-                <text fg="gray">Press ENTER to add header</text>
                 {Object.keys(state.headers.customHeaders).length > 0 && (
                   <box flexDirection="column">
-                    <text fg="gray">Custom headers:</text>
                     {Object.entries(state.headers.customHeaders).map(([k, v]) => (
-                      <text key={k} fg="white">• {k}: {v}</text>
+                      <text key={k} fg={dimText}>• {k}: {v}</text>
                     ))}
                   </box>
                 )}
               </box>
             )}
           </box>
-        );
+        )}
+      </box>
 
-      case "confirm":
-        return (
-          <box flexDirection="column" gap={1}>
-            <text fg="green">Configuration Summary:</text>
-            <text fg="white">• Target: <span fg="green">{state.target}</span></text>
-            <text fg="white">• Mode: <span fg="green">{state.pentestType === "quick" ? "Quick" : "Full"}</span></text>
-
-            {(state.auth.username || state.auth.instructions) && (
-              <text fg="white">• Auth: <span fg="green">Configured</span></text>
-            )}
-            {state.objectiveGuidance && (
-              <text fg="white">• Objective: <span fg="green">Custom</span></text>
-            )}
-            {(state.scope.allowedHosts.length > 0 || state.scope.allowedPorts.length > 0) && (
-              <text fg="white">• Scope: <span fg="green">{state.scope.allowedHosts.length} hosts, {state.scope.allowedPorts.length} ports{state.scope.strictScope ? " (strict)" : ""}</span></text>
-            )}
-            {state.headers.mode !== "default" && (
-              <text fg="white">• Headers: <span fg="green">{state.headers.mode}</span></text>
-            )}
-
-            <text fg="gray">{'─'.repeat(50)}</text>
-            <text fg="yellow">Press ENTER to start the penetration test</text>
-          </box>
-        );
-
-      default:
-        return null;
-    }
-  }
+      {/* Action hints */}
+      <box flexDirection="column" gap={0} marginTop={1}>
+        <text>
+          <span fg={greenBullet}>█ </span>
+          <span fg={dimText}>Press </span>
+          <span fg={creamText}>[Enter]</span>
+          <span fg={dimText}> to start pentest</span>
+        </text>
+        <text>
+          <span fg={greenBullet}>█ </span>
+          <span fg={dimText}>Press </span>
+          <span fg={creamText}>[Tab]</span>
+          <span fg={dimText}> to navigate fields</span>
+        </text>
+        <text>
+          <span fg={greenBullet}>█ </span>
+          <span fg={dimText}>Press </span>
+          <span fg={creamText}>[ESC]</span>
+          <span fg={dimText}> to go back</span>
+        </text>
+      </box>
+    </box>
+  );
 }
