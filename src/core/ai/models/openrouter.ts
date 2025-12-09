@@ -92,6 +92,12 @@ export const OPENROUTER_MODELS: ModelInfo[] = [
     contextLength: 64000,
   },
   {
+    id: "mistralai/mistral-large-2512",
+    name: "Mistral Large 3 2512",
+    provider: "openrouter",
+    contextLength: 262144,
+  },
+  {
     id: "moonshotai/kimi-k2-thinking",
     name: "Kimi K2 Thinking",
     provider: "openrouter",
