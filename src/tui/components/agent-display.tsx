@@ -10,7 +10,25 @@ import { useState, memo } from "react";
 import { marked } from "marked";
 import type { Subagent } from "./hooks/pentestAgent";
 import fs from "fs";
-import type { Message, ToolMessage } from "../../core/messages/types";
+
+// Flexible display message type (doesn't require storage fields)
+export type DisplayMessage = {
+  role: "user" | "assistant" | "system" | "tool";
+  content: string | unknown[];
+  createdAt: Date;
+  // Optional tool fields
+  toolCallId?: string;
+  toolName?: string;
+  args?: Record<string, unknown>;
+  status?: "pending" | "completed";
+};
+
+// Type guard for tool messages
+type ToolDisplayMessage = DisplayMessage & {
+  role: "tool";
+  toolCallId: string;
+  toolName: string;
+};
 
 // File logger
 const LOG_FILE = "/tmp/apex-debug.log";
@@ -22,13 +40,13 @@ function logToFile(message: string, data?: any) {
 
 
 function getStableKey(
-  item: Message | Subagent,
+  item: DisplayMessage | Subagent,
   contextId: string = "root"
 ): string {
   if ("messages" in item) {
     return `subagent-${item.id}`;
   } else if (item.role === "tool" && "toolCallId" in item) {
-    return `${contextId}-tool-${(item as ToolMessage).toolCallId}`;
+    return `${contextId}-tool-${(item as ToolDisplayMessage).toolCallId}`;
   } else {
     const content = typeof item.content === "string"
       ? item.content
@@ -39,7 +57,7 @@ function getStableKey(
 }
 
 interface AgentDisplayProps {
-  messages: Message[];
+  messages: DisplayMessage[];
   isStreaming?: boolean;
   children?: React.ReactNode;
   subagents?: Subagent[];
@@ -283,7 +301,7 @@ const SubAgentDisplay = memo(function SubAgentDisplay({ subagent }: { subagent: 
   );
 });
 
-const AgentMessage = memo(function AgentMessage({ message }: { message: Message }) {
+const AgentMessage = memo(function AgentMessage({ message }: { message: DisplayMessage }) {
   let content = "";
 
   if (typeof message.content === "string") {
@@ -304,11 +322,11 @@ const AgentMessage = memo(function AgentMessage({ message }: { message: Message 
   // LOG: Rendering message
   if (message.role === "tool") {
     logToFile(`[Render] AgentMessage (tool):`, {
-      toolCallId: (message as ToolMessage).toolCallId,
+      toolCallId: (message as ToolDisplayMessage).toolCallId,
       content: content.substring(0, 50),
       contentLength: content.length,
       isEmpty: content === "",
-      status: (message as ToolMessage).status
+      status: (message as ToolDisplayMessage).status
     });
   }
 
@@ -318,7 +336,7 @@ const AgentMessage = memo(function AgentMessage({ message }: { message: Message 
 
   // Check if this is a pending tool message
   const isPendingTool =
-    message.role === "tool" && (message as ToolMessage).status === "pending";
+    message.role === "tool" && (message as ToolDisplayMessage).status === "pending";
 
   return (
     <box
@@ -373,7 +391,7 @@ const AgentMessage = memo(function AgentMessage({ message }: { message: Message 
   );
 });
 
-function ToolArgs({ message }: { message: Message }) {
+function ToolArgs({ message }: { message: DisplayMessage }) {
   const [open, setOpen] = useState(false);
   if (message.role !== "tool" || !("args" in message)) {
     return null;

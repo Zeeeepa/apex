@@ -4,12 +4,11 @@ import { RGBA } from "@opentui/core";
 import Input from "../input";
 import { useRoute } from "../../context/route";
 import { useAgent } from "../../agentProvider";
-import AgentDisplay from "../agent-display";
+import SwarmDashboard, { type UIMessage, type Subagent } from "../swarm-dashboard";
 import { Session } from "../../../core/session";
 import { runStreamlinedPentest, type StreamlinedPentestProgress } from "../../../core/agent/thoroughPentestAgent/streamlined";
 import type { SubAgentSpawnInfo, SubAgentStreamEvent } from "../../../core/agent/pentestAgent/orchestrator";
 import type { MetaVulnerabilityTestResult } from "../../../core/agent/metaTestingAgent";
-import type { Message, ToolMessage } from "../../../core/messages/types";
 import { existsSync } from "fs";
 import { exec } from "child_process";
 
@@ -58,15 +57,11 @@ interface WizardState {
   };
 }
 
-// Subagent type for tracking
-type Subagent = {
-  id: string;
-  name: string;
-  type: "attack-surface" | "pentest";
-  target: string;
-  messages: Message[];
-  createdAt: Date;
-  status: "pending" | "completed" | "failed";
+// UIMessage helper for creating messages
+type ToolUIMessage = UIMessage & {
+  role: "tool";
+  toolCallId: string;
+  toolName: string;
 };
 
 // Home view color palette
@@ -112,11 +107,12 @@ export default function InitWizard() {
   const [headerValueInput, setHeaderValueInput] = useState("");
 
   // Running state
-  const [messages, setMessages] = useState<Message[]>([]);
+  const [messages, setMessages] = useState<UIMessage[]>([]);
   const [subagents, setSubagents] = useState<Subagent[]>([]);
   const [sessionPath, setSessionPath] = useState("");
   const [isCompleted, setIsCompleted] = useState(false);
   const [abortController, setAbortController] = useState<AbortController | null>(null);
+  const [startTime, setStartTime] = useState<Date | null>(null);
 
   // Start the pentest
   async function startPentest() {
@@ -125,6 +121,7 @@ export default function InitWizard() {
     setCurrentStep("running");
     setIsExecuting(true);
     setThinking(true);
+    setStartTime(new Date());
 
     const controller = new AbortController();
     setAbortController(controller);
@@ -175,7 +172,7 @@ export default function InitWizard() {
       setSessionPath(session.rootPath);
 
       // Add initial user message
-      const userMessage: Message = {
+      const userMessage: UIMessage = {
         role: "user",
         content: `Target: ${state.target}`,
         createdAt: new Date(),
@@ -235,7 +232,7 @@ export default function InitWizard() {
             setThinking(false);
             currentDiscoveryText = "";
 
-            const toolMessage: Message = {
+            const toolMessage: UIMessage = {
               role: "tool",
               status: "pending",
               toolCallId: chunk.toolCallId,
@@ -261,12 +258,12 @@ export default function InitWizard() {
               const updated = [...prev];
               const subagent = updated[idx]!;
               const msgIdx = subagent.messages.findIndex(
-                (m) => m.role === "tool" && (m as ToolMessage).toolCallId === chunk.toolCallId
+                (m) => m.role === "tool" && m.toolCallId === chunk.toolCallId
               );
               if (msgIdx === -1) return prev;
 
               const newMessages = [...subagent.messages];
-              const existingMsg = newMessages[msgIdx] as ToolMessage;
+              const existingMsg = newMessages[msgIdx] as ToolUIMessage;
               newMessages[msgIdx] = {
                 ...existingMsg,
                 status: "completed",
@@ -340,10 +337,10 @@ export default function InitWizard() {
               if (toolResults && toolResults.length > 0) {
                 for (const tr of toolResults) {
                   const msgIdx = newMessages.findIndex(
-                    (m) => m.role === "tool" && (m as ToolMessage).toolCallId === tr.toolCallId
+                    (m) => m.role === "tool" && m.toolCallId === tr.toolCallId
                   );
                   if (msgIdx !== -1) {
-                    const existingMsg = newMessages[msgIdx] as ToolMessage;
+                    const existingMsg = newMessages[msgIdx] as ToolUIMessage;
                     newMessages[msgIdx] = { ...existingMsg, status: "completed", content: `✓ ${existingMsg.toolName || "tool"}` };
                   }
                 }
@@ -398,7 +395,7 @@ export default function InitWizard() {
 
       // Handle completion
       if (result.success) {
-        const completionMessage: Message = {
+        const completionMessage: UIMessage = {
           role: "assistant",
           content: `✅ Penetration test complete!\n\n📊 Results:\n- Targets tested: ${result.targets.length}\n- Total findings: ${result.totalFindings}\n${result.reportPath ? `- Report: ${result.reportPath}` : ""}`,
           createdAt: new Date(),
@@ -597,42 +594,21 @@ export default function InitWizard() {
   // Render running state
   if (currentStep === "running") {
     return (
-      <box
-        flexDirection="column"
-        width="100%"
-        maxHeight="100%"
-        alignItems="center"
-        justifyContent="center"
-        flexGrow={1}
-        gap={1}
-      >
-        <AgentDisplay messages={messages} isStreaming={isExecuting} subagents={subagents}>
-          {isCompleted && (
-            <box flexDirection="column" gap={1} marginTop={1}>
-              <text>
-                <span fg={greenBullet}>█ </span>
-                <span fg={creamText}>Pentest Completed</span>
-              </text>
-              <text fg={dimText}>  Report generated successfully</text>
-              <box flexDirection="column" marginTop={1}>
-                <text>
-                  <span fg={greenBullet}>█ </span>
-                  <span fg={dimText}>Press </span>
-                  <span fg={creamText}>[Enter]</span>
-                  <span fg={dimText}> to view report</span>
-                </text>
-                <text>
-                  <span fg={greenBullet}>█ </span>
-                  <span fg={dimText}>Press </span>
-                  <span fg={creamText}>[ESC]</span>
-                  <span fg={dimText}> to close</span>
-                </text>
-              </box>
-              <text fg={dimText}>  {sessionPath}/comprehensive-pentest-report.md</text>
-            </box>
-          )}
-        </AgentDisplay>
-      </box>
+      <SwarmDashboard
+        subagents={subagents}
+        isExecuting={isExecuting}
+        startTime={startTime ?? undefined}
+        sessionPath={sessionPath}
+        isCompleted={isCompleted}
+        onBack={() => {
+          if (isExecuting && abortController) {
+            abortController.abort();
+          } else {
+            route.navigate({ type: "base", path: "home" });
+          }
+        }}
+        onViewReport={openReport}
+      />
     );
   }
 
