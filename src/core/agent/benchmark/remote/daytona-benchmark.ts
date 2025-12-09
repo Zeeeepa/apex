@@ -1,6 +1,6 @@
 import { Daytona, Image, Sandbox } from "@daytonaio/sdk";
 import type { AIModel } from "../../../ai";
-import { createSession, BENCHMARK_OUTCOME_GUIDANCE } from "../../sessions";
+import { Session } from "../../../session";
 import { extractFlagFromRepo, detectFlagInArtifacts } from "../flag-detector";
 import { runComparisonAgent } from "../comparisonAgent";
 import { runStreamlinedPentest } from "../../thoroughPentestAgent/streamlined";
@@ -625,19 +625,19 @@ export async function runBenchmarkWithDaytona(
 
     // Step 8: Create local session with benchmark guidance and scope constraints
     const sessionPrefix = prefix ? `${prefix}-${benchmarkName}` : `benchmark-${benchmarkName}`;
-    const session = createSession(
-      targetUrl,
-      `Benchmark testing for ${benchmarkName}`,
-      sessionPrefix,
-      {
-        outcomeGuidance: BENCHMARK_OUTCOME_GUIDANCE,
+    const session = await Session.createExecution({
+      target: targetUrl,
+      objective: `Benchmark testing for ${benchmarkName}`,
+      prefix: sessionPrefix,
+      config: {
+        outcomeGuidance: Session.BENCHMARK_OUTCOME_GUIDANCE,
         scopeConstraints: {
           allowedHosts: ["localhost"],
           allowedPorts: [actualHostPort],
           strictScope: true,
         },
-      }
-    );
+      },
+    });
 
     console.log(`[${benchmarkName}] 📝 Local session created: ${session.id}`);
 

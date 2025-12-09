@@ -6,7 +6,7 @@ import {
 } from "ai";
 import { streamResponse, type AIModel } from "../../ai";
 import { SYSTEM } from "./prompts";
-import { createSession, type Session, BENCHMARK_OUTCOME_GUIDANCE } from "../sessions";
+import { Session } from "../../session";
 import { createBenchmarkTools } from "./tools";
 import { detectOSAndEnhancePrompt } from "../utils";
 
@@ -19,25 +19,25 @@ export interface RunAgentProps {
 }
 
 export interface RunAgentResult extends StreamTextResult<ToolSet, never> {
-  session: Session;
+  session: Session.ExecutionSession;
 }
 
-export function runAgent(opts: RunAgentProps): {
+export async function runAgent(opts: RunAgentProps): Promise<{
   streamResult: RunAgentResult;
-  session: Session;
-} {
+  session: Session.ExecutionSession;
+}> {
   const { repoPath, branch, model, onStepFinish, abortSignal } = opts;
 
   // Create a new session for this benchmark run
   const branchName = branch || "main";
-  const session = createSession(
-    repoPath,
-    `Benchmark testing for ${repoPath} on branch ${branchName}`,
-    `benchmark-${branchName}`,
-    {
-      outcomeGuidance: BENCHMARK_OUTCOME_GUIDANCE,
-    }
-  );
+  const session = await Session.createExecution({
+    target: repoPath,
+    objective: `Benchmark testing for ${repoPath} on branch ${branchName}`,
+    prefix: `benchmark-${branchName}`,
+    config: {
+      outcomeGuidance: Session.BENCHMARK_OUTCOME_GUIDANCE,
+    },
+  });
 
   console.log(`[Benchmark] Created session: ${session.id}`);
   console.log(`[Benchmark] Session path: ${session.rootPath}`);

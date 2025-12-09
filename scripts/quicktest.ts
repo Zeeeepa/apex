@@ -44,7 +44,7 @@ async function runQuicktest(options: QuicktestOptions): Promise<void> {
     };
 
     // Run the pentest agent
-    const { streamResult, session } = runAgent({
+    const { streamResult, session } = await runAgent({
       target,
       objective,
       model: model as AIModel,

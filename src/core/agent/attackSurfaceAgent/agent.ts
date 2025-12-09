@@ -9,7 +9,7 @@ import {
 import { streamResponse, type AIModel } from '../../ai';
 import { SYSTEM } from './prompts';
 import { createPentestTools } from '../tools';
-import { createSession, type Session } from '../sessions';
+import { Session } from '../../session';
 import { z } from 'zod';
 import { join } from 'path';
 import { writeFileSync, mkdirSync, existsSync } from 'fs';
@@ -23,7 +23,7 @@ export interface RunAgentProps {
   model: AIModel;
   onStepFinish?: StreamTextOnStepFinishCallback<ToolSet>;
   abortSignal?: AbortSignal;
-  session?: Session;
+  session?: Session.ExecutionSession;
   toolOverride?: {
     execute_command?: (opts: any) => Promise<any>;
     http_request?: (opts: any) => Promise<any>;
@@ -31,17 +31,17 @@ export interface RunAgentProps {
 }
 
 export interface RunAgentResult extends StreamTextResult<ToolSet, never> {
-  session: Session;
+  session: Session.ExecutionSession;
 }
 
-export function runAgent(opts: RunAgentProps): {
+export async function runAgent(opts: RunAgentProps): Promise<{
   streamResult: RunAgentResult;
-  session: Session;
-} {
+  session: Session.ExecutionSession;
+}> {
   const { target, model, onStepFinish, abortSignal, toolOverride } = opts;
 
   // Create a new session for this attack surface analysis
-  const session = opts.session || createSession(target);
+  const session = opts.session || await Session.createExecution({ target });
 
   console.log(`Created attack surface session: ${session.id}`);
   console.log(`Session path: ${session.rootPath}`);

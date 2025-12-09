@@ -5,7 +5,7 @@ import { join } from "path";
 import type { DevEnvironmentInfo } from "./types";
 import { runDevEnvironmentAgent } from "./devEnvironmentAgent";
 import type { AIModel } from "../../ai";
-import type { Session } from "../sessions";
+import type { Session } from "../../session";
 
 const exec = promisify(nodeExec);
 
@@ -13,7 +13,7 @@ const exec = promisify(nodeExec);
  * Start the development environment using an AI agent that can fix issues
  */
 export async function startDevEnvironment(
-  session: Session,
+  session: Session.ExecutionSession,
   repoPath: string,
   branch: string,
   model: AIModel,

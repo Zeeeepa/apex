@@ -1,4 +1,4 @@
-import type { Session } from "../sessions";
+import type { Session } from "../../session";
 import { appendFileSync, existsSync, mkdirSync } from "fs";
 import path from "path";
 
@@ -11,10 +11,10 @@ export enum LogLevel {
 }
 
 export class Logger {
-  private session: Session;
+  private session: Session.ExecutionSession;
   private logFilePath: string;
 
-  constructor(session: Session, fileName?: string) {
+  constructor(session: Session.ExecutionSession, fileName?: string) {
     this.session = session;
     this.logFilePath = path.join(session.logsPath, fileName || "agent.log");
 
@@ -83,7 +83,7 @@ export class Logger {
   /**
    * Get the session associated with this logger
    */
-  public getSession(): Session {
+  public getSession(): Session.ExecutionSession {
     return this.session;
   }
 }

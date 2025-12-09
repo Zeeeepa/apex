@@ -7,7 +7,7 @@ import { exec as nodeExec } from "child_process";
 import { promisify } from "util";
 import { detectOSAndEnhancePrompt } from "../utils";
 import { createPentestTools } from "../pentestAgent";
-import type { Session } from "../sessions";
+import type { Session } from "../../session";
 
 const exec = promisify(nodeExec);
 
@@ -110,7 +110,7 @@ interface DevEnvironmentAgentResult {
 
 export async function runDevEnvironmentAgent(
   workingDir: string,
-  session: Session,
+  session: Session.ExecutionSession,
   branch: string,
   model: AIModel,
   abortSignal?: AbortSignal

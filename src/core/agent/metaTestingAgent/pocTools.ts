@@ -23,7 +23,7 @@ import {
 } from 'fs';
 import { nanoid } from 'nanoid';
 import { Logger } from '../logger';
-import type { Session } from '../sessions';
+import type { Session } from '../../session';
 import type {
   CreatePocInput,
   CreatePocResult,

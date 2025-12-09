@@ -8,7 +8,7 @@ import type { AIModel } from "../src/core/ai";
 import pLimit from "p-limit";
 import type { BenchmarkResults } from "../src/core/agent/benchmark/types";
 import { parseDockerComposePort, getActualDockerPort } from "../src/core/agent/benchmark/docker-utils";
-import { createSession, BENCHMARK_OUTCOME_GUIDANCE } from "../src/core/agent/sessions";
+import { Session } from "../src/core/session";
 import { runStreamlinedPentest } from "../src/core/agent/thoroughPentestAgent/streamlined";
 import { runComparisonAgent } from "../src/core/agent/benchmark/comparisonAgent";
 import { extractFlagFromRepo, detectFlagInArtifacts } from "../src/core/agent/benchmark/flag-detector";
@@ -355,19 +355,19 @@ async function runSingleBenchmark(
 
     // Step 7: Create local session with benchmark guidance and scope constraints
     const sessionPrefix = prefix ? `${prefix}-${benchmarkName}` : `benchmark-${benchmarkName}`;
-    const session = createSession(
-      targetUrl,
-      `Benchmark testing for ${benchmarkName}`,
-      sessionPrefix,
-      {
-        outcomeGuidance: BENCHMARK_OUTCOME_GUIDANCE,
+    const session = await Session.createExecution({
+      target: targetUrl,
+      objective: `Benchmark testing for ${benchmarkName}`,
+      prefix: sessionPrefix,
+      config: {
+        outcomeGuidance: Session.BENCHMARK_OUTCOME_GUIDANCE,
         scopeConstraints: {
           allowedHosts: ['localhost'],
           allowedPorts: [actualHostPort],
           strictScope: true,
         },
-      }
-    );
+      },
+    });
 
     console.log(`[${benchmarkName}] 📝 Local session created: ${session.id}`);
 

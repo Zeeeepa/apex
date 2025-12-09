@@ -5,6 +5,7 @@ import fs from "fs/promises";
 import z from "zod";
 import { NamedError } from "../../util/errors";
 import { Lock } from "../../util/lock";
+import { mkdir } from "fs/promises";
 
 export namespace Storage {
 
@@ -35,6 +36,49 @@ export namespace Storage {
         return withErrorHandling(async () => {
             using _ = await Lock.write(target);
             await Bun.write(target, JSON.stringify(content, null, 2));
+        });
+    }
+
+    export async function createDir(key: string[]) {
+        const dir = path.join(os.homedir(), ".pensar");
+        const target = path.join(dir, ...key);
+        return withErrorHandling(async () => {
+            using _ = await Lock.write(target);
+            await mkdir(target, { recursive: true });
+        });
+    }
+
+    /**
+     * Write raw content (non-JSON) to a file within the .pensar directory
+     * @param key Path segments relative to .pensar
+     * @param content Raw string content to write
+     */
+    export async function writeRaw(key: string[], content: string) {
+        const dir = path.join(os.homedir(), ".pensar");
+        const target = path.join(dir, ...key);
+        return withErrorHandling(async () => {
+            using _ = await Lock.write(target);
+            // Ensure parent directory exists
+            const parentDir = path.dirname(target);
+            await mkdir(parentDir, { recursive: true });
+            await Bun.write(target, content);
+        });
+    }
+
+    /**
+     * Append raw content to a file within the .pensar directory
+     * @param key Path segments relative to .pensar
+     * @param content Raw string content to append
+     */
+    export async function appendRaw(key: string[], content: string) {
+        const dir = path.join(os.homedir(), ".pensar");
+        const target = path.join(dir, ...key);
+        return withErrorHandling(async () => {
+            using _ = await Lock.write(target);
+            // Ensure parent directory exists
+            const parentDir = path.dirname(target);
+            await mkdir(parentDir, { recursive: true });
+            await fs.appendFile(target, content);
         });
     }
 

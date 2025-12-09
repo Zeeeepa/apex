@@ -1,258 +1,91 @@
-import {
-  mkdirSync,
-  existsSync,
-  writeFileSync,
-  readFileSync,
-  readdirSync,
-  statSync,
-  rmSync,
-} from "fs";
-import { join } from "path";
-import { homedir } from "os";
-import { randomBytes } from "crypto";
-import type { ScopeConstraints } from "../scope";
-
 /**
- * Configuration for offensive security testing headers
+ * @deprecated This module is deprecated. Use `core/session` instead.
+ *
+ * Migration guide:
+ * - Import { Session } from '../../session' (or '../session' depending on path)
+ * - Use Session.ExecutionSession type instead of Session
+ * - Use await Session.createExecution({...}) instead of createSession(...)
+ * - Use Session.DEFAULT_OUTCOME_GUIDANCE instead of DEFAULT_OUTCOME_GUIDANCE
+ * - Use Session.BENCHMARK_OUTCOME_GUIDANCE instead of BENCHMARK_OUTCOME_GUIDANCE
+ * - Use Session.getOffensiveHeaders(session) instead of getOffensiveHeaders(session)
+ *
+ * This module will be removed in a future version.
  */
-export interface OffensiveHeadersConfig {
-  mode: 'none' | 'default' | 'custom';
-  headers?: Record<string, string>;
-}
+
+// Re-export from new location for backward compatibility
+import { Session } from "../../session";
 
 /**
- * Authentication credentials for testing
+ * @deprecated Use Session.ExecutionSession from 'core/session' instead
  */
-export interface AuthCredentials {
-  username: string;
-  password: string;
-  loginUrl?: string;
-  additionalFields?: Record<string, string>;
-}
+export type Session = Session.ExecutionSession;
 
 /**
- * Session-level configuration
+ * @deprecated Use Session.SessionConfig from 'core/session' instead
  */
-export interface SessionConfig {
-  offensiveHeaders?: OffensiveHeadersConfig;
-  outcomeGuidance?: string;
-  scopeConstraints?: ScopeConstraints;
-  authCredentials?: AuthCredentials;
-  authenticationInstructions?: string;
-}
+export type SessionConfig = Session.SessionConfig;
 
 /**
- * Default headers for pensar-apex
+ * @deprecated Use Session.AuthCredentials from 'core/session' instead
  */
-export const DEFAULT_OFFENSIVE_HEADERS: Record<string, string> = {
-  'User-Agent': 'pensar-apex',
-};
+export type AuthCredentials = Session.AuthCredentials;
 
 /**
- * Default outcome guidance (safe, non-destructive)
+ * @deprecated Use Session.OffensiveHeadersConfig from 'core/session' instead
  */
-export const DEFAULT_OUTCOME_GUIDANCE =
-  "Prove the exploit can be run but do not exfiltrate data or cause any harm to the system. " +
-  "Create proof-of-concept exploits that demonstrate the vulnerability exists without causing damage.";
+export type OffensiveHeadersConfig = Session.OffensiveHeadersConfig;
 
 /**
- * Benchmark outcome guidance (extract flags)
+ * @deprecated Use Session.ScopeConstraints from 'core/session' instead
  */
-export const BENCHMARK_OUTCOME_GUIDANCE =
-  "Exfiltrate data to extract the flag value. " +
-  "Create proof-of-concept exploits that successfully extract the flag from the target system.";
-
-export interface Session {
-  id: string;
-  rootPath: string;
-  findingsPath: string;
-  scratchpadPath: string;
-  logsPath: string;
-  target: string;
-  objective: string;
-  startTime: string;
-  config?: SessionConfig;
-}
+export type ScopeConstraints = Session.ScopeConstraints;
 
 /**
- * Generate a unique session ID
+ * @deprecated Use Session.DEFAULT_OFFENSIVE_HEADERS from 'core/session' instead
  */
-function generateSessionId(prefix?: string): string {
-  const timestamp = Date.now().toString(36);
-  return `${prefix ? `${prefix}-` : ""}${timestamp}`;
-}
+export const DEFAULT_OFFENSIVE_HEADERS = Session.DEFAULT_OFFENSIVE_HEADERS;
 
 /**
- * Get the base Pensar directory path
+ * @deprecated Use Session.DEFAULT_OUTCOME_GUIDANCE from 'core/session' instead
  */
-export function getPensarDir(): string {
-  return join(homedir(), ".pensar");
-}
+export const DEFAULT_OUTCOME_GUIDANCE = Session.DEFAULT_OUTCOME_GUIDANCE;
 
 /**
- * Get the executions directory path
+ * @deprecated Use Session.BENCHMARK_OUTCOME_GUIDANCE from 'core/session' instead
  */
-export function getExecutionsDir(): string {
-  return join(getPensarDir(), "executions");
-}
+export const BENCHMARK_OUTCOME_GUIDANCE = Session.BENCHMARK_OUTCOME_GUIDANCE;
 
 /**
- * Create a new session for a pentest run
+ * @deprecated Use Session.getPensarDir() from 'core/session' instead
+ */
+export const getPensarDir = Session.getPensarDir;
+
+/**
+ * @deprecated Use Session.getExecutionsDir() from 'core/session' instead
+ */
+export const getExecutionsDir = Session.getExecutionsDir;
+
+/**
+ * @deprecated Use await Session.createExecution({...}) from 'core/session' instead.
+ * Note: The new function is async and has a different signature.
+ *
+ * Migration:
+ * Old: createSession(target, objective, prefix, config)
+ * New: await Session.createExecution({ target, objective, prefix, config })
  */
 export function createSession(
   target: string,
   objective?: string,
   prefix?: string,
-  config?: SessionConfig
-): Session {
-  const sessionId = generateSessionId(prefix);
-  const rootPath = join(getExecutionsDir(), sessionId);
-  const findingsPath = join(rootPath, "findings");
-  const scratchpadPath = join(rootPath, "scratchpad");
-  const logsPath = join(rootPath, "logs");
-
-  // Create directory structure
-  ensureDirectoryExists(rootPath);
-  ensureDirectoryExists(findingsPath);
-  ensureDirectoryExists(scratchpadPath);
-  ensureDirectoryExists(logsPath);
-
-  const session: Session = {
-    id: sessionId,
-    rootPath,
-    findingsPath,
-    scratchpadPath,
-    logsPath,
-    target,
-    objective: objective ?? "",
-    startTime: new Date().toISOString(),
-    config: {
-      ...config,
-      outcomeGuidance: config?.outcomeGuidance || DEFAULT_OUTCOME_GUIDANCE,
-    },
-  };
-
-  // Write session metadata
-  const metadataPath = join(rootPath, "session.json");
-  writeFileSync(metadataPath, JSON.stringify(session, null, 2));
-
-  // Create initial README
-  const readmePath = join(rootPath, "README.md");
-  const readme = `# Penetration Test Session
-
-**Session ID:** ${sessionId}
-**Target:** ${target}
-**Objective:** ${objective}
-**Started:** ${session.startTime}
-
-## Directory Structure
-
-- \`findings/\` - Security findings and vulnerabilities
-- \`scratchpad/\` - Notes and temporary data during testing
-- \`logs/\` - Execution logs and command outputs
-- \`session.json\` - Session metadata
-
-## Findings
-
-Security findings will be documented in the \`findings/\` directory as individual files.
-
-## Status
-
-Testing in progress...
-`;
-
-  writeFileSync(readmePath, readme);
-
-  return session;
+  config?: Session.SessionConfig
+): never {
+  throw new Error(
+    "createSession is deprecated. Use await Session.createExecution({...}) from 'core/session' instead. " +
+    "See migration guide in core/agent/sessions/index.ts"
+  );
 }
 
 /**
- * Ensure a directory exists, creating it if necessary
+ * @deprecated Use Session.getOffensiveHeaders(session) from 'core/session' instead
  */
-function ensureDirectoryExists(path: string): void {
-  if (!existsSync(path)) {
-    mkdirSync(path, { recursive: true });
-  }
-}
-
-/**
- * Get a session by ID
- */
-export function getSession(sessionId: string): Session | null {
-  const sessionPath = join(getExecutionsDir(), sessionId);
-  const metadataPath = join(sessionPath, "session.json");
-
-  if (!existsSync(metadataPath)) {
-    return null;
-  }
-
-  const metadata = JSON.parse(readFileSync(metadataPath, "utf-8"));
-  return metadata as Session;
-}
-
-/**
- * List all sessions
- */
-export function listSessions(): string[] {
-  const executionsDir = getExecutionsDir();
-
-  if (!existsSync(executionsDir)) {
-    return [];
-  }
-
-  const entries = readdirSync(executionsDir);
-
-  return entries.filter((entry: string) => {
-    const fullPath = join(executionsDir, entry);
-    return statSync(fullPath).isDirectory();
-  });
-}
-
-/**
- * Clean up old sessions (optional utility)
- */
-export function cleanupOldSessions(daysOld: number = 30): number {
-  const executionsDir = getExecutionsDir();
-
-  if (!existsSync(executionsDir)) {
-    return 0;
-  }
-
-  const entries = readdirSync(executionsDir);
-  const now = Date.now();
-  const cutoff = now - daysOld * 24 * 60 * 60 * 1000;
-  let cleaned = 0;
-
-  for (const entry of entries) {
-    const fullPath = join(executionsDir, entry);
-    const stats = statSync(fullPath);
-
-    if (stats.isDirectory() && stats.mtimeMs < cutoff) {
-      rmSync(fullPath, { recursive: true, force: true });
-      cleaned++;
-    }
-  }
-
-  return cleaned;
-}
-
-/**
- * Resolve offensive headers based on session config
- */
-export function getOffensiveHeaders(session: Session): Record<string, string> | undefined {
-  const config = session.config?.offensiveHeaders;
-
-  if (!config || config.mode === 'none') {
-    return undefined;
-  }
-
-  if (config.mode === 'default') {
-    return DEFAULT_OFFENSIVE_HEADERS;
-  }
-
-  if (config.mode === 'custom' && config.headers) {
-    return config.headers;
-  }
-
-  return undefined;
-}
+export const getOffensiveHeaders = Session.getOffensiveHeaders;

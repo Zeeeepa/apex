@@ -6,7 +6,7 @@ import {
   type ToolSet,
 } from 'ai';
 import { streamResponse, type AIModel } from '../../ai';
-import type { Session } from '../sessions';
+import type { Session } from '../../session';
 import z from 'zod';
 import { join } from 'path';
 import {
@@ -73,7 +73,7 @@ export type Finding = z.infer<typeof FindingObject>;
 export async function documentFindingAgent(
   finding: Finding,
   model: AIModel,
-  session: Session,
+  session: Session.ExecutionSession,
   authConfig?: AIAuthConfig,
   toolOverride?: {
     create_poc?: (opts: CreatePocOpts) => Promise<CreatePocResult>;

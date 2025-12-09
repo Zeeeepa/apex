@@ -15,8 +15,7 @@ import { z } from 'zod';
 import { streamResponse, type AIModel } from '../../ai';
 import { createPentestTools, type ExecuteCommandOpts, type ExecuteCommandResult, type HttpRequestOpts, type HttpRequestResult } from '../tools';
 import { Logger } from '../logger';
-import type { Session } from '../sessions';
-import { DEFAULT_OUTCOME_GUIDANCE } from '../sessions';
+import { Session } from '../../session';
 import { join } from 'path';
 import { existsSync, mkdirSync, writeFileSync, readdirSync, readFileSync } from 'fs';
 
@@ -153,7 +152,7 @@ export async function runMetaTestingAgent(
   };
 
   // Get outcome guidance
-  const outcomeGuidance = sessionConfig?.outcomeGuidance || session.config?.outcomeGuidance || DEFAULT_OUTCOME_GUIDANCE;
+  const outcomeGuidance = sessionConfig?.outcomeGuidance || session.config?.outcomeGuidance || Session.DEFAULT_OUTCOME_GUIDANCE;
 
   // Get base pentest tools (execute_command, http_request)
   const baseTools = createPentestTools(

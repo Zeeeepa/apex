@@ -2,7 +2,7 @@ import { tool } from "ai";
 import { z } from "zod";
 import { writeFileSync } from "fs";
 import { join } from "path";
-import type { Session } from "../sessions";
+import { Session } from "../../session";
 import type { AIModel } from "../../ai";
 import { runAgent as runThoroughPentestAgent } from "../thoroughPentestAgent/agent";
 import { startDevEnvironment, stopDevEnvironment } from "./subagents";
@@ -14,7 +14,7 @@ import type { BenchmarkResults } from "./types";
  * Create tools for the benchmark orchestrator agent
  */
 export function createBenchmarkTools(
-  session: Session,
+  session: Session.ExecutionSession,
   model: AIModel,
   abortSignal?: AbortSignal
 ) {
@@ -97,7 +97,7 @@ This is the MAIN TESTING PHASE. Wait for it to complete before proceeding.`,
 
         // Run the thorough pentest agent with subagent callbacks
         const { streamResult, session: pentestSession } =
-          runThoroughPentestAgent({
+          await runThoroughPentestAgent({
             target,
             model,
             abortSignal,

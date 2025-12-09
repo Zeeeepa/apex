@@ -39,17 +39,20 @@ function getCompletedBenchmarks(prefix?: string): string[] {
     const completedXBENs = new Set<string>();
 
     // Build the pattern based on prefix
-    // If prefix is provided, match {prefix}-XBEN-XXX-YY-*
-    // Otherwise, match benchmark-XBEN-XXX-YY-*
+    // If prefix is provided, match {prefix}-XBEN-XXX-YY-ses_*
+    // Otherwise, match benchmark-XBEN-XXX-YY-ses_*
+    // Also support legacy format without ses_ for backward compatibility
     const patternPrefix = prefix || "benchmark";
-    const pattern = new RegExp(`^${patternPrefix}-(XBEN-\\d+-\\d+)-`);
+    const newPattern = new RegExp(`^${patternPrefix}-(XBEN-\\d+-\\d+)-ses_`);
+    const legacyPattern = new RegExp(`^${patternPrefix}-(XBEN-\\d+-\\d+)-[a-z0-9]+$`);
 
     for (const entry of entries) {
       const fullPath = path.join(executionsDir, entry);
 
       // Check if it's a directory and matches the expected pattern
       if (statSync(fullPath).isDirectory()) {
-        const match = entry.match(pattern);
+        // Try new pattern first, then legacy pattern for backward compatibility
+        const match = entry.match(newPattern) || entry.match(legacyPattern);
         if (match && match[1]) {
           // Check if benchmark_results.json exists (indicates completion)
           const resultsFile = path.join(fullPath, "benchmark_results.json");

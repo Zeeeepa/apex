@@ -1,7 +1,7 @@
 #!/usr/bin/env tsx
 
 import { runAgent } from "../src/core/agent/attackSurfaceAgent/agent";
-import { createSession } from "../src/core/agent/sessions";
+import { Session } from "../src/core/session";
 import type { AIModel } from "../src/core/ai";
 import { readFileSync, existsSync } from "fs";
 import { join } from "path";
@@ -80,15 +80,15 @@ async function runAttackSurface(options: AttackSurfaceOptions): Promise<void> {
     };
 
     // Create session with config
-    const session = createSession(
+    const session = await Session.createExecution({
       target,
       objective,
-      'attack-surface',
-      sessionConfig
-    );
+      prefix: 'attack-surface',
+      config: sessionConfig,
+    });
 
     // Run the attack surface agent
-    const { streamResult } = runAgent({
+    const { streamResult } = await runAgent({
       target,
       objective,
       model: model as AIModel,

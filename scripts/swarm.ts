@@ -1,7 +1,7 @@
 #!/usr/bin/env tsx
 
 import { runAgent } from "../src/core/agent/pentestAgent";
-import { createSession, type Session } from "../src/core/agent/sessions";
+import { Session } from "../src/core/session";
 import type { AIModel } from "../src/core/ai";
 import { z } from "zod";
 import { readFileSync } from "fs";
@@ -26,7 +26,7 @@ interface SwarmOptions {
 
 export async function swarm(
   options: SwarmOptions
-): Promise<Session | undefined> {
+): Promise<Session.ExecutionSession | undefined> {
   const { targets, model, silent, headerMode = 'default', customHeaders } = options;
   let targetsArray: Targets = [];
   if (typeof targets === "string") {
@@ -69,7 +69,10 @@ export async function swarm(
   }
 
   // Create a single session for all targets in the swarm
-  const session = createSession("swarm", "Multi-target swarm pentest");
+  const session = await Session.createExecution({
+    target: "swarm",
+    objective: "Multi-target swarm pentest",
+  });
 
   const results: Array<{
     target: string;
@@ -103,7 +106,7 @@ export async function swarm(
           },
         };
 
-        const { streamResult } = runAgent({
+        const { streamResult } = await runAgent({
           session,
           target: target.target,
           objective: target.objective,

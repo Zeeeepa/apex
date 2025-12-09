@@ -10,8 +10,7 @@ import {
   existsSync,
 } from "fs";
 import { join } from "path";
-import type { Session } from "./sessions";
-import { getOffensiveHeaders } from "./sessions";
+import { Session } from "../session";
 import { runAgent } from "./pentestAgent";
 import type { AIModel } from "../ai";
 import { generateObjectResponse } from "../ai";
@@ -1112,7 +1111,7 @@ export type HttpRequestResult = {
  *
  * This function is created with a session context to save findings to disk
  */
-function createDocumentFindingTool(session: Session) {
+function createDocumentFindingTool(session: Session.ExecutionSession) {
   return tool({
     name: "document_finding",
     description: `Document a security finding with severity, impact, and remediation guidance.
@@ -1234,7 +1233,7 @@ ${finding.references ? `## References\n\n${finding.references}` : ""}
 /**
  * Scratchpad tool - Take notes during testing
  */
-function createScratchpadTool(session: Session) {
+function createScratchpadTool(session: Session.ExecutionSession) {
   return tool({
     name: "scratchpad",
     description: `Write notes, observations, or temporary data to the scratchpad during testing.
@@ -1375,7 +1374,7 @@ Provides guidance on:
 /**
  * Generate comprehensive report - Create final pentest report
  */
-function createGenerateReportTool(session: Session) {
+function createGenerateReportTool(session: Session.ExecutionSession) {
   return tool({
     name: "generate_report",
     description: `Generate a comprehensive penetration testing report for the session.
@@ -1757,7 +1756,7 @@ This report should be treated as confidential and distributed only to authorized
 /**
  * Core logic for recording test results 
  */
-async function recordTestResultCore(session: Session, params: {
+async function recordTestResultCore(session: Session.ExecutionSession, params: {
   parameter: string;
   endpoint: string;
   attackType: string;
@@ -1814,7 +1813,7 @@ async function recordTestResultCore(session: Session, params: {
 /**
  * Record test result - Track all security tests including negative results
  */
-function createRecordTestResultTool(session: Session) {
+function createRecordTestResultTool(session: Session.ExecutionSession) {
   return tool({
     name: "record_test_result",
     description: `Record the result of a security test, including tests that did NOT find vulnerabilities.
@@ -2042,7 +2041,7 @@ Analyze: Is this vulnerable? Return ONLY JSON:
 /**
  * Smart Test Parameter Tool
  */
-function createSmartTestTool(session: Session, model: AIModel) {
+function createSmartTestTool(session: Session.ExecutionSession, model: AIModel) {
   return tool({
     name: "test_parameter",
     description: `Intelligently test a parameter for a vulnerability using AI-powered adaptive testing.
@@ -2269,7 +2268,7 @@ function runPentestAgents(model: AIModel = "claude-4-sonnet-20240229") {
   });
 }
 
-function createCheckTestingCoverageTool(session: Session) {
+function createCheckTestingCoverageTool(session: Session.ExecutionSession) {
   return tool({
     name: "check_testing_coverage",
     description: `Analyze testing coverage to understand what has been tested and identify gaps.
@@ -2440,7 +2439,7 @@ Use this when:
  * Validate completeness before final reporting
  * Ensures agent tested everything systematically
  */
-function createValidateCompletenessTool(session: Session) {
+function createValidateCompletenessTool(session: Session.ExecutionSession) {
   return tool({
     name: "validate_completeness",
     description: `Validate that you've completed a thorough, professional assessment before generating final report.
@@ -2583,7 +2582,7 @@ This is the difference between amateur and professional pentesting.`,
  * Quick endpoint enumeration helper
  * Wraps execute_command for common enumeration patterns
  */
-function createEnumerateEndpointsTool(session: Session) {
+function createEnumerateEndpointsTool(session: Session.ExecutionSession) {
   return tool({
     name: "enumerate_endpoints",
     description: `Quickly enumerate endpoints using pattern-based discovery.
@@ -2751,7 +2750,7 @@ function wrapCommandWithHeaders(command: string, headers: Record<string, string>
 
 // Export tools creator function that accepts a session
 export function createPentestTools(
-  session: Session,
+  session: Session.ExecutionSession,
   model?: AIModel,
   toolOverride?: {
     execute_command?: (
@@ -2761,7 +2760,7 @@ export function createPentestTools(
   }
 ) {
   // Get offensive headers from session config
-  const offensiveHeaders = getOffensiveHeaders(session);
+  const offensiveHeaders = Session.getOffensiveHeaders(session);
 
 
   const fuzzEndpoint = tool({

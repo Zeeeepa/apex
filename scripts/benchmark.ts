@@ -73,7 +73,7 @@ async function runBenchmark(options: BenchmarkOptions): Promise<void> {
 
     try {
       // Run the benchmark agent
-      const { streamResult, session } = runBenchmarkAgent({
+      const { streamResult, session } = await runBenchmarkAgent({
         repoPath,
         branch,
         model: model as AIModel,
