@@ -116,26 +116,29 @@ export default function SessionView({ sessionId }: SessionViewProps) {
             }
             addTokens(1);
 
-            setSubagents((prev) => {
-              const idx = prev.findIndex((s) => s.id === "attack-surface-discovery");
-              if (idx === -1) return prev;
+            // Only update messages if there's actual content to show
+            if (currentDiscoveryText.trim()) {
+              setSubagents((prev) => {
+                const idx = prev.findIndex((s) => s.id === "attack-surface-discovery");
+                if (idx === -1) return prev;
 
-              const updated = [...prev];
-              const subagent = updated[idx]!;
-              const lastMsg = subagent.messages[subagent.messages.length - 1];
+                const updated = [...prev];
+                const subagent = updated[idx]!;
+                const lastMsg = subagent.messages[subagent.messages.length - 1];
 
-              if (lastMsg && lastMsg.role === "assistant") {
-                const newMessages = [...subagent.messages];
-                newMessages[newMessages.length - 1] = { ...lastMsg, content: currentDiscoveryText };
-                updated[idx] = { ...subagent, messages: newMessages };
-              } else {
-                updated[idx] = {
-                  ...subagent,
-                  messages: [...subagent.messages, { role: "assistant", content: currentDiscoveryText, createdAt: new Date() }],
-                };
-              }
-              return updated;
-            });
+                if (lastMsg && lastMsg.role === "assistant") {
+                  const newMessages = [...subagent.messages];
+                  newMessages[newMessages.length - 1] = { ...lastMsg, content: currentDiscoveryText };
+                  updated[idx] = { ...subagent, messages: newMessages };
+                } else {
+                  updated[idx] = {
+                    ...subagent,
+                    messages: [...subagent.messages, { role: "assistant", content: currentDiscoveryText, createdAt: new Date() }],
+                  };
+                }
+                return updated;
+              });
+            }
           } else if (chunk.type === "tool-call") {
             setThinking(false);
             currentDiscoveryText = "";
