@@ -92,6 +92,12 @@ export const OPENROUTER_MODELS: ModelInfo[] = [
     contextLength: 64000,
   },
   {
+    id: "moonshotai/kimi-k2-thinking",
+    name: "Kimi K2 Thinking",
+    provider: "openrouter",
+    contextLength: 262144,
+  },
+  {
     id: "moonshot/kimi-k2-turbo",
     name: "Kimi K2 Turbo",
     provider: "openrouter",
@@ -102,6 +108,12 @@ export const OPENROUTER_MODELS: ModelInfo[] = [
     name: "Kimi K2 Chat",
     provider: "openrouter",
     contextLength: 128000,
+  },
+  {
+    id: "minimax/minimax-m2",
+    name: "MiniMax M2",
+    provider: "openrouter",
+    contextLength: 204800,
   },
   {
     id: "qwen/qwen3-8b",
