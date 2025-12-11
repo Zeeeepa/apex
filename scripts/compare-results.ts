@@ -624,6 +624,12 @@ async function main(): Promise<void> {
   // Generate report
   const report = outputFormat === "json" ? generateJsonReport(results) : generateTextReport(results);
 
+  // Always write JSON results to /tmp
+  const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const tmpJsonPath = `/tmp/comparison-results-${timestamp}.json`;
+  writeFileSync(tmpJsonPath, generateJsonReport(results));
+  console.error(`JSON results written to ${tmpJsonPath}`);
+
   // Output
   if (outputPath) {
     writeFileSync(outputPath, report);
