@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: write
+  id-token: write
 
 jobs:
   version:
@@ -131,6 +132,38 @@ jobs:
             artifacts/pensar-linux-x64/pensar-linux-x64.tar.gz
             artifacts/pensar-windows-x64/pensar-windows-x64.zip
           generate_release_notes: true
+
+  npm:
+    needs: [version, release]
+    if: needs.version.outputs.tag_exists == 'false'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Generate ASCII art
+        run: bun run generate:ascii
+
+      - name: Build project
+        run: bun run build
+
+      - name: Setup Node.js for npm publish
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Update npm for OIDC support
+        run: npm install -g npm@latest
+
+      - name: Publish to npm
+        run: npm publish --access public
 
   homebrew:
     needs: [version, release]
