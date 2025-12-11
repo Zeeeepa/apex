@@ -1,7 +1,14 @@
 <h1 align="center">Pensar Apex</h1>
 
 <p align="center">
-<a href="https://www.npmjs.com/package/@pensar/apex"><img src="https://img.shields.io/npm/v/@pensar/apex" alt="npm version"></a>
+  <a href="https://www.npmjs.com/package/@pensar/apex"><img src="https://img.shields.io/npm/v/@pensar/apex?label=latest" alt="npm version"></a>
+  <a href="https://www.npmjs.com/package/@pensar/apex"><img src="https://img.shields.io/npm/v/@pensar/apex/canary?label=prerelease&color=yellow" alt="npm prerelease version"></a>
+  <!-- <a href="https://www.npmjs.com/package/@pensar/apex"><img src="https://img.shields.io/npm/dm/@pensar/apex" alt="npm downloads"></a> -->
+  <a href="https://github.com/pensarai/homebrew-tap"><img src="https://img.shields.io/github/v/release/pensarai/apex?label=homebrew&logo=homebrew&color=orange" alt="Homebrew"></a>
+  <a href="./LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue" alt="Apache 2.0 License"></a>
+  <a href="https://docs.pensar.dev/apex"><img src="https://img.shields.io/badge/docs-pensar.dev-purple?logo=readthedocs&logoColor=white" alt="Documentation"></a>
+</p>
+
 <p align="center">
   <img src="screenshot.png" alt="Pensar Apex Screenshot" width="800">
 </p>
@@ -39,6 +46,27 @@ Windows:
 Download installer from `https://nmap.org/download.html` and ensure `nmap` is on your PATH.
 
 ### Install Apex
+
+#### macOS / Linux (Quick Install)
+
+```bash
+curl -fsSL https://pensarai.com/install.sh | bash
+```
+
+#### Homebrew
+
+```bash
+brew tap pensarai/tap
+brew install apex
+```
+
+#### Windows (PowerShell)
+
+```powershell
+irm https://pensarai.com/apex.ps1 | iex
+```
+
+#### npm
 
 ```bash
 npm install -g @pensar/apex
