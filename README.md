@@ -6,7 +6,7 @@
   <!-- <a href="https://www.npmjs.com/package/@pensar/apex"><img src="https://img.shields.io/npm/dm/@pensar/apex" alt="npm downloads"></a> -->
   <a href="https://github.com/pensarai/homebrew-tap"><img src="https://img.shields.io/github/v/release/pensarai/apex?label=homebrew&logo=homebrew&color=orange" alt="Homebrew"></a>
   <a href="./LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue" alt="Apache 2.0 License"></a>
-  <a href="https://docs.pensar.dev/apex"><img src="https://img.shields.io/badge/docs-pensar.dev-purple?logo=readthedocs&logoColor=white" alt="Documentation"></a>
+  <a href="https://docs.pensar.dev/apex"><img src="https://img.shields.io/badge/docs-docs.pensar.dev/apex-purple?logo=readthedocs&logoColor=white" alt="Documentation"></a>
 </p>
 
 <p align="center">
