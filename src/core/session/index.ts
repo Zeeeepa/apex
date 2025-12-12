@@ -132,6 +132,7 @@ export namespace Session {
      * Get the root path for a session's execution directory
      */
     export function getExecutionRoot(id: string): string {
+        console.log("GET EXECUTION ROOT", id);
         return path.join(getExecutionsDir(), id);
     }
 

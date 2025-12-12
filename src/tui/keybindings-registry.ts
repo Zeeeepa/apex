@@ -20,10 +20,10 @@ export const keybindings: Keybinding[] = [
   //   key: "Ctrl+N",
   //   description: "Create new session"
   // },
-  {
-    key: "Ctrl+S",
-    description: "Show sessions"
-  },
+  // {
+  //   key: "Ctrl+S",
+  //   description: "Show sessions"
+  // },
   {
     key: "Escape",
     description: "Return to home"

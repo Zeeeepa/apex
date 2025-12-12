@@ -67,7 +67,7 @@ export default function ProviderSelection({
       height="100%"
       justifyContent="center"
       alignItems="center"
-      backgroundColor={RGBA.fromInts(0, 0, 0, 200)}
+      backgroundColor={"transparent"}
     >
       <box
         width={70}

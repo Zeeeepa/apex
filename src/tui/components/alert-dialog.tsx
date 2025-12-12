@@ -51,7 +51,7 @@ export default function AlertDialog({
       left={0}
       top={0}
       zIndex={1000}
-      backgroundColor={RGBA.fromInts(0, 0, 0, 150)}
+      backgroundColor={"transparent"}
     >
       <box
         onMouseUp={async (e: any) => {

@@ -35,39 +35,39 @@ export const commands: CommandConfig[] = [
       });
     },
   },
-  {
-    name: "config",
-    description: "Show config dialog",
-    category: "General",
-    handler: async (args, ctx) => {
-      ctx.navigate({
-        type: "base",
-        path: "config"
-      });
-    },
-  },
-  {
-    name: "quicktest",
-    description: "Show quick pentest agent",
-    category: "General",
-    handler: async (args, ctx) => {
-      ctx.navigate({
-        type: "base",
-        path: "pentest"
-      });
-    },
-  },
-  {
-    name: "pentest",
-    description: "Show pentest agent",
-    category: "General",
-    handler: async (args, ctx) => {
-      ctx.navigate({
-        type: "base",
-        path: "thorough"
-      });
-    },
-  },
+  // {
+  //   name: "config",
+  //   description: "Show config dialog",
+  //   category: "General",
+  //   handler: async (args, ctx) => {
+  //     ctx.navigate({
+  //       type: "base",
+  //       path: "config"
+  //     });
+  //   },
+  // },
+  // {
+  //   name: "quicktest",
+  //   description: "Show quick pentest agent",
+  //   category: "General",
+  //   handler: async (args, ctx) => {
+  //     ctx.navigate({
+  //       type: "base",
+  //       path: "pentest"
+  //     });
+  //   },
+  // },
+  // {
+  //   name: "pentest",
+  //   description: "Show pentest agent",
+  //   category: "General",
+  //   handler: async (args, ctx) => {
+  //     ctx.navigate({
+  //       type: "base",
+  //       path: "thorough"
+  //     });
+  //   },
+  // },
   {
     name: "init",
     description: "Start a new pentest session",

@@ -12,6 +12,9 @@ import HelpDialog from "./components/commands/help-dialog";
 import InitWizard from "./components/commands/init-wizard";
 import SessionView from "./components/session-view";
 import SessionsDisplay from "./components/commands/sessions-display";
+import ConfigDialog from "./components/commands/config-dialog";
+import ModelsDisplay from "./components/commands/models-display";
+import ProviderManager from "./components/commands/provider-manager";
 // import CreateSessionDialog from "./components/commands/create-session-dialog";
 import type { Config } from "../core/config/config";
 import { config } from "../core/config";
@@ -222,17 +225,17 @@ function AppContent({
       }
     }
 
-    // Ctrl+N - Create new session (only on home view)
-    if (key.ctrl && key.name === "n" && route.data.type === "base" && route.data.path === "home") {
-      setShowCreateSessionDialog(true);
-      return;
-    }
+    // // Ctrl+N - Create new session (only on home view)
+    // if (key.ctrl && key.name === "n" && route.data.type === "base" && route.data.path === "home") {
+    //   setShowCreateSessionDialog(true);
+    //   return;
+    // }
 
-    // Ctrl+S - Show sessions (only on home view)
-    if (key.ctrl && key.name === "s" && route.data.type === "base" && route.data.path === "home") {
-      setShowSessionsDialog(true);
-      return;
-    }
+    // // Ctrl+S - Show sessions (only on home view)
+    // if (key.ctrl && key.name === "s" && route.data.type === "base" && route.data.path === "home") {
+    //   setShowSessionsDialog(true);
+    //   return;
+    // }
 
     // ? - Show keyboard shortcuts (when input is empty)
     if (key.sequence === "?" && isInputEmpty) {
@@ -379,6 +382,15 @@ function CommandDisplay({
           </RouteSwitch.Case>
           <RouteSwitch.Case when="init">
             <InitWizard />
+          </RouteSwitch.Case>
+          <RouteSwitch.Case when="config">
+            <ConfigDialog />
+          </RouteSwitch.Case>
+          <RouteSwitch.Case when="models">
+            <ModelsDisplay />
+          </RouteSwitch.Case>
+          <RouteSwitch.Case when="providers">
+            <ProviderManager />
           </RouteSwitch.Case>
           <RouteSwitch.Default>
             <CommandInput focused={focusIndex === 0} inputKey={inputKey}/>
