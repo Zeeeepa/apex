@@ -10,14 +10,7 @@ import {
   existsSync,
 } from "fs";
 import { join } from "path";
-<<<<<<< HEAD
-import type { Session } from "./sessions";
-import { getOffensiveHeaders } from "./sessions";
-import { RateLimiter } from '../services/rateLimiter';
-import { runAgent } from "./pentestAgent";
-=======
 import { Session } from "../session";
->>>>>>> design-update
 import type { AIModel } from "../ai";
 import { generateObjectResponse } from "../ai";
 import { getProviderModel } from "../ai/utils";
@@ -2057,11 +2050,7 @@ Analyze: Is this vulnerable? Return ONLY JSON:
 /**
  * Smart Test Parameter Tool
  */
-<<<<<<< HEAD
-function createSmartTestTool(session: Session, model: AIModel, onTokenUsage?: OnTokenUsage) {
-=======
-function createSmartTestTool(session: Session.SessionInfo, model: AIModel) {
->>>>>>> design-update
+function createSmartTestTool(session: Session.SessionInfo, model: AIModel, onTokenUsage?: OnTokenUsage) {
   return tool({
     name: "test_parameter",
     description: `Intelligently test a parameter for a vulnerability using AI-powered adaptive testing.

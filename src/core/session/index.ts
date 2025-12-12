@@ -6,6 +6,7 @@ import { Installation } from "../installation";
 import { Storage } from "../storage";
 import type { Message } from "../messages/types";
 import { Messages } from "../messages";
+import { RateLimiter } from "../services/rateLimiter";
 
 export namespace Session {
 
@@ -61,7 +62,8 @@ export namespace Session {
         outcomeGuidance: z.string().optional(),
         scopeConstraints: ScopeConstraintsObject.optional(),
         authCredentials: AuthCredentialsObject.optional(),
-        authenticationInstructions: z.string().optional()
+        authenticationInstructions: z.string().optional(),
+        requestsPerSecond: z.number().optional()
     });
 
     export type SessionConfig = z.infer<typeof SessionConfigObject>;
@@ -258,7 +260,9 @@ Testing in progress...
         ref: "Session"
     });
 
-    export type SessionInfo = z.output<typeof SessionInfoObject>;
+    export type SessionInfo = z.output<typeof SessionInfoObject> & {
+        _rateLimiter?: RateLimiter
+    };
 
     interface CreateInputProps {
         id?: string;
@@ -278,7 +282,9 @@ Testing in progress...
         const scratchpadPath = path.join(rootPath, "scratchpad");
         const logsPath = path.join(rootPath, "logs");
         const pocsPath = path.join(rootPath, "pocs");
-        
+
+        const rateLimiter = new RateLimiter({ requestsPerSecond: input.config?.requestsPerSecond});
+
         const result: SessionInfo = {
             id: id,
             version: await Installation.getVersion(),
@@ -299,6 +305,7 @@ Testing in progress...
                 outcomeGuidance: input.config?.outcomeGuidance || DEFAULT_OUTCOME_GUIDANCE,
                 scopeConstraints: input.config?.scopeConstraints
             },
+            _rateLimiter: rateLimiter,
             rootPath,
             logsPath,
             pocsPath,

@@ -25,14 +25,10 @@ export default function Footer({
   showExitWarning = false,
 }: FooterProps) {
   cwd = "~" + cwd.split(os.homedir()).pop() || "";
-<<<<<<< HEAD
   const { model, tokenUsage, hasExecuted, thinking, isExecuting } = useAgent();
-=======
-  const { model, tokenCount, thinking, isExecuting } = useAgent();
   const session = useSession();
   const route = useRoute();
   const { isInputEmpty } = useInput();
->>>>>>> design-update
 
   const hotkeys = isExecuting
     ? [{ key: "Ctrl+C", label: "Stop Execution" }]

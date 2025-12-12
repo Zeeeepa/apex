@@ -1,10 +1,10 @@
-import type { Session } from "../agent/sessions";
 import fs from "fs";
-import { z } from 'zod';
+import { nanoid, z } from 'zod';
 import { ModelMessageObject } from "./types";
 import type { ToolMessage, Message } from "./types";
 import { Identifier } from "../id/id";
 import { Storage } from "../storage";
+import { Session } from "../session";
 
 export namespace Messages {
 
@@ -31,7 +31,7 @@ export namespace Messages {
     return await Storage.read<Message>(["message", input.sessionId, input.messageId]);
   }
   
-  export function save(session: Session, messages: Message[]) {
+  export function save(session: Session.SessionInfo, messages: Message[]) {
     fs.writeFileSync(
       session.rootPath + "/messages.json",
       JSON.stringify(messages, null, 2)
@@ -39,7 +39,7 @@ export namespace Messages {
   }
   
   export function saveSubagentMessages(
-    orchestratorSession: Session,
+    orchestratorSession: Session.SessionInfo,
     subagentId: string,
     messages: Message[]
   ) {
@@ -65,7 +65,7 @@ export namespace Messages {
   }
 }
 
-export function mapMessages(messages: ModelMessage[]): Message[] {
+export function mapMessages(messages: Message[]): Message[] {
   const result: Message[] = [];
 
   // First pass: collect tool results to know which tool calls have completed
@@ -88,6 +88,8 @@ export function mapMessages(messages: ModelMessage[]): Message[] {
     // Handle system messages
     if (message.role === "system") {
       result.push({
+        id: Identifier.create("message", true),
+        sessionId: message.sessionId,
         role: "system",
         content: message.content,
         createdAt: new Date(),
@@ -108,6 +110,8 @@ export function mapMessages(messages: ModelMessage[]): Message[] {
               .join("");
 
       result.push({
+        id: Identifier.create("message", true),
+        sessionId: message.sessionId,
         role: "user",
         content,
         createdAt: new Date(),
@@ -130,6 +134,8 @@ export function mapMessages(messages: ModelMessage[]): Message[] {
       // Simple string content
       if (typeof content === "string") {
         result.push({
+          id: Identifier.create("message", true),
+          sessionId: message.sessionId,
           role: "assistant",
           content,
           createdAt: new Date(),
@@ -163,6 +169,8 @@ export function mapMessages(messages: ModelMessage[]): Message[] {
       // Add assistant message with text content only
       if (textParts.length > 0) {
         result.push({
+          id: Identifier.create("message", true),
+          sessionId: message.sessionId,
           role: "assistant",
           content: textParts.join(""),
           createdAt: new Date(),
@@ -182,6 +190,8 @@ export function mapMessages(messages: ModelMessage[]): Message[] {
         const hasResult = toolResults.has(toolCall.toolCallId);
 
         result.push({
+          id: Identifier.create("message", true),
+          sessionId: message.sessionId,
           role: "tool",
           status: hasResult ? "completed" : "pending",
           toolCallId: toolCall.toolCallId,

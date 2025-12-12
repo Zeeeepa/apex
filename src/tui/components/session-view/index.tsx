@@ -30,7 +30,7 @@ interface SessionViewProps {
 
 export default function SessionView({ sessionId }: SessionViewProps) {
   const route = useRoute();
-  const { model, addTokens, setTokenCount, setThinking, isExecuting, setIsExecuting } = useAgent();
+  const { model, setThinking, isExecuting, addTokenUsage, setIsExecuting } = useAgent();
 
   // Session state
   const [session, setSession] = useState<Session.SessionInfo | null>(null);
@@ -105,7 +105,7 @@ export default function SessionView({ sessionId }: SessionViewProps) {
 
         onDiscoveryStepFinish: (step) => {
           const stepTokens = (step.usage?.inputTokens ?? 0) + (step.usage?.outputTokens ?? 0);
-          if (stepTokens > 0) setTokenCount(stepTokens);
+          if (stepTokens > 0) addTokenUsage(step.usage.inputTokens??0, step.usage.outputTokens??0);
         },
 
         onDiscoveryStream: (chunk) => {
@@ -114,7 +114,7 @@ export default function SessionView({ sessionId }: SessionViewProps) {
             if (chunk.textDelta) {
               currentDiscoveryText += chunk.textDelta;
             }
-            addTokens(1);
+            // addTokens(1);
 
             // Only update messages if there's actual content to show
             if (currentDiscoveryText.trim()) {
@@ -211,7 +211,7 @@ export default function SessionView({ sessionId }: SessionViewProps) {
 
             if (usage) {
               const stepTokens = (usage.inputTokens ?? 0) + (usage.outputTokens ?? 0);
-              if (stepTokens > 0) addTokens(stepTokens);
+              if (stepTokens > 0) addTokenUsage(usage.inputTokens??0, usage.outputTokens??0);
             }
 
             setSubagents((prev) => {
@@ -305,7 +305,7 @@ export default function SessionView({ sessionId }: SessionViewProps) {
         setError(error instanceof Error ? error.message : "Unknown error occurred");
       }
     }
-  }, [model.id, addTokens, setTokenCount, setThinking, setIsExecuting]);
+  }, [model.id, addTokenUsage, setThinking, setIsExecuting]);
 
   // Open report
   const openReport = useCallback(() => {

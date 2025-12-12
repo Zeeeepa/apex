@@ -6,6 +6,7 @@ import {
   tool,
   hasToolCall,
 } from 'ai';
+import { mapMessages, Messages } from '../../messages';
 import { streamResponse, type AIModel } from '../../ai';
 import { SYSTEM } from './prompts';
 import { createPentestTools } from '../tools';
@@ -17,6 +18,7 @@ import { detectOSAndEnhancePrompt } from '../utils';
 import { getScopeDescription } from '../scope';
 import { extractJavascriptEndpoints } from './jsExtraction';
 import { generateRandomName } from '../../../util/name';
+import { nanoid } from 'nanoid';
 
 export interface RunAgentProps {
   target: string;
@@ -40,7 +42,7 @@ export async function runAgent(opts: RunAgentProps): Promise<{
   streamResult: RunAgentResult;
   session: Session.SessionInfo;
 }> {
-  const { target, model, onStepFinish, abortSignal, toolOverride } = opts;
+  const { target, model, onStepFinish, abortSignal, onToolTokenUsage, toolOverride } = opts;
 
   // Create a new session for this attack surface analysis
   const session = opts.session || await Session.create({
@@ -79,9 +81,8 @@ export async function runAgent(opts: RunAgentProps): Promise<{
   const { analyze_scan, execute_command, http_request } = createPentestTools(
     session,
     model,
-    undefined,
+    toolOverride,
     onToolTokenUsage,
-    toolOverride
   );
 
   // Attack Surface specific tool: document_asset
@@ -718,13 +719,10 @@ You MUST provide the final report using create_attack_surface_report tool.
     toolChoice: "auto", // Let the model decide when to use tools vs respond
     onStepFinish,
     abortSignal,
-    onFinish: ({ response }) => {
-      saveSubagentMessages(session, subagentId, mapMessages(response.messages));
-    },
   });
 
   // Attach the session directly to the stream result object
   (streamResult as any).session = session;
 
-  return { streamResult: streamResult as RunAgentResult, session, subagentId };
+  return { streamResult: streamResult as RunAgentResult, session };
 }
