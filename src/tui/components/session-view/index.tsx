@@ -321,11 +321,12 @@ export default function SessionView({ sessionId }: SessionViewProps) {
 
   // Handle back navigation
   const handleBack = useCallback(() => {
-    if (isExecuting && abortController) {
-      abortController.abort();
-    } else {
-      route.navigate({ type: "base", path: "home" });
-    }
+    route.navigate({ type: "base", path: "home" });
+    // if (isExecuting && abortController) {
+    //   abortController.abort();
+    // } else {
+    //   route.navigate({ type: "base", path: "home" });
+    // }
   }, [isExecuting, abortController, route]);
 
   // Loading state

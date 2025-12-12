@@ -126,7 +126,7 @@ export default function InitWizard() {
       const session = await Session.create({
         targets: [state.target],
         name: state.name,
-        ...sessionConfig,
+        config: sessionConfig,
       })
 
       // Navigate to session route - SessionView will handle execution
