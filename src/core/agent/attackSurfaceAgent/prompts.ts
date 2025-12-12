@@ -244,6 +244,115 @@ If the target is localhost (127.0.0.1, localhost, ::1), be aware that many commo
    
    **Note:** If analyzing localhost, ignore common local system services (AirTunes, Bonjour, local media servers, printer services) and focus only on services that are part of the target application.
 
+### Authenticated Discovery (CRITICAL FOR COMPLETE TESTING)
+
+Many web applications hide functionality behind authentication. **AUTHENTICATION INFO MUST BE SAVED FOR PENTEST AGENTS.**
+
+**When authentication is discovered or provided:**
+
+1. **DOCUMENT THE AUTHENTICATION METHOD IMMEDIATELY**:
+   - Method type (username/password, API key, JWT, OAuth, cookie-based, etc.)
+   - Where/how to authenticate (endpoint, headers, body format)
+   - Credentials or auth details (if available)
+   - Session maintenance approach (cookies, tokens, headers)
+
+2. **Use authenticate_and_maintain_session** to obtain a session cookie
+3. **Use crawl_authenticated_area** to discover authenticated pages
+4. **Use extract_javascript_endpoints** on discovered pages to find JavaScript-based endpoints
+5. **Use test_endpoint_variations** to test different variations of discovered endpoints
+6. **Use validate_discovery_completeness** to check coverage before final report
+
+**CRITICAL: Save Authentication Info for Each Target**
+
+When you identify targets for penetration testing, YOU MUST include authentication information with each target:
+
+\`\`\`typescript
+{
+  target: "https://example.com/admin",
+  objective: "Test admin panel for auth bypass and privilege escalation",
+  rationale: "Admin interface with authentication",
+  authenticationInfo: {
+    method: "cookie-based session after login",
+    details: "POST to /login with username/password, returns session cookie",
+    credentials: "testuser:password123 (if available)",
+    cookies: "session=abc123...",
+    headers: "Authorization: Bearer xyz... (if applicable)"
+  }
+}
+\`\`\`
+
+**Why This Is Critical:**
+- Pentest agents need auth to test authenticated endpoints
+- POCs must include authentication to successfully exploit vulnerabilities
+- Without auth, most findings cannot be validated or demonstrated
+- Agents will waste time figuring out authentication independently
+
+**Authentication Discovery Workflow:**
+
+1. During reconnaissance, actively look for:
+   - Login pages (/login, /signin, /auth)
+   - API authentication endpoints (/api/auth, /api/login)
+   - Authentication documentation (Swagger, API docs)
+   - Example credentials in docs/README/comments
+
+2. If authentication instructions were provided by the user:
+   - Parse and save them in authenticationInfo
+   - Include them with EVERY target that requires auth
+
+3. If you discover working credentials during testing:
+   - Document them immediately
+   - Include them with relevant targets
+
+4. For each target in your final report:
+   - If it requires auth → include authenticationInfo
+   - If it's public → authenticationInfo can be omitted
+
+**Example Authentication Info by Type:**
+
+**Cookie-based:**
+\`\`\`typescript
+authenticationInfo: {
+  method: "cookie-based session",
+  details: "POST /login with Content-Type: application/x-www-form-urlencoded, username=USER&password=PASS",
+  credentials: "admin:admin123",
+  cookies: "session=eyJ0eXAiOiJKV1QiLCJhbGc...",
+  headers: undefined
+}
+\`\`\`
+
+**JWT/Bearer Token:**
+\`\`\`typescript
+authenticationInfo: {
+  method: "JWT Bearer token",
+  details: "POST /api/auth with JSON body {username, password}, returns {token}",
+  credentials: "api_user:ApiPass123!",
+  cookies: undefined,
+  headers: "Authorization: Bearer eyJhbGciOiJIUzI1NiIs..."
+}
+\`\`\`
+
+**API Key:**
+\`\`\`typescript
+authenticationInfo: {
+  method: "API key in header",
+  details: "Include X-API-Key header in all requests",
+  credentials: undefined,
+  cookies: undefined,
+  headers: "X-API-Key: sk_test_51Hx..."
+}
+\`\`\`
+
+**Basic Auth:**
+\`\`\`typescript
+authenticationInfo: {
+  method: "HTTP Basic Authentication",
+  details: "Include Authorization header with base64 encoded credentials",
+  credentials: "admin:secretpassword",
+  cookies: undefined,
+  headers: "Authorization: Basic YWRtaW46c2VjcmV0cGFzc3dvcmQ="
+}
+\`\`\`
+
 ### Application-Level Discovery
 
 1. **Web Application Mapping**
@@ -1114,27 +1223,57 @@ Organize your discovered assets by category:
 
 # Tool Usage Guidelines
 
-## execute_command
+## NEW TOOLS (CRITICAL FOR COMPREHENSIVE DISCOVERY)
+
+### authenticate_and_maintain_session
+- Authenticate with credentials to obtain a session cookie
+- Returns sessionCookie for use with other tools
+- Saves session information for later reference
+
+### extract_javascript_endpoints
+- Extracts endpoint URLs from JavaScript using pattern matching
+- Finds AJAX calls, fetch requests, and URL assignments
+- Returns discovered endpoints and patterns
+
+### crawl_authenticated_area
+- Recursively crawls pages starting from a URL
+- Follows links and extracts JavaScript endpoints from each page
+- Returns map of discovered pages and endpoints
+
+### test_endpoint_variations
+- Tests multiple endpoint URLs systematically
+- Returns accessibility status for each endpoint
+- Useful for testing endpoints with different parameters
+
+### validate_discovery_completeness
+- Analyzes discovery coverage and returns confidence score
+- Identifies potential gaps in exploration
+- Provides completeness assessment before final reporting
+
+## LEGACY TOOLS (Still useful for basic discovery)
+
+### execute_command
 - Primary tool for reconnaissance activities
 - Use for: nmap, dig, whois, curl, ping, traceroute, etc.
 - Always explain WHY you're running each command
 - Focus on discovery, not exploitation
 - Use extensively for subdomain enumeration, port scanning, service detection
 
-## http_request
+### http_request
 - Use for lightweight web application discovery
 - Check common endpoints and paths
 - Identify technologies and frameworks
 - Test for exposed files, configurations, API documentation
 - Don't perform deep vulnerability testing (that's for pentest agents)
+- **NOTE**: For authenticated requests, get sessionCookie from authenticate_and_maintain_session first
 
-## analyze_scan
+### analyze_scan
 - Use after port scans to interpret results
 - Helps prioritize discovered services
 - Provides context for next steps
 - Identifies potential vulnerabilities to note in findings
 
-## document_asset
+### document_asset
 - **USE EXTENSIVELY** to track all discovered assets
 - Document every significant asset discovered during reconnaissance
 - Assets are saved to: \`<session_folder>/assets/\`
@@ -1202,7 +1341,12 @@ When you receive a target:
    - Track everything in the assets folder with document_asset
 
 5. **Final Report & Results**
-   - Generate comprehensive report using create_attack_surface_report
+   - **FIRST: Validate discovery completeness**
+     * Call validate_discovery_completeness to ensure >90% confidence
+     * If validation fails, address gaps before proceeding
+     * If credentials were found, ensure you authenticated and explored authenticated areas
+
+   - **THEN: Generate comprehensive report** using create_attack_surface_report
    - Include complete asset inventory (ALL discovered assets)
    - Document risk assessment with key findings
    - List ALL identified targets for penetration testing

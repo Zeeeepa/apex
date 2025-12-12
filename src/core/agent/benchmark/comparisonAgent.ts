@@ -185,7 +185,9 @@ Results will be saved to: comparison-results.json in the session directory.`,
         .describe("Actual findings that don't match any expected findings"),
       toolCallDescription: z
         .string()
-        .describe("Concise description of this tool call"),
+        .describe("Concise description of this tool call")
+        .optional()
+        ,
     }),
     execute: async ({ matched, missed, extra }) => {
       const totalExpected = expectedResults.length;

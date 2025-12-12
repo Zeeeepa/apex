@@ -1,20 +1,40 @@
-import { render, useKeyboard } from "@opentui/react";
-import { ColoredAsciiArt } from "./components/ascii-art-component";
+import { createRoot, useKeyboard, useRenderer } from "@opentui/react";
+import {
+  convertImageToColoredAscii,
+  ColoredAsciiArt,
+} from "./components/ascii-art";
 import { useState, useEffect } from "react";
-import Header from "./components/header";
 import Footer from "./components/footer";
 import CommandInput from "./command-input";
-import { CommandProvider, useCommand } from "./command-provider";
+import { CommandProvider } from "./command-provider";
 import { AgentProvider } from "./agentProvider";
 import HelpDialog from "./components/commands/help-dialog";
-import ConfigDialog from "./components/commands/config-dialog";
-import PentestAgentDisplay from "./components/commands/pentest-agent-display";
-import ThoroughPentestAgentDisplay from "./components/commands/thorough-pentest-agent-display";
+import InitWizard from "./components/commands/init-wizard";
+import SessionView from "./components/session-view";
 import SessionsDisplay from "./components/commands/sessions-display";
+import ConfigDialog from "./components/commands/config-dialog";
 import ModelsDisplay from "./components/commands/models-display";
+import ProviderManager from "./components/commands/provider-manager";
+// import CreateSessionDialog from "./components/commands/create-session-dialog";
 import type { Config } from "../core/config/config";
 import { config } from "../core/config";
-import AlertDialog from "./components/alert-dialog";
+import { fileURLToPath } from "url";
+import { dirname, join } from "path";
+import { existsSync } from "fs";
+import { createCliRenderer, RGBA } from "@opentui/core";
+import { ConfigProvider, useConfig } from "./context/config";
+import { createSwitch } from "./components/switch";
+import { type RoutePath, RouteProvider, useRoute } from "./context/route";
+import { ResponsibleUseDisclosure } from "./components/responsible-use-disclosure";
+import { hasAnyProviderConfigured } from "../core/providers";
+import { BoxLogo } from "./components/box-logo";
+import { AsciiTitle } from "./components/ascii-title";
+import { SessionProvider } from "./context/session";
+import { InputProvider, useInput } from "./context/input";
+import { FocusProvider, useFocus } from "./context/focus";
+import { DialogProvider } from "./components/dialog";
+import { Session } from "../core/session";
+import ShortcutsDialog from "./components/commands/shortcuts-dialog";
 
 // Pre-generated ASCII art (generated at build time with scripts/generate-ascii-art.ts)
 // This avoids needing sharp at runtime, which doesn't work in compiled binaries
@@ -28,8 +48,12 @@ const coloredAscii = generatedAsciiArt as {
   b: number;
 }[][];
 
-function App() {
-  const [appConfig, setAppConfig] = useState<Config | null>(null);
+interface AppProps {
+  appConfig: Config;
+}
+
+function App(props: AppProps) {
+  const { appConfig } = props;
   const [focusIndex, setFocusIndex] = useState(0);
   const [cwd, setCwd] = useState(process.cwd());
   const [ctrlCPressTime, setCtrlCPressTime] = useState<number | null>(null);
@@ -38,104 +62,35 @@ function App() {
 
   const navigableItems = ["command-input"]; // List of items that can be focused
 
-  useEffect(() => {
-    async function getConfig() {
-      const _config = await config.get();
-      setAppConfig(_config);
-    }
-    getConfig();
-  }, []);
-
-  const handleAcceptPolicy = async () => {
-    await config.update({ responsibleUseAccepted: true });
-    const updatedConfig = await config.get();
-    setAppConfig(updatedConfig);
-  };
-
   return (
-    <AgentProvider>
-      <CommandProvider>
-        <ResponsibleUseWarning
-          config={appConfig}
-          onAccept={handleAcceptPolicy}
-        />
-        <AppContent
-          focusIndex={focusIndex}
-          setFocusIndex={setFocusIndex}
-          cwd={cwd}
-          ctrlCPressTime={ctrlCPressTime}
-          setCtrlCPressTime={setCtrlCPressTime}
-          showExitWarning={showExitWarning}
-          setShowExitWarning={setShowExitWarning}
-          inputKey={inputKey}
-          setInputKey={setInputKey}
-          navigableItems={navigableItems}
-        />
-      </CommandProvider>
-    </AgentProvider>
-  );
-}
-
-function ResponsibleUseWarning({
-  config: appConfig,
-  onAccept,
-}: {
-  config: Config | null;
-  onAccept: () => void;
-}) {
-  if (!appConfig) return null;
-
-  useKeyboard((key) => {
-    if (!appConfig || appConfig.responsibleUseAccepted) return;
-
-    // Enter key accepts the policy
-    if (key.name === "return" || key.name === "enter") {
-      onAccept();
-    }
-  });
-
-  return (
-    <AlertDialog
-      disableEscape={true}
-      open={!appConfig.responsibleUseAccepted}
-      title="⚠️  Responsible Penetration Testing Policy"
-      onClose={() => {}}
-    >
-      <box flexDirection="column" gap={1}>
-        <text fg="yellow">IMPORTANT: Read Before Use</text>
-        <text fg="white">
-          This penetration testing tool is designedfor AUTHORIZED security
-          testing only.
-        </text>
-        <box flexDirection="column" marginBottom={1}>
-          <text fg="red">
-            You MUST have explicit written permission to test any systems,
-            networks, or applications
-          </text>
-        </box>
-        <text fg="white">By accepting, you agree to:</text>
-        <box flexDirection="column" marginLeft={2}>
-          <text>• Only test systems you own or have authorization</text>
-          <text fg="white">
-            • Comply with all applicable laws and regulations
-          </text>
-          <text fg="white">• Use this tool ethically and responsibly</text>
-          <text fg="white">• Not cause harm or disruption to services</text>
-          <text fg="white">• Document and report findings appropriately</text>
-        </box>
-        <box flexDirection="column">
-          <text fg="red">
-            Unauthorized access to computer systems is illegaland may result in
-            criminal prosecution.
-          </text>
-        </box>
-        <box>
-          <text fg="white">
-            Press <span fg="green">ENTER</span> to accept and continue
-          </text>
-        </box>
-      </box>
-    </AlertDialog>
+    <ConfigProvider config={appConfig}>
+      <SessionProvider>
+        <RouteProvider>
+          <FocusProvider>
+            <InputProvider>
+              <DialogProvider>
+                <AgentProvider>
+                  <CommandProvider>
+                    <AppContent
+                      focusIndex={focusIndex}
+                      setFocusIndex={setFocusIndex}
+                      cwd={cwd}
+                      ctrlCPressTime={ctrlCPressTime}
+                      setCtrlCPressTime={setCtrlCPressTime}
+                      showExitWarning={showExitWarning}
+                      setShowExitWarning={setShowExitWarning}
+                      inputKey={inputKey}
+                      setInputKey={setInputKey}
+                      navigableItems={navigableItems}
+                    />
+                  </CommandProvider>
+                </AgentProvider>
+              </DialogProvider>
+            </InputProvider>
+          </FocusProvider>
+        </RouteProvider>
+      </SessionProvider>
+    </ConfigProvider>
   );
 }
 
@@ -162,16 +117,37 @@ function AppContent({
   setInputKey: (fn: (prev: number) => number) => void;
   navigableItems: string[];
 }) {
-  const {
-    pentestOpen,
-    closePentest,
-    thoroughPentestOpen,
-    closeThoroughPentest,
-    sessionsOpen,
-    closeSessions,
-    modelsOpen,
-    closeModels,
-  } = useCommand();
+
+  const route = useRoute();
+  const config = useConfig();
+  const renderer = useRenderer();
+  const { isInputEmpty } = useInput();
+  const { refocusCommandInput } = useFocus();
+  const [showCreateSessionDialog, setShowCreateSessionDialog] = useState(false);
+  const [showSessionsDialog, setShowSessionsDialog] = useState(false);
+  const [showShortcutsDialog, setShowShortcutsDialog] = useState(false);
+
+  // First check: responsible use disclosure
+  if (!config.data.responsibleUseAccepted && route.data.type === "base" && route.data.path !== "disclosure") {
+    route.navigate({
+      type: "base",
+      path: "disclosure"
+    });
+  }
+
+  // Second check: provider configuration (only if not already on providers page)
+  if (
+    config.data.responsibleUseAccepted &&
+    !hasAnyProviderConfigured(config.data) &&
+    route.data.type === "base" &&
+    route.data.path !== "providers" &&
+    route.data.path !== "disclosure"
+  ) {
+    route.navigate({
+      type: "base",
+      path: "providers"
+    });
+  }
 
   // Auto-clear the exit warning after 1 second
   useEffect(() => {
@@ -201,27 +177,41 @@ function AppContent({
       return;
     }
 
-    // Escape - Close pentest display if open
-    if (key.name === "escape" && pentestOpen) {
-      closePentest();
-      return;
+    if(key.ctrl && key.name === "k") {
+      renderer.console.toggle();
     }
 
-    // Escape - Close thorough pentest display if open
-    if (key.name === "escape" && thoroughPentestOpen) {
-      closeThoroughPentest();
-      return;
+    // Escape - Return to home from any non-home route
+    // Exclude "init" and "session" routes - they handle their own ESC behavior
+    if (key.name === "escape") {
+      const isHome = route.data.type === "base" && route.data.path === "home";
+      const isInit = route.data.type === "base" && route.data.path === "init";
+      const isSession = route.data.type === "session";
+      if (!isHome && !isInit && !isSession) {
+        route.navigate({
+          type: "base",
+          path: "home"
+        });
+        refocusCommandInput();
+        return;
+      }
     }
 
-    // Escape - Close sessions display if open
-    if (key.name === "escape" && sessionsOpen) {
-      closeSessions();
-      return;
-    }
+    // // Ctrl+N - Create new session (only on home view)
+    // if (key.ctrl && key.name === "n" && route.data.type === "base" && route.data.path === "home") {
+    //   setShowCreateSessionDialog(true);
+    //   return;
+    // }
 
-    // Escape - Close models display if open
-    if (key.name === "escape" && modelsOpen) {
-      closeModels();
+    // // Ctrl+S - Show sessions (only on home view)
+    // if (key.ctrl && key.name === "s" && route.data.type === "base" && route.data.path === "home") {
+    //   setShowSessionsDialog(true);
+    //   return;
+    // }
+
+    // ? - Show keyboard shortcuts (when input is empty)
+    if (key.sequence === "?" && isInputEmpty) {
+      setShowShortcutsDialog(true);
       return;
     }
 
@@ -246,25 +236,73 @@ function AppContent({
     }
   });
 
+  const handleCreateSessionSuccess = (sessionId: string) => {
+    setShowCreateSessionDialog(false);
+    setInputKey((prev) => prev + 1);
+    route.navigate({
+      type: "session",
+      sessionId: sessionId
+    });
+  };
+
+  const handleCloseCreateDialog = () => {
+    setShowCreateSessionDialog(false);
+    setInputKey((prev) => prev + 1);
+    refocusCommandInput();
+  };
+
+  const handleCloseSessionsDialog = () => {
+    setShowSessionsDialog(false);
+    setInputKey((prev) => prev + 1);
+    refocusCommandInput();
+  };
+
+  const handleCloseShortcutsDialog = () => {
+    setShowShortcutsDialog(false);
+    setInputKey((prev) => prev + 1);
+    refocusCommandInput();
+  };
+
+  // Check if we're on the home route
+  const isHomeRoute = route.data.type === "base" && route.data.path === "home";
+
   return (
-    <CommandProvider>
-      <CommandOverlay>
-        <box
-          flexDirection="column"
-          alignItems="center"
-          flexGrow={1}
-          width="100%"
-          maxHeight="100%"
-          overflow="hidden"
-        >
-          <ColoredAsciiArt ascii={coloredAscii} />
-          <CommandDisplay focusIndex={focusIndex} inputKey={inputKey} />
-          <Footer cwd={cwd} showExitWarning={showExitWarning} />
-        </box>
-      </CommandOverlay>
-    </CommandProvider>
+    <box
+      flexDirection="column"
+      alignItems="center"
+      flexGrow={1}
+      width="100%"
+      maxHeight="100%"
+      overflow="hidden"
+      backgroundColor={'transparent'}
+    >
+      {/* Only show large logo on non-home routes */}
+      {/* {!isHomeRoute && <ColoredAsciiArt ascii={coloredAscii} />} */}
+
+      <CommandDisplay focusIndex={focusIndex} inputKey={inputKey} />
+
+      {/* Only show footer on non-home routes */}
+      <Footer cwd={cwd} showExitWarning={showExitWarning} />
+
+      {/* {showCreateSessionDialog && (
+        <CreateSessionDialog
+          onClose={handleCloseCreateDialog}
+          onSuccess={handleCreateSessionSuccess}
+        />
+      )} */}
+
+      {showSessionsDialog && (
+        <SessionsDisplay onClose={handleCloseSessionsDialog} />
+      )}
+
+      {showShortcutsDialog && (
+        <ShortcutsDialog open={showShortcutsDialog} onClose={handleCloseShortcutsDialog} />
+      )}
+    </box>
   );
 }
+
+const RouteSwitch = createSwitch<RoutePath>();
 
 function CommandDisplay({
   focusIndex,
@@ -273,50 +311,162 @@ function CommandDisplay({
   focusIndex: number;
   inputKey: number;
 }) {
-  const {
-    pentestOpen,
-    thoroughPentestOpen,
-    sessionsOpen,
-    closeSessions,
-    modelsOpen,
-    closeModels,
-  } = useCommand();
+
+  const route = useRoute();
+  const _config = useConfig();
+
+  const handleAcceptPolicy = async () => {
+    await config.update({ responsibleUseAccepted: true });
+    route.navigate({
+      type: "base",
+      path: "home"
+    });
+  };
+
+
+  if(route.data.type === "base") {
+    const routePath = route.data.path;
+    return (
+      <box
+        flexDirection="column"
+        width="100%"
+        maxHeight="100%"
+        alignItems="center"
+        justifyContent="center"
+        flexGrow={1}
+        flexShrink={1}
+        overflow="hidden"
+        gap={2}
+        backgroundColor={"transparent"}
+      >
+        <RouteSwitch condition={routePath}>
+          <RouteSwitch.Case when="disclosure">
+            <ResponsibleUseDisclosure onAccept={handleAcceptPolicy}/>
+          </RouteSwitch.Case>
+          <RouteSwitch.Case when="home">
+            <box width={"100%"} flexDirection="column" gap={1} paddingLeft={4}>
+              <Home/>
+              <CommandInput focused={focusIndex === 0} inputKey={inputKey}/>
+            </box>
+          </RouteSwitch.Case>
+          <RouteSwitch.Case when="help">
+            <HelpDialog/>
+          </RouteSwitch.Case>
+          <RouteSwitch.Case when="init">
+            <InitWizard />
+          </RouteSwitch.Case>
+          <RouteSwitch.Case when="config">
+            <ConfigDialog />
+          </RouteSwitch.Case>
+          <RouteSwitch.Case when="models">
+            <ModelsDisplay />
+          </RouteSwitch.Case>
+          <RouteSwitch.Case when="providers">
+            <ProviderManager />
+          </RouteSwitch.Case>
+          <RouteSwitch.Default>
+            <CommandInput focused={focusIndex === 0} inputKey={inputKey}/>
+          </RouteSwitch.Default>
+        </RouteSwitch>
+      </box>
+    );
+  }
+
+  // Session route - render SessionView which handles pentest execution
+  if(route.data.type === "session") {
+    return <SessionView sessionId={route.data.sessionId} />;
+  }
+
+  return null;
+}
+
+
+function Home () {
+  const config = useConfig();
+  const [recentSessions, setRecentSessions] = useState<Session.SessionInfo[]>([]);
+
+  useEffect(() => {
+    const loadRecentSessions = async () => {
+      const sessions: Session.SessionInfo[] = [];
+      for await(const session of Session.list()) {
+        sessions.push(session);
+      }
+      sessions.sort((a, b) => b.time.updated - a.time.updated);
+      setRecentSessions(sessions.slice(0, 4));
+    }
+    loadRecentSessions();
+  }, []);
+
+  const greenBullet = RGBA.fromInts(76, 175, 80, 255);
+  const creamText = RGBA.fromInts(255, 248, 220, 255);
+  const dimText = RGBA.fromInts(120, 120, 120, 255);
 
   return (
-    <box
-      flexDirection="column"
-      width="100%"
-      maxHeight="100%"
-      alignItems="center"
-      justifyContent="center"
-      flexGrow={1}
-      flexShrink={1}
-      overflow="hidden"
-      gap={2}
-    >
-      {!pentestOpen && !thoroughPentestOpen && !sessionsOpen && !modelsOpen && (
-        <CommandInput focused={focusIndex === 0} inputKey={inputKey} />
-      )}
-      {pentestOpen && <PentestAgentDisplay />}
-      {thoroughPentestOpen && <ThoroughPentestAgentDisplay />}
-      {sessionsOpen && <SessionsDisplay closeSessions={closeSessions} />}
-      {modelsOpen && <ModelsDisplay closeModels={closeModels} />}
+    <box width={"100%"} flexDirection="column" gap={1}>
+        <ColoredAsciiArt ascii={coloredAscii}/>
+      {/* Logo */}
+      <BoxLogo />
+
+      {/* Large Title */}
+      <box marginTop={1}>
+        <AsciiTitle />
+      </box>
+
+      {/* Subtitle */}
+      <text fg={creamText}>
+        <span>Apex CLI</span>
+        <span fg={dimText}>{" (by Pensar)"}</span>
+      </text>
+
+      {/* Tagline */}
+      <box marginTop={1}>
+        <text fg={dimText}>
+          Agentic security testing framework for modern applications.
+        </text>
+      </box>
+
+      {/* Metadata section */}
+      <box flexDirection="column" marginTop={1} gap={0}>
+        <text>
+          <span fg={greenBullet}>█ </span>
+          <span fg={dimText}>Version: </span>
+          <span fg={creamText}>{config.data.version}</span>
+        </text>
+        <text>
+          <span fg={greenBullet}>█ </span>
+          <span fg={dimText}>Quick start: </span>
+          <span fg={creamText}>/init</span>
+        </text>
+        <text>
+          <span fg={greenBullet}>█ </span>
+          <span fg={dimText}>Configure: </span>
+          <span fg={creamText}>/providers</span>
+        </text>
+      </box>
+
+      {/* Recent Sessions */}
+      <box flexDirection="column" marginTop={1}>
+        <text fg={dimText}>Recent sessions</text>
+        {recentSessions.length > 0 ? (
+          recentSessions.map((s, idx) => (
+            <text key={idx}>
+              <span fg={greenBullet}>█ </span>
+              <span fg={creamText}>{s.name}</span>
+            </text>
+          ))
+        ) : (
+          <text fg={dimText}>  No recent activity</text>
+        )}
+      </box>
     </box>
-  );
+  )
 }
 
-function CommandOverlay({ children }: { children: React.ReactNode }) {
-  const { helpOpen, closeHelp, configOpen, closeConfig } = useCommand();
-
-  return (
-    <>
-      {children}
-      <HelpDialog helpOpen={helpOpen} closeHelp={closeHelp} />
-      <ConfigDialog configOpen={configOpen} closeConfig={closeConfig} />
-    </>
-  );
+async function main() {
+  const appConfig = await config.get();
+  const renderer = await createCliRenderer({ exitOnCtrlC: false });
+  createRoot(renderer)
+    .render(<App appConfig={appConfig} />);
 }
 
-render(<App />, {
-  exitOnCtrlC: false, // We'll handle Ctrl+C manually
-});
+main();

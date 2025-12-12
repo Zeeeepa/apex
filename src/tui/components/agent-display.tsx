@@ -5,29 +5,47 @@ import {
   type TextChunk,
 } from "@opentui/core";
 import { SpinnerDots } from "./sprites";
-import type { Message, ToolMessage } from "../../core/messages";
 import { useState, memo } from "react";
 import { marked } from "marked";
-import type { Subagent } from "./hooks/pentestAgent";
-import fs from "fs";
+import type { Message } from "../../core/messages/types";
 
-// File logger
-const LOG_FILE = "/tmp/apex-debug.log";
-function logToFile(message: string, data?: any) {
-  const timestamp = new Date().toISOString();
-  const logLine = `[${timestamp}] ${message} ${data ? JSON.stringify(data, null, 2) : ''}\n`;
-  fs.appendFileSync(LOG_FILE, logLine);
-}
+export type Subagent = {
+  id: string;
+  name: string;
+  type: "attack-surface" | "pentest";
+  target: string;
+  messages: Message[];
+  createdAt: Date;
+  status: "pending" | "completed" | "failed";
+};
 
+// Flexible display message type (doesn't require storage fields)
+export type DisplayMessage = {
+  role: "user" | "assistant" | "system" | "tool";
+  content: string | unknown[];
+  createdAt: Date;
+  // Optional tool fields
+  toolCallId?: string;
+  toolName?: string;
+  args?: Record<string, unknown>;
+  status?: "pending" | "completed";
+};
+
+// Type guard for tool messages
+type ToolDisplayMessage = DisplayMessage & {
+  role: "tool";
+  toolCallId: string;
+  toolName: string;
+};
 
 function getStableKey(
-  item: Message | Subagent,
+  item: DisplayMessage | Subagent,
   contextId: string = "root"
 ): string {
   if ("messages" in item) {
     return `subagent-${item.id}`;
   } else if (item.role === "tool" && "toolCallId" in item) {
-    return `${contextId}-tool-${(item as ToolMessage).toolCallId}`;
+    return `${contextId}-tool-${(item as ToolDisplayMessage).toolCallId}`;
   } else {
     const content = typeof item.content === "string"
       ? item.content
@@ -38,7 +56,7 @@ function getStableKey(
 }
 
 interface AgentDisplayProps {
-  messages: Message[];
+  messages: DisplayMessage[];
   isStreaming?: boolean;
   children?: React.ReactNode;
   subagents?: Subagent[];
@@ -50,6 +68,11 @@ interface AgentDisplayProps {
 
 // Utility function to convert markdown to StyledText
 function markdownToStyledText(content: string): StyledText {
+  // Handle empty or whitespace-only content
+  if (!content || !content.trim()) {
+    return new StyledText([{ __isChunk: true, text: content || "", attributes: 0 }]);
+  }
+
   try {
     const tokens = marked.lexer(content);
     const chunks: TextChunk[] = [];
@@ -240,14 +263,6 @@ export default function AgentDisplay({
 const SubAgentDisplay = memo(function SubAgentDisplay({ subagent }: { subagent: Subagent }) {
   const [open, setOpen] = useState(false);
 
-  // LOG: Rendering subagent
-  logToFile(`[Render] SubAgentDisplay for ${subagent.id}:`, {
-    name: subagent.name,
-    nameLength: subagent.name?.length || 0,
-    status: subagent.status,
-    messageCount: subagent.messages.length
-  });
-
   return (
     <box
       height={open ? 40 : "auto"}
@@ -282,7 +297,7 @@ const SubAgentDisplay = memo(function SubAgentDisplay({ subagent }: { subagent: 
   );
 });
 
-const AgentMessage = memo(function AgentMessage({ message }: { message: Message }) {
+const AgentMessage = memo(function AgentMessage({ message }: { message: DisplayMessage }) {
   let content = "";
 
   if (typeof message.content === "string") {
@@ -300,16 +315,6 @@ const AgentMessage = memo(function AgentMessage({ message }: { message: Message 
     content = JSON.stringify(message.content, null, 2);
   }
 
-  // LOG: Rendering message
-  if (message.role === "tool") {
-    logToFile(`[Render] AgentMessage (tool):`, {
-      toolCallId: (message as ToolMessage).toolCallId,
-      content: content.substring(0, 50),
-      contentLength: content.length,
-      isEmpty: content === "",
-      status: (message as ToolMessage).status
-    });
-  }
 
   // Render markdown for assistant messages
   const displayContent =
@@ -317,7 +322,7 @@ const AgentMessage = memo(function AgentMessage({ message }: { message: Message 
 
   // Check if this is a pending tool message
   const isPendingTool =
-    message.role === "tool" && (message as ToolMessage).status === "pending";
+    message.role === "tool" && (message as ToolDisplayMessage).status === "pending";
 
   return (
     <box
@@ -372,7 +377,7 @@ const AgentMessage = memo(function AgentMessage({ message }: { message: Message 
   );
 });
 
-function ToolArgs({ message }: { message: Message }) {
+function ToolArgs({ message }: { message: DisplayMessage }) {
   const [open, setOpen] = useState(false);
   if (message.role !== "tool" || !("args" in message)) {
     return null;
