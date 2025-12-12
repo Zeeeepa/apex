@@ -6,7 +6,7 @@ import { useAgent } from "../../agentProvider";
 import SwarmDashboard, { type UIMessage, type Subagent } from "../swarm-dashboard";
 import { Session } from "../../../core/session";
 import { runStreamlinedPentest, type StreamlinedPentestProgress } from "../../../core/agent/thoroughPentestAgent/streamlined";
-import type { SubAgentSpawnInfo, SubAgentStreamEvent } from "../../../core/agent/pentestAgent/orchestrator";
+import type { SubAgentSpawnInfo, SubAgentStreamEvent } from "../../../core/agent/orchestrator/orchestrator";
 import type { MetaVulnerabilityTestResult } from "../../../core/agent/metaTestingAgent";
 import { existsSync } from "fs";
 import { exec } from "child_process";
