@@ -197,12 +197,13 @@ export function ColoredAsciiArt({ ascii, title }: ColoredAsciiArtProps) {
   return (
     <box
       position="absolute"
+      top={"50%"}
       flexDirection="column"
       alignItems="center"
       justifyContent="center"
       height="100%"
       width="100%"
-      flexGrow={1}
+      // flexGrow={1}
       backgroundColor={'transparent'}
     >
       {title && <text>{title}</text>}
