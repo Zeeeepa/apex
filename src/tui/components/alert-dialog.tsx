@@ -43,11 +43,11 @@ export default function AlertDialog({
           onClose();
         }
       }}
-      width={dimensions().width}
-      height={dimensions().height}
+      width={dimensions.width}
+      height={dimensions.height}
       alignItems="center"
       position="absolute"
-      paddingTop={dimensions().height / 4}
+      paddingTop={dimensions.height / 4}
       left={0}
       top={0}
       zIndex={1000}
@@ -59,7 +59,7 @@ export default function AlertDialog({
           e.stopPropagation();
         }}
         width={size === "large" ? 80 : 60}
-        maxWidth={dimensions().width - 2}
+        maxWidth={dimensions.width - 2}
         border={true}
         borderColor="green"
         backgroundColor="black"

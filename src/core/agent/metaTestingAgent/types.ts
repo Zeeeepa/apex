@@ -246,7 +246,7 @@ export interface MetaTestingAgentInput {
   model: any; // AIModel type
 
   /** Session for this pentest run */
-  session: Session.ExecutionSession;
+  session: Session.SessionInfo;
 
   /** Session configuration */
   sessionConfig?: {
@@ -287,7 +287,7 @@ export interface MetaTestingProgressStatus {
  */
 export interface MetaTestingAgentResult {
   success: boolean;
-  session: Session.ExecutionSession;
+  session: Session.SessionInfo;
   totalFindings: number;
   pocPaths: string[];
   findingPaths: string[];

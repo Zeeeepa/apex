@@ -16,10 +16,10 @@ export const keybindings: Keybinding[] = [
     key: "Ctrl+K",
     description: "Toggle console"
   },
-  {
-    key: "Ctrl+N",
-    description: "Create new session"
-  },
+  // {
+  //   key: "Ctrl+N",
+  //   description: "Create new session"
+  // },
   {
     key: "Ctrl+S",
     description: "Show sessions"

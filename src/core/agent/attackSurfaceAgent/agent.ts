@@ -16,6 +16,7 @@ import { writeFileSync, mkdirSync, existsSync } from 'fs';
 import { detectOSAndEnhancePrompt } from '../utils';
 import { getScopeDescription } from '../scope';
 import { extractJavascriptEndpoints } from './jsExtraction';
+import { generateRandomName } from '../../../util/name';
 
 export interface RunAgentProps {
   target: string;
@@ -23,7 +24,7 @@ export interface RunAgentProps {
   model: AIModel;
   onStepFinish?: StreamTextOnStepFinishCallback<ToolSet>;
   abortSignal?: AbortSignal;
-  session?: Session.ExecutionSession;
+  session?: Session.SessionInfo;
   toolOverride?: {
     execute_command?: (opts: any) => Promise<any>;
     http_request?: (opts: any) => Promise<any>;
@@ -36,12 +37,15 @@ export interface RunAgentResult extends StreamTextResult<ToolSet, never> {
 
 export async function runAgent(opts: RunAgentProps): Promise<{
   streamResult: RunAgentResult;
-  session: Session.ExecutionSession;
+  session: Session.SessionInfo;
 }> {
   const { target, model, onStepFinish, abortSignal, toolOverride } = opts;
 
   // Create a new session for this attack surface analysis
-  const session = opts.session || await Session.createExecution({ target });
+  const session = opts.session || await Session.create({
+    targets: [target],
+    name: generateRandomName()
+   });
 
   console.log(`Created attack surface session: ${session.id}`);
   console.log(`Session path: ${session.rootPath}`);
@@ -193,7 +197,7 @@ Each asset creates a JSON file in the assets directory for tracking and analysis
         ...asset,
         discoveredAt: new Date().toISOString(),
         sessionId: session.id,
-        target: session.target,
+        target: session.targets[0],
       };
 
       // Write asset to file

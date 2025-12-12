@@ -10,7 +10,6 @@ import type { BenchmarkResults } from "../src/core/agent/benchmark/types";
 import { parseDockerComposePort, getActualDockerPort } from "../src/core/agent/benchmark/docker-utils";
 import { Session } from "../src/core/session";
 import { runStreamlinedPentest } from "../src/core/agent/thoroughPentestAgent/streamlined";
-import { runComparisonAgent } from "../src/core/agent/benchmark/comparisonAgent";
 import { extractFlagFromRepo, detectFlagInArtifacts } from "../src/core/agent/benchmark/flag-detector";
 
 const exec = promisify(nodeExec);
@@ -355,9 +354,9 @@ async function runSingleBenchmark(
 
     // Step 7: Create local session with benchmark guidance and scope constraints
     const sessionPrefix = prefix ? `${prefix}-${benchmarkName}` : `benchmark-${benchmarkName}`;
-    const session = await Session.createExecution({
-      target: targetUrl,
-      objective: `Benchmark testing for ${benchmarkName}`,
+    const session = await Session.create({
+      targets: [targetUrl],
+      name: `Benchmark testing for ${benchmarkName}`,
       prefix: sessionPrefix,
       config: {
         outcomeGuidance: Session.BENCHMARK_OUTCOME_GUIDANCE,
@@ -402,29 +401,6 @@ async function runSingleBenchmark(
 
     console.log(`[${benchmarkName}] ✅ Pentest completed. Total findings: ${pentestResult.totalFindings}`);
 
-    // Step 9: Run comparison agent
-    console.log(`[${benchmarkName}] 📊 Running comparison agent...`);
-    let comparison;
-    try {
-      comparison = await runComparisonAgent({
-        repoPath: benchmarkPath,
-        sessionPath: session.rootPath,
-        model,
-      });
-    } catch (error: any) {
-      console.log(`[${benchmarkName}] ⚠️  Comparison failed: ${error.message}`);
-      comparison = {
-        totalExpected: 0,
-        totalActual: 0,
-        matched: [],
-        missed: [],
-        extra: [],
-        accuracy: 0,
-        recall: 0,
-        precision: 0,
-      };
-    }
-
     // Step 10: Detect flag in artifacts
     console.log(`[${benchmarkName}] 🎯 Detecting flag in artifacts...`);
     let flagDetection;
@@ -457,15 +433,6 @@ async function runSingleBenchmark(
       sessionPath: session.rootPath,
       flagDetection,
       expectedFlag,
-      expectedResults: [
-        ...comparison.matched.map((m: any) => m.expected),
-        ...comparison.missed,
-      ],
-      actualResults: [
-        ...comparison.matched.map((m: any) => m.actual),
-        ...comparison.extra,
-      ],
-      comparison,
       pocRunSummary: pocRunResults.total > 0 ? {
         total: pocRunResults.total,
         passed: pocRunResults.passed,
@@ -527,19 +494,6 @@ async function runSingleBenchmark(
         searchLocations: [],
       },
       expectedFlag: null,
-      expectedResults: [],
-      actualResults: [],
-      comparison: {
-        // error: error.message,
-        totalExpected: 0,
-        totalActual: 0,
-        matched: [],
-        missed: [],
-        extra: [],
-        accuracy: 0,
-        recall: 0,
-        precision: 0,
-      },
       timestamp: new Date().toISOString(),
     };
   } finally {
@@ -589,8 +543,6 @@ async function runMultipleBenchmarks(
   const totalDuration = ((Date.now() - startTime) / 1000 / 60).toFixed(2);
   const flagsDetected = results.filter((r) => r.flagDetection?.detected).length;
   const flagsMissed = results.filter((r) => !r.flagDetection?.detected).length;
-  const successful = results.filter(r => !(r.comparison as any).error).length;
-  const failed = results.filter(r => !!(r.comparison as any).error).length;
 
   // Aggregate POC results
   const totalPocs = results.reduce((sum, r) => sum + (r.pocRunSummary?.total || 0), 0);
@@ -602,8 +554,6 @@ async function runMultipleBenchmarks(
   console.log("=".repeat(80));
   console.log(`Total Duration: ${totalDuration}m`);
   console.log(`Total Benchmarks: ${benchmarks.length}`);
-  console.log(`Successful: ${successful}/${benchmarks.length}`);
-  console.log(`Failed: ${failed}/${benchmarks.length}`);
   console.log(`Flags Detected: ${flagsDetected}/${benchmarks.length} (${Math.round((flagsDetected / benchmarks.length) * 100)}%)`);
   console.log(`Flags Missed: ${flagsMissed}/${benchmarks.length}`);
   if (totalPocs > 0) {
@@ -631,8 +581,6 @@ async function runMultipleBenchmarks(
     model,
     mode: "local",
     totalBenchmarks: benchmarks.length,
-    successful,
-    failed,
     flagsDetected,
     flagsMissed,
     pocStats: {
@@ -643,17 +591,10 @@ async function runMultipleBenchmarks(
     duration: totalDuration,
     benchmarks: results.map((r) => ({
       benchmark: r.branch,
-      status: (r.comparison as any).error ? "failed" : "success",
-      error: (r.comparison as any).error,
       flagDetected: r.flagDetection?.detected || false,
       expectedFlag: r.expectedFlag,
       foundIn: r.flagDetection?.foundIn || [],
       sessionPath: r.sessionPath,
-      metrics: {
-        accuracy: Math.round((r.comparison.accuracy || 0) * 100),
-        precision: Math.round((r.comparison.precision || 0) * 100),
-        recall: Math.round((r.comparison.recall || 0) * 100),
-      },
       pocResults: r.pocRunSummary ? {
         total: r.pocRunSummary.total,
         passed: r.pocRunSummary.passed,

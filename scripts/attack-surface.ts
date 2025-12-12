@@ -80,9 +80,9 @@ async function runAttackSurface(options: AttackSurfaceOptions): Promise<void> {
     };
 
     // Create session with config
-    const session = await Session.createExecution({
-      target,
-      objective,
+    const session = await Session.create({
+      targets: [target],
+      name: objective,
       prefix: 'attack-surface',
       config: sessionConfig,
     });

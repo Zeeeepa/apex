@@ -12,7 +12,7 @@ import HelpDialog from "./components/commands/help-dialog";
 import InitWizard from "./components/commands/init-wizard";
 import SessionView from "./components/session-view";
 import SessionsDisplay from "./components/commands/sessions-display";
-import CreateSessionDialog from "./components/commands/create-session-dialog";
+// import CreateSessionDialog from "./components/commands/create-session-dialog";
 import type { Config } from "../core/config/config";
 import { config } from "../core/config";
 import { fileURLToPath } from "url";
@@ -309,12 +309,12 @@ function AppContent({
       {/* Only show footer on non-home routes */}
       <Footer cwd={cwd} showExitWarning={showExitWarning} />
 
-      {showCreateSessionDialog && (
+      {/* {showCreateSessionDialog && (
         <CreateSessionDialog
           onClose={handleCloseCreateDialog}
           onSuccess={handleCreateSessionSuccess}
         />
-      )}
+      )} */}
 
       {showSessionsDialog && (
         <SessionsDisplay onClose={handleCloseSessionsDialog} />

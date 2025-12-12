@@ -11,7 +11,6 @@ import {
 } from "fs";
 import { join } from "path";
 import { Session } from "../session";
-import { runAgent } from "./pentestAgent";
 import type { AIModel } from "../ai";
 import { generateObjectResponse } from "../ai";
 import { getProviderModel } from "../ai/utils";
@@ -1111,7 +1110,7 @@ export type HttpRequestResult = {
  *
  * This function is created with a session context to save findings to disk
  */
-function createDocumentFindingTool(session: Session.ExecutionSession) {
+function createDocumentFindingTool(session: Session.SessionInfo) {
   return tool({
     name: "document_finding",
     description: `Document a security finding with severity, impact, and remediation guidance.
@@ -1152,7 +1151,7 @@ FINDING STRUCTURE:
           ...finding,
           timestamp,
           sessionId: session.id,
-          target: session.target,
+          target: session.targets[0],
         };
 
         // Create a safe filename from the title
@@ -1170,7 +1169,7 @@ FINDING STRUCTURE:
         const markdown = `# ${finding.title}
 
 **Severity:** ${finding.severity}  
-**Target:** ${session.target}  
+**Target:** ${session.targets[0]}  
 **Date:** ${timestamp}  
 **Session:** ${session.id}
 
@@ -1209,7 +1208,7 @@ ${finding.references ? `## References\n\n${finding.references}` : ""}
           appendFileSync(summaryPath, summaryEntry);
         } catch (e) {
           // File doesn't exist, create it with header
-          const header = `# Findings Summary\n\n**Target:** ${session.target}  \n**Session:** ${session.id}\n\n## All Findings\n\n`;
+          const header = `# Findings Summary\n\n**Target:** ${session.targets[0]}  \n**Session:** ${session.id}\n\n## All Findings\n\n`;
           writeFileSync(summaryPath, header + summaryEntry);
         }
 
@@ -1233,7 +1232,7 @@ ${finding.references ? `## References\n\n${finding.references}` : ""}
 /**
  * Scratchpad tool - Take notes during testing
  */
-function createScratchpadTool(session: Session.ExecutionSession) {
+function createScratchpadTool(session: Session.SessionInfo) {
   return tool({
     name: "scratchpad",
     description: `Write notes, observations, or temporary data to the scratchpad during testing.
@@ -1266,7 +1265,7 @@ The scratchpad is session-specific and helps maintain context during long assess
           appendFileSync(scratchpadFile, entry);
         } catch (e) {
           // File doesn't exist, create it with header
-          const header = `# Scratchpad - Session ${session.id}\n\n**Target:** ${session.target}  \n**Objective:** ${session.objective}\n\n---\n\n`;
+          const header = `# Scratchpad - Session ${session.id}\n\n**Target:** ${session.targets[0]}  \n**Objective:** ${session.config?.outcomeGuidance}\n\n---\n\n`;
           writeFileSync(scratchpadFile, header + entry);
         }
 
@@ -1374,7 +1373,7 @@ Provides guidance on:
 /**
  * Generate comprehensive report - Create final pentest report
  */
-function createGenerateReportTool(session: Session.ExecutionSession) {
+function createGenerateReportTool(session: Session.SessionInfo) {
   return tool({
     name: "generate_report",
     description: `Generate a comprehensive penetration testing report for the session.
@@ -1431,7 +1430,7 @@ The report will be saved as 'pentest-report.md' in the session root directory.`,
     }) => {
       try {
         const endTime = new Date().toISOString();
-        const startDate = new Date(session.startTime);
+        const startDate = new Date(session.time.created);
         const endDate = new Date(endTime);
         const duration = Math.round(
           (endDate.getTime() - startDate.getTime()) / (1000 * 60)
@@ -1541,10 +1540,10 @@ This demonstrates systematic testing methodology and proves thoroughness beyond 
         // Generate the comprehensive report
         const report = `# Penetration Testing Report
 
-**Target:** ${session.target}  
+**Target:** ${session.targets[0]}  
 **Session ID:** ${session.id}  
 **Test Period:** ${new Date(
-          session.startTime
+          session.time.created
         ).toLocaleString()} - ${endDate.toLocaleString()}  
 **Duration:** ${duration} minutes  
 **Report Generated:** ${endTime}
@@ -1577,8 +1576,8 @@ ${
 
 ## Scope and Objectives
 
-**Target:** ${session.target}  
-**Objective:** ${session.objective}
+**Target:** ${session.targets[0]}  
+**Objective:** ${session.config?.outcomeGuidance}
 
 ${scopeDetails ? `\n${scopeDetails}\n` : ""}
 
@@ -1756,7 +1755,7 @@ This report should be treated as confidential and distributed only to authorized
 /**
  * Core logic for recording test results 
  */
-async function recordTestResultCore(session: Session.ExecutionSession, params: {
+async function recordTestResultCore(session: Session.SessionInfo, params: {
   parameter: string;
   endpoint: string;
   attackType: string;
@@ -1813,7 +1812,7 @@ async function recordTestResultCore(session: Session.ExecutionSession, params: {
 /**
  * Record test result - Track all security tests including negative results
  */
-function createRecordTestResultTool(session: Session.ExecutionSession) {
+function createRecordTestResultTool(session: Session.SessionInfo) {
   return tool({
     name: "record_test_result",
     description: `Record the result of a security test, including tests that did NOT find vulnerabilities.
@@ -2041,7 +2040,7 @@ Analyze: Is this vulnerable? Return ONLY JSON:
 /**
  * Smart Test Parameter Tool
  */
-function createSmartTestTool(session: Session.ExecutionSession, model: AIModel) {
+function createSmartTestTool(session: Session.SessionInfo, model: AIModel) {
   return tool({
     name: "test_parameter",
     description: `Intelligently test a parameter for a vulnerability using AI-powered adaptive testing.
@@ -2240,35 +2239,7 @@ function getAttackSurfaceAgent() {
   });
 }
 
-function runPentestAgents(model: AIModel = "claude-4-sonnet-20240229") {
-  return tool({
-    name: "pentest_agents",
-    description: "Perform a pentest on a target using the pentest agent",
-    inputSchema: z.object({
-      targets: z
-        .array(
-          z.object({
-            target: z.string().describe("The target to perform a pentest on"),
-            objective: z.string().describe("The objective of the pentest"),
-          })
-        )
-        .describe("The targets to perform a pentest on"),
-    }),
-    execute: async ({ targets }) => {
-      const promises = targets.map((target) => {
-        return runAgent({
-          target: target.target,
-          objective: target.objective,
-          model: model,
-        });
-      });
-      const results = await Promise.all(promises);
-      return results;
-    },
-  });
-}
-
-function createCheckTestingCoverageTool(session: Session.ExecutionSession) {
+function createCheckTestingCoverageTool(session: Session.SessionInfo) {
   return tool({
     name: "check_testing_coverage",
     description: `Analyze testing coverage to understand what has been tested and identify gaps.
@@ -2439,7 +2410,7 @@ Use this when:
  * Validate completeness before final reporting
  * Ensures agent tested everything systematically
  */
-function createValidateCompletenessTool(session: Session.ExecutionSession) {
+function createValidateCompletenessTool(session: Session.SessionInfo) {
   return tool({
     name: "validate_completeness",
     description: `Validate that you've completed a thorough, professional assessment before generating final report.
@@ -2582,7 +2553,7 @@ This is the difference between amateur and professional pentesting.`,
  * Quick endpoint enumeration helper
  * Wraps execute_command for common enumeration patterns
  */
-function createEnumerateEndpointsTool(session: Session.ExecutionSession) {
+function createEnumerateEndpointsTool(session: Session.SessionInfo) {
   return tool({
     name: "enumerate_endpoints",
     description: `Quickly enumerate endpoints using pattern-based discovery.
@@ -2652,7 +2623,7 @@ Not found: ${(range.max - range.min + 1 - discovered.length)} endpoints returned
         try {
           appendFileSync(scratchpadFile, entry);
         } catch (e) {
-          const header = `# Scratchpad - Session ${session.id}\n\n**Target:** ${session.target}  \n**Objective:** ${session.objective}\n\n---\n\n`;
+          const header = `# Scratchpad - Session ${session.id}\n\n**Target:** ${session.targets[0]}  \n**Objective:** ${session.config?.outcomeGuidance}\n\n---\n\n`;
           writeFileSync(scratchpadFile, header + entry);
         }
       } catch (err) {
@@ -2750,7 +2721,7 @@ function wrapCommandWithHeaders(command: string, headers: Record<string, string>
 
 // Export tools creator function that accepts a session
 export function createPentestTools(
-  session: Session.ExecutionSession,
+  session: Session.SessionInfo,
   model?: AIModel,
   toolOverride?: {
     execute_command?: (
@@ -2990,6 +2961,5 @@ COMMON TESTING PATTERNS:
     scratchpad: createScratchpadTool(session),
     generate_report: createGenerateReportTool(session),
     get_attack_surface: getAttackSurfaceAgent(),
-    pentest_agents: runPentestAgents(model),
   };
 }

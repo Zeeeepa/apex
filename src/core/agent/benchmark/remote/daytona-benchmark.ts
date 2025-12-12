@@ -625,9 +625,10 @@ export async function runBenchmarkWithDaytona(
 
     // Step 8: Create local session with benchmark guidance and scope constraints
     const sessionPrefix = prefix ? `${prefix}-${benchmarkName}` : `benchmark-${benchmarkName}`;
-    const session = await Session.createExecution({
-      target: targetUrl,
-      objective: `Benchmark testing for ${benchmarkName}`,
+    const session = await Session.create({
+      targets: [targetUrl],
+      name: `Benchmark testing for ${benchmarkName}`,
+      // objective: `Benchmark testing for ${benchmarkName}`,
       prefix: sessionPrefix,
       config: {
         outcomeGuidance: Session.BENCHMARK_OUTCOME_GUIDANCE,
@@ -853,29 +854,6 @@ export async function runBenchmarkWithDaytona(
       `[${benchmarkName}] ✅ Pentest completed. Total findings: ${pentestResult.totalFindings}`
     );
 
-    // Step 11: Run comparison agent
-    console.log(`[${benchmarkName}] 📊 Running comparison agent...`);
-    let comparison;
-    try {
-      comparison = await runComparisonAgent({
-        repoPath: benchmarkPath,
-        sessionPath: session.rootPath,
-        model,
-      });
-    } catch (error: any) {
-      console.log(`[${benchmarkName}] ⚠️  Comparison failed: ${error.message}`);
-      comparison = {
-        totalExpected: 0,
-        totalActual: 0,
-        matched: [],
-        missed: [],
-        extra: [],
-        accuracy: 0,
-        recall: 0,
-        precision: 0,
-      };
-    }
-
     // Step 12: Detect flag in artifacts
     console.log(`[${benchmarkName}] 🎯 Detecting flag in artifacts...`);
     let flagDetection;
@@ -914,15 +892,6 @@ export async function runBenchmarkWithDaytona(
       sessionPath: session.rootPath,
       flagDetection,
       expectedFlag,
-      expectedResults: [
-        ...comparison.matched.map((m: any) => m.expected),
-        ...comparison.missed,
-      ],
-      actualResults: [
-        ...comparison.matched.map((m: any) => m.actual),
-        ...comparison.extra,
-      ],
-      comparison,
       pocRunSummary:
         pocRunResults.total > 0
           ? {
@@ -997,18 +966,6 @@ export async function runBenchmarkWithDaytona(
         searchLocations: [],
       },
       expectedFlag: null,
-      expectedResults: [],
-      actualResults: [],
-      comparison: {
-        totalExpected: 0,
-        totalActual: 0,
-        matched: [],
-        missed: [],
-        extra: [],
-        accuracy: 0,
-        recall: 0,
-        precision: 0,
-      },
       timestamp: new Date().toISOString(),
     };
   } finally {
@@ -1196,12 +1153,6 @@ export async function runMultipleBenchmarks(
   const totalDuration = ((Date.now() - startTime) / 1000 / 60).toFixed(2);
   const flagsDetected = results.filter((r) => r.flagDetection?.detected).length;
   const flagsMissed = results.filter((r) => !r.flagDetection?.detected).length;
-  const successful = results.filter(
-    (r) => !(r.comparison as any).error && r.sessionId
-  ).length;
-  const failed = results.filter(
-    (r) => !!(r.comparison as any).error || !r.sessionId
-  ).length;
 
   // Aggregate POC results
   const totalPocs = results.reduce(
@@ -1222,8 +1173,6 @@ export async function runMultipleBenchmarks(
   console.log("=".repeat(80));
   console.log(`Total Duration: ${totalDuration}m`);
   console.log(`Total Benchmarks: ${benchmarks.length}`);
-  console.log(`Successful: ${successful}/${benchmarks.length}`);
-  console.log(`Failed: ${failed}/${benchmarks.length}`);
   console.log(
     `Flags Detected: ${flagsDetected}/${benchmarks.length} (${Math.round((flagsDetected / benchmarks.length) * 100)}%)`
   );
@@ -1255,8 +1204,6 @@ export async function runMultipleBenchmarks(
     model: options.model,
     mode: "daytona-dind",
     totalBenchmarks: benchmarks.length,
-    successful,
-    failed,
     flagsDetected,
     flagsMissed,
     pocStats: {
@@ -1267,17 +1214,10 @@ export async function runMultipleBenchmarks(
     duration: totalDuration,
     benchmarks: results.map((r) => ({
       benchmark: r.branch,
-      status: (r.comparison as any).error || !r.sessionId ? "failed" : "success",
-      error: (r.comparison as any).error,
       flagDetected: r.flagDetection?.detected || false,
       expectedFlag: r.expectedFlag,
       foundIn: r.flagDetection?.foundIn || [],
       sessionPath: r.sessionPath,
-      metrics: {
-        accuracy: Math.round((r.comparison.accuracy || 0) * 100),
-        precision: Math.round((r.comparison.precision || 0) * 100),
-        recall: Math.round((r.comparison.recall || 0) * 100),
-      },
       pocResults: r.pocRunSummary
         ? {
             total: r.pocRunSummary.total,

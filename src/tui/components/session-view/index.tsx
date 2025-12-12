@@ -33,7 +33,7 @@ export default function SessionView({ sessionId }: SessionViewProps) {
   const { model, addTokens, setTokenCount, setThinking, isExecuting, setIsExecuting } = useAgent();
 
   // Session state
-  const [session, setSession] = useState<Session.ExecutionSession | null>(null);
+  const [session, setSession] = useState<Session.SessionInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -48,7 +48,7 @@ export default function SessionView({ sessionId }: SessionViewProps) {
   useEffect(() => {
     async function loadSession() {
       try {
-        const loadedSession = await Session.getExecution(sessionId);
+        const loadedSession = await Session.get(sessionId);
         if (!loadedSession) {
           setError(`Session not found: ${sessionId}`);
           setLoading(false);
@@ -73,7 +73,7 @@ export default function SessionView({ sessionId }: SessionViewProps) {
   }, [session, hasStarted, loading]);
 
   // Start the pentest
-  const startPentest = useCallback(async (execSession: Session.ExecutionSession) => {
+  const startPentest = useCallback(async (execSession: Session.SessionInfo) => {
     setIsExecuting(true);
     setThinking(true);
     setStartTime(new Date());
@@ -89,7 +89,7 @@ export default function SessionView({ sessionId }: SessionViewProps) {
         id: "attack-surface-discovery",
         name: "Attack Surface Discovery",
         type: "attack-surface",
-        target: execSession.target,
+        target: execSession.targets[0],
         messages: [],
         status: "pending",
         createdAt: new Date(),
@@ -97,7 +97,7 @@ export default function SessionView({ sessionId }: SessionViewProps) {
 
       // Run streamlined pentest
       const result = await runStreamlinedPentest({
-        target: execSession.target,
+        target: execSession.targets[0],
         model: model.id,
         session: execSession,
         sessionConfig: execSession.config,

@@ -25,9 +25,6 @@ export interface BenchmarkResults {
   sessionPath: string;
   flagDetection: FlagDetectionResult;
   expectedFlag: string | null;
-  expectedResults: ExpectedFinding[];
-  actualResults: ActualFinding[];
-  comparison: ComparisonResult;
   pocRunSummary?: PocRunSummary;
   timestamp: string;
 }

@@ -103,14 +103,15 @@ export namespace Session {
      * Input for creating an execution session
      */
     export interface CreateExecutionInput {
+        session: SessionInfo;
         /** Target URL or system to test */
-        target: string;
-        /** Testing objective description */
-        objective?: string;
-        /** Optional prefix for session ID (e.g., "benchmark-XBEN-001-24") */
-        prefix?: string;
-        /** Session configuration */
-        config?: SessionConfig;
+        // target: string;
+        // /** Testing objective description */
+        // objective?: string;
+        // /** Optional prefix for session ID (e.g., "benchmark-XBEN-001-24") */
+        // prefix?: string;
+        // /** Session configuration */
+        // config?: SessionConfig;
     }
 
     /**
@@ -147,74 +148,35 @@ export namespace Session {
      * ├── logs/             # Execution logs
      * └── pocs/             # Proof-of-concept scripts
      */
-    export async function createExecution(input: CreateExecutionInput): Promise<ExecutionSession> {
-        // Generate ID with proper separator: {prefix}-ses_{timestamp}_{random}
-        const baseId = Identifier.descending('session');
-        const id = input.prefix ? `${input.prefix}-${baseId}` : baseId;
-
-        // Calculate paths
-        const rootPath = getExecutionRoot(id);
-        const findingsPath = path.join(rootPath, "findings");
-        const scratchpadPath = path.join(rootPath, "scratchpad");
-        const logsPath = path.join(rootPath, "logs");
-        const pocsPath = path.join(rootPath, "pocs");
+    export async function createExecution(input: CreateExecutionInput): Promise<void> {
+        const { session } = input;
 
         // Create directory structure with locking
-        await Storage.createDir(["executions", id]);
-        await Storage.createDir(["executions", id, "findings"]);
-        await Storage.createDir(["executions", id, "scratchpad"]);
-        await Storage.createDir(["executions", id, "logs"]);
-        await Storage.createDir(["executions", id, "pocs"]);
+        await Storage.createDir(["executions", session.id]);
+        await Storage.createDir(["executions", session.id, "findings"]);
+        await Storage.createDir(["executions", session.id, "scratchpad"]);
+        await Storage.createDir(["executions", session.id, "logs"]);
+        await Storage.createDir(["executions", session.id, "pocs"]);
 
         const startTime = new Date().toISOString();
 
-        const session: ExecutionSession = {
-            id,
-            rootPath,
-            findingsPath,
-            scratchpadPath,
-            logsPath,
-            pocsPath,
-            target: input.target,
-            objective: input.objective || "",
-            startTime,
-            config: {
-                ...input.config,
-                outcomeGuidance: input.config?.outcomeGuidance || DEFAULT_OUTCOME_GUIDANCE,
-            },
-        };
-
-        // Store session metadata with locking
-        const sessionMetadata = {
-            ...session,
-            version: await Installation.getVersion(),
-            time: {
-                created: Date.now(),
-                updated: Date.now(),
-            },
-        };
-
-        await Storage.write(["executions", id, "session"], sessionMetadata);
-
         // Write README.md
         const readme = generateSessionReadme(session);
-        await Storage.writeRaw(["executions", id, "README.md"], readme);
+        await Storage.writeRaw(["executions", session.id, "README.md"], readme);
 
         console.info("created execution session", session.id);
-
-        return session;
     }
 
     /**
      * Generate README.md content for a session
      */
-    function generateSessionReadme(session: ExecutionSession): string {
+    function generateSessionReadme(session: SessionInfo): string {
         return `# Penetration Test Session
 
 **Session ID:** ${session.id}
-**Target:** ${session.target}
-**Objective:** ${session.objective}
-**Started:** ${session.startTime}
+**Target:** ${session.targets}
+**Objective:** ${session.config?.outcomeGuidance}
+**Started:** ${session.time.created}
 
 ## Directory Structure
 
@@ -254,7 +216,7 @@ Testing in progress...
     /**
      * Resolve offensive headers based on session config
      */
-    export function getOffensiveHeaders(session: ExecutionSession): Record<string, string> | undefined {
+    export function getOffensiveHeaders(session: SessionInfo): Record<string, string> | undefined {
         const config = session.config?.offensiveHeaders;
 
         if (!config || config.mode === 'none') {
@@ -280,12 +242,17 @@ Testing in progress...
         id: Identifier.schema("session"),
         name: z.string(),
         version: z.string(),
-        targets: z.array(z.string()).optional(),
+        targets: z.array(z.string()),
         config: SessionConfigObject.optional(),
         time: z.object({
             created: z.number(),
             updated: z.number(),
         }),
+        rootPath: z.string(),
+        logsPath: z.string(),
+        findingsPath: z.string(),
+        scratchpadPath: z.string(),
+        pocsPath: z.string()
     }).meta({
         ref: "Session"
     });
@@ -294,38 +261,57 @@ Testing in progress...
 
     interface CreateInputProps {
         id?: string;
+        targets: string[];
         name: string;
         prefix?: string;
-        mode?: Extract<SessionInfo, "mode">;
-        offensiveHeaders?: OffensiveHeadersConfig;
-        outcomeGuidance?: string;
+        config?: SessionConfig;
+        // offensiveHeaders?: OffensiveHeadersConfig;
+        // outcomeGuidance?: string;
     }
 
     export async function create(input: CreateInputProps) {
+        const id = `${input.prefix ? input.prefix : ""}` + Identifier.descending('session', input.id);
+        
+        const rootPath = getExecutionRoot(id);
+        const findingsPath = path.join(rootPath, "findings");
+        const scratchpadPath = path.join(rootPath, "scratchpad");
+        const logsPath = path.join(rootPath, "logs");
+        const pocsPath = path.join(rootPath, "pocs");
+        
         const result: SessionInfo = {
-            id: `${input.prefix ? input.prefix : ""}` + Identifier.descending('session', input.id),
+            id: id,
             version: await Installation.getVersion(),
+            targets: input.targets,
             name: input.name,
             time: {
                 created: Date.now(),
                 updated: Date.now()
             },
             config: {
-                mode: input.mode || "auto",
-                offensiveHeaders: input.offensiveHeaders || {
+                mode: input.config?.mode || "auto",
+                offensiveHeaders: input.config?.offensiveHeaders || {
                     mode: "default",
                     headers: {
                         "User-Agent": "pensar-apex"
                     }
                 },
-                outcomeGuidance: input.outcomeGuidance || DEFAULT_OUTCOME_GUIDANCE
-            }
+                outcomeGuidance: input.config?.outcomeGuidance || DEFAULT_OUTCOME_GUIDANCE,
+                scopeConstraints: input.config?.scopeConstraints
+            },
+            rootPath,
+            logsPath,
+            pocsPath,
+            scratchpadPath,
+            findingsPath
         };
+
+        
 
         console.info("created session", result);
 
         await Storage.write(["session", result.id], result);
-        await Storage.createDir(["executions", result.id]);
+        // await Storage.createDir(["executions", result.id]);
+        await createExecution({ session: result });
         return result;
     }
 

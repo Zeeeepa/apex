@@ -5,10 +5,19 @@ import {
   type TextChunk,
 } from "@opentui/core";
 import { SpinnerDots } from "./sprites";
-import { Messages } from "../../core/messages";
 import { useState, memo } from "react";
 import { marked } from "marked";
-import type { Subagent } from "./hooks/pentestAgent";
+import type { Message } from "../../core/messages/types";
+
+export type Subagent = {
+  id: string;
+  name: string;
+  type: "attack-surface" | "pentest";
+  target: string;
+  messages: Message[];
+  createdAt: Date;
+  status: "pending" | "completed" | "failed";
+};
 
 // Flexible display message type (doesn't require storage fields)
 export type DisplayMessage = {

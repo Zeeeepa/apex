@@ -5,30 +5,10 @@ import Input from "../input";
 import { useRoute } from "../../context/route";
 import { Session } from "../../../core/session";
 import { SpinnerDots } from "../sprites";
+import { generateRandomName } from "../../../util/name";
 
 // Simplified wizard step types
 type WizardStep = "target" | "configure" | "creating";
-
-// Random name generator (GitHub-style)
-const adjectives = [
-  "swift", "bright", "calm", "bold", "keen", "noble", "quick", "sharp",
-  "vivid", "warm", "agile", "brave", "clever", "daring", "eager", "fierce",
-  "gentle", "humble", "jolly", "lively", "merry", "nimble", "proud", "quiet",
-  "rapid", "serene", "sturdy", "tender", "valiant", "witty", "zealous"
-];
-
-const nouns = [
-  "falcon", "wolf", "hawk", "bear", "lion", "tiger", "eagle", "raven",
-  "phoenix", "dragon", "panther", "cobra", "viper", "shark", "orca",
-  "mantis", "spider", "scorpion", "hydra", "griffin", "sphinx", "kraken",
-  "cipher", "nexus", "prism", "vector", "matrix", "pulse", "surge", "flux"
-];
-
-function generateRandomName(): string {
-  const adj = adjectives[Math.floor(Math.random() * adjectives.length)]!;
-  const noun = nouns[Math.floor(Math.random() * nouns.length)]!;
-  return `${adj}-${noun}`;
-}
 
 // Simplified wizard state interface
 interface WizardState {
@@ -136,12 +116,18 @@ export default function InitWizard() {
       }
 
       // Create execution session
-      const session = await Session.createExecution({
-        target: state.target,
-        objective: `Pentest: ${state.target}`,
-        prefix: state.name || undefined,
-        config: sessionConfig,
-      });
+      // const session = await Session.createExecution({
+      //   target: state.target,
+      //   objective: `Pentest: ${state.target}`,
+      //   prefix: state.name || undefined,
+      //   config: sessionConfig,
+      // });
+
+      const session = await Session.create({
+        targets: [state.target],
+        name: state.name,
+        ...sessionConfig,
+      })
 
       // Navigate to session route - SessionView will handle execution
       route.navigate({

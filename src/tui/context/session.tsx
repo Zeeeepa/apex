@@ -4,7 +4,7 @@ import { Session } from "../../core/session";
 type SessionContext = {
     active?: Session.SessionInfo;
     load: (id: string) => Promise<Session.SessionInfo | null>;
-    create: (name: string) => Promise<Session.SessionInfo>;
+    create: (name: string, target: string) => Promise<Session.SessionInfo>;
 };
 
 
@@ -31,8 +31,8 @@ export function SessionProvider({ children, session }: SessionProviderProps) {
                 return null;
             }
         },
-        create: async (name: string) => {
-            const _session = await Session.create({ name: name });
+        create: async (name: string, target: string) => {
+            const _session = await Session.create({ name: name, targets: [target] });
             setActiveSession(_session);
             return _session;
         }
