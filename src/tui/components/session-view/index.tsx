@@ -5,6 +5,7 @@ import { useRoute } from "../../context/route";
 import { useAgent } from "../../agentProvider";
 import SwarmDashboard, { type UIMessage, type Subagent } from "../swarm-dashboard";
 import { Session } from "../../../core/session";
+import { loadSessionState, type UISubagent } from "../../../core/session/loader";
 import { runStreamlinedPentest, type StreamlinedPentestProgress } from "../../../core/agent/thoroughPentestAgent/streamlined";
 import type { SubAgentSpawnInfo, SubAgentStreamEvent } from "../../../core/agent/orchestrator/orchestrator";
 import type { MetaVulnerabilityTestResult } from "../../../core/agent/metaTestingAgent";
@@ -26,9 +27,11 @@ type ToolUIMessage = UIMessage & {
 
 interface SessionViewProps {
   sessionId: string;
+  /** If true, load existing session state without starting a new pentest */
+  isResume?: boolean;
 }
 
-export default function SessionView({ sessionId }: SessionViewProps) {
+export default function SessionView({ sessionId, isResume = false }: SessionViewProps) {
   const route = useRoute();
   const { model, setThinking, isExecuting, addTokenUsage, setIsExecuting } = useAgent();
 
@@ -55,6 +58,33 @@ export default function SessionView({ sessionId }: SessionViewProps) {
           return;
         }
         setSession(loadedSession);
+
+        // If resuming, load existing state from disk
+        if (isResume) {
+          try {
+            const state = await loadSessionState(loadedSession);
+
+            // Convert UISubagent to Subagent (they're compatible)
+            const loadedSubagents: Subagent[] = state.subagents.map(s => ({
+              id: s.id,
+              name: s.name,
+              type: s.type,
+              target: s.target,
+              messages: s.messages,
+              createdAt: s.createdAt,
+              status: s.status,
+            }));
+
+            setSubagents(loadedSubagents);
+            setIsCompleted(state.hasReport);
+            setStartTime(new Date(loadedSession.time.created));
+            setHasStarted(true); // Mark as started so we don't trigger new pentest
+          } catch (e) {
+            console.error("Failed to load session state:", e);
+            // Fall through to show empty state - user can still view session
+          }
+        }
+
         setLoading(false);
       } catch (e) {
         setError(e instanceof Error ? e.message : "Failed to load session");
@@ -62,15 +92,15 @@ export default function SessionView({ sessionId }: SessionViewProps) {
       }
     }
     loadSession();
-  }, [sessionId]);
+  }, [sessionId, isResume]);
 
-  // Start pentest once session is loaded
+  // Start pentest once session is loaded (only if not resuming)
   useEffect(() => {
-    if (session && !hasStarted && !loading) {
+    if (session && !hasStarted && !loading && !isResume) {
       setHasStarted(true);
       startPentest(session);
     }
-  }, [session, hasStarted, loading]);
+  }, [session, hasStarted, loading, isResume]);
 
   // Start the pentest
   const startPentest = useCallback(async (execSession: Session.SessionInfo) => {

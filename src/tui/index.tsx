@@ -204,10 +204,10 @@ function AppContent({
     // }
 
     // // Ctrl+S - Show sessions (only on home view)
-    // if (key.ctrl && key.name === "s" && route.data.type === "base" && route.data.path === "home") {
-    //   setShowSessionsDialog(true);
-    //   return;
-    // }
+    if (key.ctrl && key.name === "s" && route.data.type === "base" && route.data.path === "home") {
+      setShowSessionsDialog(true);
+      return;
+    }
 
     // ? - Show keyboard shortcuts (when input is empty)
     if (key.sequence === "?" && isInputEmpty) {
@@ -374,7 +374,7 @@ function CommandDisplay({
 
   // Session route - render SessionView which handles pentest execution
   if(route.data.type === "session") {
-    return <SessionView sessionId={route.data.sessionId} />;
+    return <SessionView sessionId={route.data.sessionId} isResume={route.data.isResume} />;
   }
 
   return null;

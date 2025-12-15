@@ -65,37 +65,120 @@ export default function SessionsDisplay({ onClose }: SessionsDisplayProps) {
   }
 
 
-  function move(direction: number) {
-    let next = selectedIndex + direction;
-    console.log(next);
-    if(next < 0) next = sessions.length - 1; 
-    if(next >= sessions.length) next = 0;
-    moveTo(next);
-  }
+  function scrollToIndex(index: number, list: Session.SessionInfo[]) {
+    if (!scroll.current || list.length === 0) return;
 
-  function moveTo(next: number) {
-      if(scroll.current) {
-        let target: Renderable | undefined;
-        scroll.current.getChildren().find((c) => {
-          let childSession = c.getChildren().find(c => c.id === sessions[next].id);
-          target = childSession;
-          // console.log(c.id)
-          // return c.id === sessions[next].id;
-      });
-      if(!target) return;
-      console.log(target.id)
-      const y = target.y - scroll.current.y;
-      if(y >= scroll.current.height) {
-        scroll.current.scrollBy(y - scroll.current.height + 1);
-      }
-      if(y < 0) {
-        scroll.current.scrollBy(y);
-        if(sessions[next].id === sessions[0].id) {
-          scroll.current.scrollTo(0);
-        }
+    const targetSession = list[index];
+    if (!targetSession) return;
+
+    // Find the target element by searching through date groups
+    let target: Renderable | undefined;
+    for (const group of scroll.current.getChildren()) {
+      const found = group.getChildren().find(child => child.id === targetSession.id);
+      if (found) {
+        target = found;
+        break;
       }
     }
+
+    if (!target) return;
+
+    // Calculate target's visual position relative to the scroll container
+    const targetVisualY = target.y - scroll.current.y;
+    const viewportHeight = scroll.current.height;
+    const targetHeight = target.height || 1;
+
+    // If first item, always scroll to top
+    if (index === 0) {
+      scroll.current.scrollTo(0);
+      return;
+    }
+
+    // If last item, scroll to bottom
+    if (index === list.length - 1) {
+      scroll.current.scrollTo(Infinity);
+      return;
+    }
+
+    // Check if target is below visible area (accounting for its height)
+    if (targetVisualY + targetHeight > viewportHeight) {
+      // Scroll down by the amount needed to bring target into view
+      scroll.current.scrollBy(targetVisualY - viewportHeight + targetHeight + 1);
+    }
+    // Check if target is above visible area
+    else if (targetVisualY < 0) {
+      // Scroll up by the amount needed (targetVisualY is negative)
+      scroll.current.scrollBy(targetVisualY);
+    }
   }
+
+  // Filter sessions based on search term
+  const filteredSessions = sessions.filter(session => {
+    if (!searchTerm) return true;
+    const searchLower = searchTerm.toLowerCase();
+    return (
+      session.name.toLowerCase().includes(searchLower)
+    );
+  });
+
+  // Group sessions by date (without indices first)
+  const groupedSessionsRaw: { date: string; timestamp: number; sessions: Session.SessionInfo[] }[] = [];
+  filteredSessions.forEach((session) => {
+    const startDate = new Date(session.time.created);
+    const dateStr = startDate.toLocaleDateString('en-US', {
+      weekday: 'short',
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric'
+    });
+
+    let group = groupedSessionsRaw.find(g => g.date === dateStr);
+    if (!group) {
+      group = { date: dateStr, timestamp: startDate.getTime(), sessions: [] };
+      groupedSessionsRaw.push(group);
+    }
+    group.sessions.push(session);
+  });
+
+  // Sort groups by date (newest first)
+  groupedSessionsRaw.sort((a, b) => b.timestamp - a.timestamp);
+
+  // Sort sessions within each group by time (newest first)
+  groupedSessionsRaw.forEach(group => {
+    group.sessions.sort((a, b) =>
+      new Date(b.time.created).getTime() - new Date(a.time.created).getTime()
+    );
+  });
+
+  // Create flat list in visual order and assign indices
+  const visualOrderSessions: Session.SessionInfo[] = [];
+  groupedSessionsRaw.forEach(group => {
+    visualOrderSessions.push(...group.sessions);
+  });
+
+  // Now create grouped sessions with correct visual indices
+  const groupedSessions: { date: string; sessions: (Session.SessionInfo & { index: number })[] }[] = [];
+  let visualIndex = 0;
+  groupedSessionsRaw.forEach(rawGroup => {
+    const group: { date: string; sessions: (Session.SessionInfo & { index: number })[] } = {
+      date: rawGroup.date,
+      sessions: []
+    };
+    rawGroup.sessions.forEach(session => {
+      group.sessions.push({ ...session, index: visualIndex });
+      visualIndex++;
+    });
+    groupedSessions.push(group);
+  });
+
+  // Clamp selectedIndex when list changes
+  useEffect(() => {
+    if (visualOrderSessions.length > 0 && selectedIndex >= visualOrderSessions.length) {
+      setSelectedIndex(visualOrderSessions.length - 1);
+    } else if (visualOrderSessions.length === 0) {
+      setSelectedIndex(0);
+    }
+  }, [visualOrderSessions.length, selectedIndex]);
 
   async function deleteSession(sessionId: string) {
     try {
@@ -106,10 +189,11 @@ export default function SessionsDisplay({ onClose }: SessionsDisplayProps) {
       // Reload sessions
       await loadSessions();
 
-      // Adjust selected index if needed
-      if (selectedIndex >= sessions.length && sessions.length > 0) {
-        setSelectedIndex(sessions.length - 1);
-      } else if (sessions.length === 0) {
+      // Adjust selected index - use visualOrderSessions.length - 1 since one was deleted
+      const newLength = visualOrderSessions.length - 1;
+      if (selectedIndex >= newLength && newLength > 0) {
+        setSelectedIndex(newLength - 1);
+      } else if (newLength === 0) {
         setSelectedIndex(0);
       }
     } catch (error) {
@@ -127,12 +211,12 @@ export default function SessionsDisplay({ onClose }: SessionsDisplayProps) {
       return;
     }
 
-    // Enter - Activate session
-    if (key.name === "return" && sessions.length > 0) {
+    // Enter - View existing session (load state from disk)
+    if (key.name === "return" && visualOrderSessions.length > 0) {
       key.preventDefault();
-      const currentSelection = sessions[selectedIndex];
+      const currentSelection = visualOrderSessions[selectedIndex];
+      if (!currentSelection) return;
       const _session = await session.load(currentSelection.id);
-      console.log(_session)
       if(!_session) {
         console.error("Error loading session");
         return;
@@ -141,67 +225,45 @@ export default function SessionsDisplay({ onClose }: SessionsDisplayProps) {
       onClose();
       route.navigate({
         type: "session",
-        sessionId: _session.id
+        sessionId: _session.id,
+        isResume: true // Load existing state, don't start new pentest
       });
       return;
     }
 
     // Arrow Up - Previous session
-    if (key.name === "up" && sessions.length > 0) {
-      setSelectedIndex((prev) => (prev > 0 ? prev - 1 : sessions.length - 1));
-      move(-1);
+    if (key.name === "up" && visualOrderSessions.length > 0) {
+      const newIndex = selectedIndex > 0 ? selectedIndex - 1 : visualOrderSessions.length - 1;
+      setSelectedIndex(newIndex);
+      scrollToIndex(newIndex, visualOrderSessions);
       return;
     }
 
     // Arrow Down - Next session
-    if (key.name === "down" && sessions.length > 0) {
-      setSelectedIndex((prev) => (prev < sessions.length - 1 ? prev + 1 : 0));
-      move(1);
+    if (key.name === "down" && visualOrderSessions.length > 0) {
+      const newIndex = selectedIndex < visualOrderSessions.length - 1 ? selectedIndex + 1 : 0;
+      setSelectedIndex(newIndex);
+      scrollToIndex(newIndex, visualOrderSessions);
       return;
     }
 
     // R - Open report
-    if (key.name === "r" && sessions.length > 0) {
-      const currentSelection = sessions[selectedIndex];
+    if (key.name === "r" && visualOrderSessions.length > 0) {
+      const currentSelection = visualOrderSessions[selectedIndex];
+      if (!currentSelection) return;
       openReport(currentSelection.id);
       return;
     }
 
     // Ctrl+D - Delete session
-    if (key.ctrl && key.name === "d" && sessions.length > 0) {
-      const currentSelection = sessions[selectedIndex];
+    if (key.ctrl && key.name === "d" && visualOrderSessions.length > 0) {
+      const currentSelection = visualOrderSessions[selectedIndex];
+      if (!currentSelection) return;
       await deleteSession(currentSelection.id);
       return;
     }
   });
 
-  // Filter sessions based on search term
-  const filteredSessions = sessions.filter(session => {
-    if (!searchTerm) return true;
-    const searchLower = searchTerm.toLowerCase();
-    return (
-      session.id.toLowerCase().includes(searchLower)
-    );
-  });
-
-  // Group sessions by date
-  const groupedSessions: { date: string; sessions: (Session.SessionInfo & { index: number })[] }[] = [];
-  filteredSessions.forEach((session, index) => {
-    const startDate = new Date(session.time.created);
-    const dateStr = startDate.toLocaleDateString('en-US', {
-      weekday: 'short',
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric'
-    });
-
-    let group = groupedSessions.find(g => g.date === dateStr);
-    if (!group) {
-      group = { date: dateStr, sessions: [] };
-      groupedSessions.push(group);
-    }
-    group.sessions.push({ ...session, index });
-  });
 
   const handleClose = () => {
     refocusCommandInput();
@@ -242,16 +304,16 @@ export default function SessionsDisplay({ onClose }: SessionsDisplayProps) {
         {/* Sessions List */}
         {loading ? (
           <text fg="gray">Loading sessions...</text>
-        ) : filteredSessions.length === 0 ? (
+        ) : visualOrderSessions.length === 0 ? (
           <text fg="gray">No sessions found</text>
         ) : (
-          <box flexDirection="column" gap={2} flexGrow={1} maxHeight={5} overflow="hidden">
+          <box flexDirection="column" gap={2} flexGrow={1} maxHeight={10} overflow="hidden">
             <scrollbox
               ref={scroll}
               scrollbarOptions={{ visible: false }}
               style={{
                 rootOptions: {
-                  maxHeight: 5,
+                  maxHeight: 10,
                   width: "100%",
                   flexGrow: 1,
                   flexShrink: 1,
@@ -308,7 +370,7 @@ export default function SessionsDisplay({ onClose }: SessionsDisplayProps) {
         )}
 
         {/* Actions Footer */}
-        {filteredSessions.length > 0 && (
+        {visualOrderSessions.length > 0 && (
           <box flexDirection="row" gap={2}>
             <text fg="gray">
               <span fg="green">[Enter]</span> Open · <span fg="green">[R]</span> Report · <span fg="green">[Ctrl+D]</span> Delete

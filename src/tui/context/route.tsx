@@ -13,14 +13,16 @@ export type RoutePath =
     | "providers"
     | "disclosure";
 
-export type Route = 
+export type Route =
     {
         type: "base",
         path: RoutePath
     }
   | {
         type: "session",
-        sessionId: string
+        sessionId: string,
+        /** If true, load existing session state without starting a new pentest */
+        isResume?: boolean
     };
 
 

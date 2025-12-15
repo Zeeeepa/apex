@@ -457,7 +457,7 @@ function AgentCard({ agent, focused, onSelect }: AgentCardProps) {
 
   return (
     <box
-      width={36}
+      width={48}
       height={7}
       border
       borderColor={focused ? greenBullet : dimText}
