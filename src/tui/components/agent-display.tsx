@@ -8,6 +8,7 @@ import { SpinnerDots } from "./sprites";
 import { useState, memo } from "react";
 import { marked } from "marked";
 import type { Message } from "../../core/messages/types";
+import { useTerminalDimensions } from "@opentui/react";
 
 export type Subagent = {
   id: string;
@@ -298,6 +299,7 @@ const SubAgentDisplay = memo(function SubAgentDisplay({ subagent }: { subagent: 
 });
 
 const AgentMessage = memo(function AgentMessage({ message }: { message: DisplayMessage }) {
+  const dimensions = useTerminalDimensions();
   let content = "";
 
   if (typeof message.content === "string") {
@@ -347,6 +349,7 @@ const AgentMessage = memo(function AgentMessage({ message }: { message: DisplayM
           />
         )}
         <box
+          maxWidth={dimensions.width-20}
           padding={message.role !== "tool" ? 1 : 0}
           backgroundColor={
             message.role !== "tool" ? RGBA.fromInts(40, 40, 40, 255) : undefined

@@ -440,11 +440,12 @@ function AgentCard({ agent, focused, onSelect }: AgentCardProps) {
     const lastMsg = agent.messages[agent.messages.length - 1];
     if (!lastMsg) return "Starting...";
     if (lastMsg.role === "tool" && typeof lastMsg.content === "string") {
-      return lastMsg.content.substring(0, 32) + "...";
+      // Clean up newlines but don't truncate
+      return lastMsg.content.replace(/\n/g, " ").trim();
     }
     if (typeof lastMsg.content === "string") {
-      const text = lastMsg.content.replace(/\n/g, " ");
-      return text.substring(0, 32) + (text.length > 32 ? "..." : "");
+      // Clean up newlines but don't truncate
+      return lastMsg.content.replace(/\n/g, " ").trim();
     }
     return "Working...";
   }, [agent.messages]);
@@ -457,8 +458,9 @@ function AgentCard({ agent, focused, onSelect }: AgentCardProps) {
 
   return (
     <box
-      width={48}
-      height={10}
+      flexGrow={1}
+      flexBasis={0}
+      minWidth={40}
       border
       borderColor={focused ? greenBullet : dimText}
       backgroundColor={darkBg}
@@ -468,17 +470,13 @@ function AgentCard({ agent, focused, onSelect }: AgentCardProps) {
       onMouseDown={onSelect}
     >
       {/* Header row */}
-      <box flexDirection="row" alignItems="center" gap={1}>
+      <box flexDirection="row" alignItems="center" gap={1} flexWrap="wrap">
         <text fg={statusColor}>{statusIcon}</text>
-        <text fg={focused ? creamText : dimText}>
-          {agent.name.length > 28 ? agent.name.substring(0, 28) + "…" : agent.name}
-        </text>
+        <text fg={focused ? creamText : dimText}>{agent.name}</text>
       </box>
 
-      {/* Target */}
-      <text fg={dimText}>
-        {agent.target.length > 32 ? agent.target.substring(0, 32) + "…" : agent.target}
-      </text>
+      {/* Target - allow wrapping */}
+      <text fg={dimText}>{agent.target}</text>
 
       {/* Stats row */}
       <box flexDirection="row" gap={2} marginTop={1}>
@@ -490,7 +488,7 @@ function AgentCard({ agent, focused, onSelect }: AgentCardProps) {
         </text>
       </box>
 
-      {/* Activity / Status */}
+      {/* Activity / Status - allow wrapping */}
       {agent.status === "pending" ? (
         <SpinnerDots label={lastActivity} fg="green" />
       ) : (
@@ -528,7 +526,7 @@ function AgentCardGrid({ agents, focusedIndex, onSelectAgent }: AgentCardGridPro
       focused={true}
     >
       {rows.map((row, rowIndex) => (
-        <box key={rowIndex} flexDirection="row" gap={1}>
+        <box key={rowIndex} flexDirection="row" gap={1} width="100%">
           {row.map((agent, colIndex) => {
             const flatIndex = rowIndex * 2 + colIndex;
             return (
@@ -540,6 +538,8 @@ function AgentCardGrid({ agents, focusedIndex, onSelectAgent }: AgentCardGridPro
               />
             );
           })}
+          {/* Add empty spacer if odd number of agents in last row */}
+          {row.length === 1 && <box flexGrow={1} flexBasis={0} minWidth={40} />}
         </box>
       ))}
     </scrollbox>
