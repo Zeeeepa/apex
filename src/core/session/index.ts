@@ -317,7 +317,9 @@ Testing in progress...
 
         console.info("created session", result);
 
-        await Storage.write(["session", result.id], result);
+        // Exclude _rateLimiter from serialization (it's a class instance with methods)
+        const { _rateLimiter, ...sessionData } = result;
+        await Storage.write(["session", result.id], sessionData);
         // await Storage.createDir(["executions", result.id]);
         await createExecution({ session: result });
         return result;
@@ -325,6 +327,18 @@ Testing in progress...
 
     export const get = async (id: string) => {
         const read = await Storage.read<SessionInfo>(["session", id]);
+
+        // Reconstruct RateLimiter instance (it gets serialized as plain object)
+        // This ensures the session has a proper RateLimiter with methods
+        if (read.config?.requestsPerSecond) {
+            read._rateLimiter = new RateLimiter({
+                requestsPerSecond: read.config.requestsPerSecond
+            });
+        } else {
+            // Remove any stale serialized _rateLimiter data (plain object without methods)
+            delete read._rateLimiter;
+        }
+
         return read;
     }
 

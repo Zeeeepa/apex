@@ -26,6 +26,12 @@ export const OPENROUTER_MODELS: ModelInfo[] = [
     contextLength: 200000,
   },
   {
+    id: "anthropic/claude-opus-4.5",
+    name: "Claude Opus 4.5 (OpenRouter)",
+    provider: "openrouter",
+    contextLength: 200000,
+  },
+  {
     id: "anthropic/claude-3.5-sonnet",
     name: "Claude 3.5 Sonnet (OpenRouter)",
     provider: "openrouter",
@@ -138,5 +144,11 @@ export const OPENROUTER_MODELS: ModelInfo[] = [
     name: "Qwen 3 32B Instruct",
     provider: "openrouter",
     contextLength: 256000,
+  },
+  {
+    id: "qwen/qwen3-30b-a3b-thinking-2507",
+    name: "Qwen 3 30B A3B Thinking",
+    provider: "openrouter",
+    contextLength: 32768,
   },
 ];

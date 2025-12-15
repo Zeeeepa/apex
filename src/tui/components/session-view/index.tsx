@@ -135,13 +135,17 @@ export default function SessionView({ sessionId }: SessionViewProps) {
             if (toolCalls && toolCalls.length > 0) {
               setThinking(false);
               for (const tc of toolCalls) {
-                const args = (tc as any).args as Record<string, unknown> | undefined;
+                // AI SDK v5.x uses 'input' instead of 'args'
+                const args = (tc as any).input as Record<string, unknown> | undefined;
+                const toolDescription = typeof args?.toolCallDescription === 'string'
+                  ? args.toolCallDescription
+                  : tc.toolName;
                 newMessages.push({
                   role: "tool",
                   status: "pending",
                   toolCallId: tc.toolCallId,
                   toolName: tc.toolName,
-                  content: args?.toolCallDescription as string || `${tc.toolName}`,
+                  content: toolDescription,
                   args: args,
                   createdAt: new Date(),
                 });
@@ -250,13 +254,18 @@ export default function SessionView({ sessionId }: SessionViewProps) {
 
               if (toolCalls && toolCalls.length > 0) {
                 for (const tc of toolCalls) {
+                  // AI SDK v5.x uses 'input' instead of 'args'
+                  const args = (tc as any).input as Record<string, unknown> | undefined;
+                  const toolDescription = typeof args?.toolCallDescription === 'string'
+                    ? args.toolCallDescription
+                    : tc.toolName;
                   newMessages.push({
                     role: "tool",
                     status: "pending",
                     toolCallId: tc.toolCallId,
                     toolName: tc.toolName,
-                    content: tc.args?.toolCallDescription || `${tc.toolName}`,
-                    args: tc.args,
+                    content: toolDescription,
+                    args: args,
                     createdAt: new Date(),
                   });
                 }
