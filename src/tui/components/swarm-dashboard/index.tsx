@@ -458,12 +458,13 @@ function AgentCard({ agent, focused, onSelect }: AgentCardProps) {
   return (
     <box
       width={48}
-      height={7}
+      height={10}
       border
       borderColor={focused ? greenBullet : dimText}
       backgroundColor={darkBg}
       flexDirection="column"
       padding={1}
+      rowGap={1}
       onMouseDown={onSelect}
     >
       {/* Header row */}
