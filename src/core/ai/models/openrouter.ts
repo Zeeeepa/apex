@@ -151,4 +151,10 @@ export const OPENROUTER_MODELS: ModelInfo[] = [
     provider: "openrouter",
     contextLength: 32768,
   },
+  {
+    id: "nvidia/nemotron-3-nano-30b-a3b:free",
+    name: "Nemotron 3 Nano 30B A3B (Free)",
+    provider: "openrouter",
+    contextLength: 256000,
+  },
 ];

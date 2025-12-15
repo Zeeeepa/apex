@@ -223,6 +223,12 @@ export const AVAILABLE_MODELS: ModelInfo[] = [
     contextLength: 1000000,
   },
   {
+    id: "nvidia/nemotron-3-nano-30b-a3b:free",
+    name: "Nemotron 3 Nano 30B A3B (Free)",
+    provider: "openrouter",
+    contextLength: 256000,
+  },
+  {
     id: "meta-llama/llama-3.3-70b-instruct",
     name: "Llama 3.3 70B Instruct",
     provider: "openrouter",
