@@ -1,27 +1,32 @@
-import { z } from 'zod';
-import type { Session } from '../../session';
-import type { PentestTarget } from '../attackSurfaceAgent/types';
+import { z } from "zod";
+import type { Session } from "../../session";
+import type { PentestTarget } from "../attackSurfaceAgent/types";
 import type {
   ExecuteCommandOpts,
   ExecuteCommandResult,
   HttpRequestOpts,
   HttpRequestResult,
-} from '../tools';
+} from "../tools";
 
 /**
  * Vulnerability class types (shared with VulnerabilityTestAgent for compatibility)
  */
 export type VulnerabilityClass =
-  | 'sqli'              // SQL/NoSQL Injection
-  | 'idor'              // IDOR/Authorization/Access Control
-  | 'xss'               // Cross-Site Scripting
-  | 'command-injection' // Command/OS Injection
-  | 'generic';          // SSRF, XXE, SSTI, CSRF, Path Traversal, etc.
+  | "sqli" // SQL/NoSQL Injection
+  | "idor" // IDOR/Authorization/Access Control
+  | "xss" // Cross-Site Scripting
+  | "command-injection" // Command/OS Injection
+  | "generic"; // SSRF, XXE, SSTI, CSRF, Path Traversal, etc.
 
 /**
  * Phase status in the pentest plan
  */
-export type PhaseStatus = 'active' | 'pending' | 'done' | 'blocked' | 'partial_failure';
+export type PhaseStatus =
+  | "active"
+  | "pending"
+  | "done"
+  | "blocked"
+  | "partial_failure";
 
 /**
  * A single phase in the pentest plan
@@ -112,16 +117,25 @@ export interface PromptOptimization {
 /**
  * POC types supported
  */
-export type PocType = 'bash' | 'python';
+export type PocType = "bash" | "python";
 
 /**
  * Zod schema for create_poc tool input
  */
 export const CreatePocSchema = z.object({
-  pocName: z.string().describe('Descriptive name for the POC (e.g., sqli_union_extract)'),
-  pocType: z.enum(['bash', 'python']).describe('Script type - bash preferred, python for complex scenarios'),
-  pocContent: z.string().describe('Complete script content'),
-  description: z.string().describe('What vulnerability this POC demonstrates'),
+  pocName: z
+    .string()
+    .describe("Descriptive name for the POC (e.g., sqli_union_extract)"),
+  pocType: z
+    .enum(["bash", "python"])
+    .describe("Script type - bash preferred, python for complex scenarios"),
+  pocContent: z.string().describe("Complete script content"),
+  description: z.string().describe("What vulnerability this POC demonstrates"),
+  toolCallDescription: z
+    .string()
+    .describe(
+      "A concise, human-readable description of what this tool call is doing (e.g., 'Creating SQL injection POC script')"
+    ),
 });
 
 export type CreatePocInput = z.infer<typeof CreatePocSchema>;
@@ -146,27 +160,35 @@ export interface CreatePocResult {
  * Zod schema for document_finding tool input
  */
 export const DocumentFindingSchema = z.object({
-  title: z.string().describe('Clear, concise finding title'),
-  severity: z.preprocess(
-    (val) => {
-      if (typeof val === 'string') {
-        const upper = val.toUpperCase();
-        if (upper.includes('CRITICAL')) return 'CRITICAL';
-        if (upper.includes('HIGH')) return 'HIGH';
-        if (upper.includes('MEDIUM')) return 'MEDIUM';
-        if (upper.includes('LOW')) return 'LOW';
-      }
-      return val;
-    },
-    z.enum(['CRITICAL', 'HIGH', 'MEDIUM', 'LOW'])
-  ),
-  description: z.string().describe('Detailed technical description'),
-  impact: z.string().describe('Potential impact if exploited'),
-  evidence: z.string().describe('Evidence/proof of vulnerability including POC output'),
-  endpoint: z.string().describe('Full URL endpoint (e.g., https://example.com/api/endpoint)'),
-  pocPath: z.string().describe('Relative path to POC script (e.g., pocs/poc_sqli_login.sh)'),
-  remediation: z.string().describe('Steps to fix the vulnerability'),
-  references: z.string().optional().describe('CVE, CWE, or related references'),
+  title: z.string().describe("Clear, concise finding title"),
+  severity: z.preprocess((val) => {
+    if (typeof val === "string") {
+      const upper = val.toUpperCase();
+      if (upper.includes("CRITICAL")) return "CRITICAL";
+      if (upper.includes("HIGH")) return "HIGH";
+      if (upper.includes("MEDIUM")) return "MEDIUM";
+      if (upper.includes("LOW")) return "LOW";
+    }
+    return val;
+  }, z.enum(["CRITICAL", "HIGH", "MEDIUM", "LOW"])),
+  description: z.string().describe("Detailed technical description"),
+  impact: z.string().describe("Potential impact if exploited"),
+  evidence: z
+    .string()
+    .describe("Evidence/proof of vulnerability including POC output"),
+  endpoint: z
+    .string()
+    .describe("Full URL endpoint (e.g., https://example.com/api/endpoint)"),
+  pocPath: z
+    .string()
+    .describe("Relative path to POC script (e.g., pocs/poc_sqli_login.sh)"),
+  remediation: z.string().describe("Steps to fix the vulnerability"),
+  references: z.string().optional().describe("CVE, CWE, or related references"),
+  toolCallDescription: z
+    .string()
+    .describe(
+      "A concise, human-readable description of what this tool call is doing (e.g., 'Documenting SQL injection vulnerability')"
+    ),
 });
 
 export type DocumentFindingInput = z.infer<typeof DocumentFindingSchema>;
@@ -185,18 +207,37 @@ export interface DocumentFindingResult {
  * Zod schema for store_plan tool input
  */
 export const StorePlanSchema = z.object({
-  objective: z.string().describe('Main objective for the pentest'),
-  target: z.string().describe('Primary target URL/host'),
-  current_phase: z.number().describe('Current active phase (1-indexed)'),
-  total_phases: z.number().describe('Total number of phases'),
-  budget_used: z.number().min(0).max(100).describe('Estimated budget utilization (0-100%)'),
-  phases: z.array(z.object({
-    id: z.number(),
-    title: z.string(),
-    status: z.enum(['active', 'pending', 'done', 'blocked', 'partial_failure']),
-    criteria: z.string(),
-    attempts: z.number().default(0),
-  })).describe('All phases in the plan'),
+  objective: z.string().describe("Main objective for the pentest"),
+  target: z.string().describe("Primary target URL/host"),
+  current_phase: z.number().describe("Current active phase (1-indexed)"),
+  total_phases: z.number().describe("Total number of phases"),
+  budget_used: z
+    .number()
+    .min(0)
+    .max(100)
+    .describe("Estimated budget utilization (0-100%)"),
+  phases: z
+    .array(
+      z.object({
+        id: z.number(),
+        title: z.string(),
+        status: z.enum([
+          "active",
+          "pending",
+          "done",
+          "blocked",
+          "partial_failure",
+        ]),
+        criteria: z.string(),
+        attempts: z.number().default(0),
+      })
+    )
+    .describe("All phases in the plan"),
+  toolCallDescription: z
+    .string()
+    .describe(
+      "A concise, human-readable description of what this tool call is doing (e.g., 'Saving pentest plan')"
+    ),
 });
 
 export type StorePlanInput = z.infer<typeof StorePlanSchema>;
@@ -205,10 +246,18 @@ export type StorePlanInput = z.infer<typeof StorePlanSchema>;
  * Zod schema for store_adaptation tool input
  */
 export const StoreAdaptationSchema = z.object({
-  approach: z.string().describe('Description of the approach tried'),
-  worked: z.boolean().describe('Whether it worked or not'),
-  constraint_learned: z.string().optional().describe('Specific constraint learned (e.g., "WAF blocks script tags")'),
-  target: z.string().optional().describe('Target/endpoint this was tried on'),
+  approach: z.string().describe("Description of the approach tried"),
+  worked: z.boolean().describe("Whether it worked or not"),
+  constraint_learned: z
+    .string()
+    .optional()
+    .describe('Specific constraint learned (e.g., "WAF blocks script tags")'),
+  target: z.string().optional().describe("Target/endpoint this was tried on"),
+  toolCallDescription: z
+    .string()
+    .describe(
+      "A concise, human-readable description of what this tool call is doing (e.g., 'Storing successful XSS approach')"
+    ),
 });
 
 export type StoreAdaptationInput = z.infer<typeof StoreAdaptationSchema>;
@@ -228,11 +277,11 @@ export interface MetaTestingSessionInfo {
  * Authentication information for testing
  */
 export interface AuthenticationInfo {
-  method: string;        // e.g., "cookie-based session", "bearer token"
-  details: string;       // How to authenticate
-  credentials?: string;  // username:password
-  cookies?: string;      // Session cookies
-  headers?: string;      // Auth headers
+  method: string; // e.g., "cookie-based session", "bearer token"
+  details: string; // How to authenticate
+  credentials?: string; // username:password
+  cookies?: string; // Session cookies
+  headers?: string; // Auth headers
 }
 
 /**
@@ -263,7 +312,9 @@ export interface MetaTestingAgentInput {
 
   /** Tool overrides for sandboxed execution */
   toolOverride?: {
-    execute_command?: (opts: ExecuteCommandOpts) => Promise<ExecuteCommandResult>;
+    execute_command?: (
+      opts: ExecuteCommandOpts
+    ) => Promise<ExecuteCommandResult>;
     http_request?: (opts: HttpRequestOpts) => Promise<HttpRequestResult>;
   };
 }
@@ -272,7 +323,7 @@ export interface MetaTestingAgentInput {
  * Progress status during meta testing
  */
 export interface MetaTestingProgressStatus {
-  phase: 'planning' | 'testing' | 'optimizing' | 'complete';
+  phase: "planning" | "testing" | "optimizing" | "complete";
   message: string;
   currentTarget?: string;
   currentPhase?: number;

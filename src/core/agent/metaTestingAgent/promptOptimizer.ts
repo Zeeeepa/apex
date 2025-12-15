@@ -11,21 +11,17 @@
  * The optimized prompt is written to execution_prompt_optimized.md in the session directory.
  */
 
-import { tool } from 'ai';
-import { z } from 'zod';
-import { join } from 'path';
-import {
-  existsSync,
-  writeFileSync,
-  readFileSync,
-} from 'fs';
-import { Logger } from '../logger';
+import { tool } from "ai";
+import { z } from "zod";
+import { join } from "path";
+import { existsSync, writeFileSync, readFileSync } from "fs";
+import { Logger } from "../logger";
 import type {
   Adaptation,
   PromptOptimization,
   MetaTestingSessionInfo,
-} from './types';
-import { loadAdaptations } from './planMemory';
+} from "./types";
+import { loadAdaptations } from "./planMemory";
 
 /**
  * Base execution prompt that will be optimized
@@ -44,7 +40,10 @@ export function createPromptOptimizerTool(
   session: MetaTestingSessionInfo,
   logger: Logger
 ) {
-  const optimizedPromptPath = join(session.rootPath, 'execution_prompt_optimized.md');
+  const optimizedPromptPath = join(
+    session.rootPath,
+    "execution_prompt_optimized.md"
+  );
 
   const optimize_prompt = tool({
     description: `Analyze what worked vs failed and update execution guidance.
@@ -68,7 +67,13 @@ export function createPromptOptimizerTool(
 - EXHAUSTED APPROACHES: Tactics that failed (skip these)
 
 This is meta-prompting: the agent optimizing its own guidance based on experience.`,
-    inputSchema: z.object({}),
+    inputSchema: z.object({
+      toolCallDescription: z
+        .string()
+        .describe(
+          "A concise, human-readable description of what this tool call is doing (e.g., 'Optimizing execution prompt based on learned patterns')"
+        ),
+    }),
     execute: async () => {
       try {
         // Load all adaptations
@@ -77,7 +82,7 @@ This is meta-prompting: the agent optimizing its own guidance based on experienc
         if (adaptations.length === 0) {
           return {
             success: false,
-            error: 'NO_ADAPTATIONS',
+            error: "NO_ADAPTATIONS",
             message: `No adaptations recorded yet.
 
 Record approach outcomes with store_adaptation:
@@ -90,17 +95,17 @@ Then call optimize_prompt to generate optimized guidance.`,
         }
 
         // Categorize adaptations
-        const worked = adaptations.filter(a => a.worked);
-        const failed = adaptations.filter(a => !a.worked);
+        const worked = adaptations.filter((a) => a.worked);
+        const failed = adaptations.filter((a) => !a.worked);
         const constraints = adaptations
-          .filter(a => a.constraint_learned)
-          .map(a => a.constraint_learned!)
+          .filter((a) => a.constraint_learned)
+          .map((a) => a.constraint_learned!)
           .filter((v, i, arr) => arr.indexOf(v) === i); // unique
 
         // Generate optimization
         const optimization: PromptOptimization = {
-          remove_tactics: failed.map(f => f.approach),
-          emphasize_tactics: worked.map(w => w.approach),
+          remove_tactics: failed.map((f) => f.approach),
+          emphasize_tactics: worked.map((w) => w.approach),
           constraints,
           timestamp: new Date().toISOString(),
         };
@@ -110,10 +115,15 @@ Then call optimize_prompt to generate optimized guidance.`,
 
         // Write to session
         writeFileSync(optimizedPromptPath, optimizedPrompt);
-        logger.info(`Optimized prompt generated: ${worked.length} working, ${failed.length} failed, ${constraints.length} constraints`);
+        logger.info(
+          `Optimized prompt generated: ${worked.length} working, ${failed.length} failed, ${constraints.length} constraints`
+        );
 
         // Also write optimization metadata
-        const optimizationPath = join(session.rootPath, 'prompt_optimization.json');
+        const optimizationPath = join(
+          session.rootPath,
+          "prompt_optimization.json"
+        );
         writeFileSync(optimizationPath, JSON.stringify(optimization, null, 2));
 
         return {
@@ -130,15 +140,32 @@ Then call optimize_prompt to generate optimized guidance.`,
 
 **Summary of optimizations:**
 
-${constraints.length > 0 ? `**CONSTRAINTS (avoid):**
-${constraints.map(c => `- ${c}`).join('\n')}
-` : ''}
-${worked.length > 0 ? `**WORKING APPROACHES (prioritize):**
-${worked.map(w => `- ${w.approach}`).join('\n')}
-` : ''}
-${failed.length > 0 ? `**EXHAUSTED APPROACHES (skip):**
-${failed.slice(-5).map(f => `- ${f.approach}`).join('\n')}${failed.length > 5 ? `\n  ... and ${failed.length - 5} more` : ''}
-` : ''}
+${
+  constraints.length > 0
+    ? `**CONSTRAINTS (avoid):**
+${constraints.map((c) => `- ${c}`).join("\n")}
+`
+    : ""
+}
+${
+  worked.length > 0
+    ? `**WORKING APPROACHES (prioritize):**
+${worked.map((w) => `- ${w.approach}`).join("\n")}
+`
+    : ""
+}
+${
+  failed.length > 0
+    ? `**EXHAUSTED APPROACHES (skip):**
+${failed
+  .slice(-5)
+  .map((f) => `- ${f.approach}`)
+  .join("\n")}${
+        failed.length > 5 ? `\n  ... and ${failed.length - 5} more` : ""
+      }
+`
+    : ""
+}
 
 **Next steps:**
 1. Apply these learnings to your next hypothesis
@@ -185,7 +212,7 @@ Do NOT attempt approaches that violate these constraints.
     for (const constraint of opt.constraints) {
       prompt += `- **BLOCKED:** ${constraint}\n`;
     }
-    prompt += '\n';
+    prompt += "\n";
   }
 
   // Add working tactics (prioritize these)
@@ -202,7 +229,7 @@ Consider similar techniques for remaining targets.
     for (const tactic of uniqueWorking) {
       prompt += `- **SUCCESS:** ${tactic}\n`;
     }
-    prompt += '\n';
+    prompt += "\n";
   }
 
   // Add failed tactics (skip these)
@@ -221,9 +248,11 @@ Do NOT retry these exact approaches - pivot to different techniques.
       prompt += `- **FAILED:** ${tactic}\n`;
     }
     if (uniqueFailed.length > 10) {
-      prompt += `- ... and ${uniqueFailed.length - 10} more failed approaches\n`;
+      prompt += `- ... and ${
+        uniqueFailed.length - 10
+      } more failed approaches\n`;
     }
-    prompt += '\n';
+    prompt += "\n";
   }
 
   // Add guidance on how to use this information
@@ -258,14 +287,17 @@ Remember: Direct-first economics - always prefer the shortest path to your objec
  * Load the optimized prompt if it exists
  */
 export function loadOptimizedPrompt(sessionRootPath: string): string | null {
-  const optimizedPromptPath = join(sessionRootPath, 'execution_prompt_optimized.md');
+  const optimizedPromptPath = join(
+    sessionRootPath,
+    "execution_prompt_optimized.md"
+  );
 
   if (!existsSync(optimizedPromptPath)) {
     return null;
   }
 
   try {
-    return readFileSync(optimizedPromptPath, 'utf-8');
+    return readFileSync(optimizedPromptPath, "utf-8");
   } catch {
     return null;
   }
@@ -274,15 +306,17 @@ export function loadOptimizedPrompt(sessionRootPath: string): string | null {
 /**
  * Load the optimization metadata if it exists
  */
-export function loadOptimization(sessionRootPath: string): PromptOptimization | null {
-  const optimizationPath = join(sessionRootPath, 'prompt_optimization.json');
+export function loadOptimization(
+  sessionRootPath: string
+): PromptOptimization | null {
+  const optimizationPath = join(sessionRootPath, "prompt_optimization.json");
 
   if (!existsSync(optimizationPath)) {
     return null;
   }
 
   try {
-    return JSON.parse(readFileSync(optimizationPath, 'utf-8'));
+    return JSON.parse(readFileSync(optimizationPath, "utf-8"));
   } catch {
     return null;
   }

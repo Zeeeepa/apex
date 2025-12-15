@@ -5,20 +5,20 @@ import {
   type StreamTextOnStepFinishCallback,
   tool,
   hasToolCall,
-} from 'ai';
-import { mapMessages, Messages } from '../../messages';
-import { streamResponse, type AIModel } from '../../ai';
-import { SYSTEM } from './prompts';
-import { createPentestTools } from '../tools';
-import { Session } from '../../session';
-import { z } from 'zod';
-import { join } from 'path';
-import { writeFileSync, mkdirSync, existsSync } from 'fs';
-import { detectOSAndEnhancePrompt } from '../utils';
-import { getScopeDescription } from '../scope';
-import { extractJavascriptEndpoints } from './jsExtraction';
-import { generateRandomName } from '../../../util/name';
-import { nanoid } from 'nanoid';
+} from "ai";
+import { mapMessages, Messages } from "../../messages";
+import { streamResponse, type AIModel } from "../../ai";
+import { SYSTEM } from "./prompts";
+import { createPentestTools } from "../tools";
+import { Session } from "../../session";
+import { z } from "zod";
+import { join } from "path";
+import { writeFileSync, mkdirSync, existsSync } from "fs";
+import { detectOSAndEnhancePrompt } from "../utils";
+import { getScopeDescription } from "../scope";
+import { extractJavascriptEndpoints } from "./jsExtraction";
+import { generateRandomName } from "../../../util/name";
+import { nanoid } from "nanoid";
 
 export interface RunAgentProps {
   target: string;
@@ -42,13 +42,22 @@ export async function runAgent(opts: RunAgentProps): Promise<{
   streamResult: RunAgentResult;
   session: Session.SessionInfo;
 }> {
-  const { target, model, onStepFinish, abortSignal, onToolTokenUsage, toolOverride } = opts;
+  const {
+    target,
+    model,
+    onStepFinish,
+    abortSignal,
+    onToolTokenUsage,
+    toolOverride,
+  } = opts;
 
   // Create a new session for this attack surface analysis
-  const session = opts.session || await Session.create({
-    targets: [target],
-    name: generateRandomName()
-   });
+  const session =
+    opts.session ||
+    (await Session.create({
+      targets: [target],
+      name: generateRandomName(),
+    }));
 
   const subagentId = `attack-surface-${nanoid(6)}`;
 
@@ -63,10 +72,14 @@ export async function runAgent(opts: RunAgentProps): Promise<{
   if (scopeConstraints?.strictScope) {
     console.log(`\n🎯 SCOPE CONSTRAINTS ENABLED:`);
     if (scopeConstraints.allowedHosts) {
-      console.log(`   Allowed hosts: ${scopeConstraints.allowedHosts.join(', ')}`);
+      console.log(
+        `   Allowed hosts: ${scopeConstraints.allowedHosts.join(", ")}`
+      );
     }
     if (scopeConstraints.allowedPorts) {
-      console.log(`   Allowed ports: ${scopeConstraints.allowedPorts.join(', ')}`);
+      console.log(
+        `   Allowed ports: ${scopeConstraints.allowedPorts.join(", ")}`
+      );
     }
     console.log(`   Mode: STRICT - Only in-scope targets will be tested\n`);
   }
@@ -82,7 +95,7 @@ export async function runAgent(opts: RunAgentProps): Promise<{
     session,
     model,
     toolOverride,
-    onToolTokenUsage,
+    onToolTokenUsage
   );
 
   // Attack Surface specific tool: document_asset
@@ -128,7 +141,7 @@ Each asset creates a JSON file in the assets directory for tracking and analysis
         .preprocess(
           (val) => {
             // If a string is provided, try to parse it as JSON
-            if (typeof val === 'string') {
+            if (typeof val === "string") {
               try {
                 return JSON.parse(val);
               } catch {
@@ -139,9 +152,9 @@ Each asset creates a JSON file in the assets directory for tracking and analysis
             return val;
           },
           z.object({
-            url: z.string().optional().describe('URL if applicable'),
-            ip: z.string().optional().describe('IP address if known'),
-            ports: z.array(z.number()).optional().describe('Open ports'),
+            url: z.string().optional().describe("URL if applicable"),
+            ip: z.string().optional().describe("IP address if known"),
+            ports: z.array(z.number()).optional().describe("Open ports"),
             services: z
               .array(z.string())
               .optional()
@@ -155,39 +168,43 @@ Each asset creates a JSON file in the assets directory for tracking and analysis
             endpoints: z
               .array(z.string())
               .optional()
-              .describe('Discovered endpoints for web apps/APIs'),
+              .describe("Discovered endpoints for web apps/APIs"),
             authentication: z
               .string()
               .optional()
-              .describe('Authentication type if known'),
+              .describe("Authentication type if known"),
             status: z
               .union([z.string(), z.number()])
               .optional()
-              .describe('Status (active, inactive, redirect, error) or HTTP status code'),
+              .describe(
+                "Status (active, inactive, redirect, error) or HTTP status code"
+              ),
           })
         )
-        .describe('Additional details about the asset'),
+        .describe("Additional details about the asset"),
       riskLevel: z
-        .preprocess(
-          (val) => {
-            // Extract enum value from strings like ">HIGH", "HIGH!", "- CRITICAL", etc.
-            if (typeof val === 'string') {
-              const upper = val.toUpperCase();
-              // Try to extract the severity level
-              if (upper.includes('CRITICAL')) return 'CRITICAL';
-              if (upper.includes('HIGH')) return 'HIGH';
-              if (upper.includes('MEDIUM')) return 'MEDIUM';
-              if (upper.includes('LOW')) return 'LOW';
-            }
-            return val;
-          },
-          z.enum(['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'])
-        )
-        .describe('Risk level: LOW-CRITICAL (exposed/sensitive)'),
+        .preprocess((val) => {
+          // Extract enum value from strings like ">HIGH", "HIGH!", "- CRITICAL", etc.
+          if (typeof val === "string") {
+            const upper = val.toUpperCase();
+            // Try to extract the severity level
+            if (upper.includes("CRITICAL")) return "CRITICAL";
+            if (upper.includes("HIGH")) return "HIGH";
+            if (upper.includes("MEDIUM")) return "MEDIUM";
+            if (upper.includes("LOW")) return "LOW";
+          }
+          return val;
+        }, z.enum(["LOW", "MEDIUM", "HIGH", "CRITICAL"]))
+        .describe("Risk level: LOW-CRITICAL (exposed/sensitive)"),
       notes: z
         .string()
         .optional()
         .describe("Additional notes or observations about the asset"),
+      toolCallDescription: z
+        .string()
+        .describe(
+          "A concise, human-readable description of what this tool call is doing (e.g., 'Documenting discovered API endpoint')"
+        ),
     }),
     execute: async (asset) => {
       // Create a sanitized filename from asset name
@@ -222,7 +239,7 @@ Each asset creates a JSON file in the assets directory for tracking and analysis
 
   // New tool: authenticate_and_maintain_session
   const authenticate_and_maintain_session = tool({
-    name: 'authenticate_and_maintain_session',
+    name: "authenticate_and_maintain_session",
     description: `Authenticate with credentials and obtain a session cookie for subsequent authenticated requests.
 
 Use this to:
@@ -230,50 +247,87 @@ Use this to:
 - Obtain session cookies for authenticated exploration
 - Access protected areas of the application`,
     inputSchema: z.object({
-      loginUrl: z.string().describe('Login endpoint URL'),
-      username: z.string().describe('Username to authenticate with'),
-      password: z.string().describe('Password to authenticate with'),
-      method: z.enum(['form_post', 'json_post', 'basic_auth']).default('form_post').describe('Authentication method'),
-      usernameField: z.string().default('username').describe('Name of username field'),
-      passwordField: z.string().default('password').describe('Name of password field'),
-      additionalFields: z.record(z.string(), z.string()).optional().describe('Additional form fields (e.g., csrf tokens)'),
+      loginUrl: z.string().describe("Login endpoint URL"),
+      username: z.string().describe("Username to authenticate with"),
+      password: z.string().describe("Password to authenticate with"),
+      method: z
+        .enum(["form_post", "json_post", "basic_auth"])
+        .default("form_post")
+        .describe("Authentication method"),
+      usernameField: z
+        .string()
+        .default("username")
+        .describe("Name of username field"),
+      passwordField: z
+        .string()
+        .default("password")
+        .describe("Name of password field"),
+      additionalFields: z
+        .record(z.string(), z.string())
+        .optional()
+        .describe("Additional form fields (e.g., csrf tokens)"),
+      toolCallDescription: z
+        .string()
+        .describe(
+          "A concise, human-readable description of what this tool call is doing (e.g., 'Authenticating with admin credentials')"
+        ),
     }),
     execute: async (params) => {
       try {
-        const { loginUrl, username, password, method, usernameField, passwordField, additionalFields } = params;
+        const {
+          loginUrl,
+          username,
+          password,
+          method,
+          usernameField,
+          passwordField,
+          additionalFields,
+        } = params;
 
         // Use http_request to perform authentication
-        let authRequest: BunFetchRequestInit = { method: 'POST' };
+        let authRequest: BunFetchRequestInit = { method: "POST" };
 
-        if (method === 'form_post') {
+        if (method === "form_post") {
           const formData = {
             [usernameField]: username,
             [passwordField]: password,
             ...additionalFields,
           };
           authRequest.body = new URLSearchParams(formData).toString();
-          authRequest.headers = { 'Content-Type': 'application/x-www-form-urlencoded' };
-        } else if (method === 'json_post') {
-          authRequest.body = JSON.stringify({ [usernameField]: username, [passwordField]: password, ...additionalFields });
-          authRequest.headers = { 'Content-Type': 'application/json' };
-        } else if (method === 'basic_auth') {
-          const authHeader = Buffer.from(`${username}:${password}`).toString('base64');
-          authRequest.headers = { 'Authorization': `Basic ${authHeader}` };
+          authRequest.headers = {
+            "Content-Type": "application/x-www-form-urlencoded",
+          };
+        } else if (method === "json_post") {
+          authRequest.body = JSON.stringify({
+            [usernameField]: username,
+            [passwordField]: password,
+            ...additionalFields,
+          });
+          authRequest.headers = { "Content-Type": "application/json" };
+        } else if (method === "basic_auth") {
+          const authHeader = Buffer.from(`${username}:${password}`).toString(
+            "base64"
+          );
+          authRequest.headers = { Authorization: `Basic ${authHeader}` };
         }
-
 
         const result = await fetch(loginUrl, authRequest);
 
         // Extract session cookie from response
         const setCookieHeader = result.headers?.getSetCookie() || [];
-        const sessionCookies = Array.isArray(setCookieHeader) ? setCookieHeader : [setCookieHeader];
-        const cookieString = sessionCookies.join('; ');
+        const sessionCookies = Array.isArray(setCookieHeader)
+          ? setCookieHeader
+          : [setCookieHeader];
+        const cookieString = sessionCookies.join("; ");
 
         // Check if authentication was successful
-        const authenticated = result.status >= 200 && result.status < 400 && cookieString.length > 0;
+        const authenticated =
+          result.status >= 200 &&
+          result.status < 400 &&
+          cookieString.length > 0;
 
         // Save session info to session directory for reuse
-        const sessionInfoPath = join(session.rootPath, 'session-info.json');
+        const sessionInfoPath = join(session.rootPath, "session-info.json");
         const sessionInfo = {
           authenticated,
           username,
@@ -304,7 +358,7 @@ Use this to:
 
   // New tool: extract_javascript_endpoints
   const extract_javascript_endpoints = tool({
-    name: 'extract_javascript_endpoints',
+    name: "extract_javascript_endpoints",
     description: `Extract endpoint URLs from JavaScript code in a page using pattern matching.
 
 Uses regex patterns to find:
@@ -316,9 +370,20 @@ Uses regex patterns to find:
 
 Returns all discovered endpoint patterns.`,
     inputSchema: z.object({
-      url: z.string().describe('URL of the page to analyze'),
-      sessionCookie: z.string().optional().describe('Session cookie for authenticated pages'),
-      includeExternalJS: z.boolean().default(true).describe('Whether to download and analyze external JS files'),
+      url: z.string().describe("URL of the page to analyze"),
+      sessionCookie: z
+        .string()
+        .optional()
+        .describe("Session cookie for authenticated pages"),
+      includeExternalJS: z
+        .boolean()
+        .default(true)
+        .describe("Whether to download and analyze external JS files"),
+      toolCallDescription: z
+        .string()
+        .describe(
+          "A concise, human-readable description of what this tool call is doing (e.g., 'Extracting API endpoints from JavaScript')"
+        ),
     }),
     execute: async (params) => {
       return extractJavascriptEndpoints(params);
@@ -327,7 +392,7 @@ Returns all discovered endpoint patterns.`,
 
   // New tool: crawl_authenticated_area
   const crawl_authenticated_area = tool({
-    name: 'crawl_authenticated_area',
+    name: "crawl_authenticated_area",
     description: `Recursively crawl web pages starting from a URL to discover links, forms, and JavaScript endpoints.
 
 - Follows links to discover connected pages
@@ -335,17 +400,26 @@ Returns all discovered endpoint patterns.`,
 - Calls extract_javascript_endpoints on each discovered page
 - Returns comprehensive map of discovered pages and endpoints`,
     inputSchema: z.object({
-      startUrl: z.string().describe('Starting URL (e.g., /dashboard)'),
-      sessionCookie: z.string().describe('Session cookie from authenticate_and_maintain_session'),
-      maxDepth: z.number().default(3).describe('Maximum crawl depth'),
-      maxPages: z.number().default(50).describe('Maximum pages to visit'),
+      startUrl: z.string().describe("Starting URL (e.g., /dashboard)"),
+      sessionCookie: z
+        .string()
+        .describe("Session cookie from authenticate_and_maintain_session"),
+      maxDepth: z.number().default(3).describe("Maximum crawl depth"),
+      maxPages: z.number().default(50).describe("Maximum pages to visit"),
+      toolCallDescription: z
+        .string()
+        .describe(
+          "A concise, human-readable description of what this tool call is doing (e.g., 'Crawling authenticated dashboard area')"
+        ),
     }),
     execute: async (params) => {
       try {
         const { startUrl, sessionCookie, maxDepth, maxPages } = params;
 
         const visited = new Set<string>();
-        const toVisit: Array<{ url: string; depth: number }> = [{ url: startUrl, depth: 0 }];
+        const toVisit: Array<{ url: string; depth: number }> = [
+          { url: startUrl, depth: 0 },
+        ];
         const pages: Array<any> = [];
         const allEndpoints = new Set<string>();
 
@@ -358,14 +432,14 @@ Returns all discovered endpoint patterns.`,
           try {
             // Fetch page
             const pageResult = await fetch(url, {
-              method: 'GET',
+              method: "GET",
               headers: {
-                "cookie": sessionCookie
-              }
+                cookie: sessionCookie,
+              },
             });
 
             if (pageResult.status >= 200 && pageResult.status < 400) {
-              const html = pageResult.body || '';
+              const html = pageResult.body || "";
 
               // Extract links
               const linkRegex = /<a[^>]+href=['"]([^'"]+)['"]/gi;
@@ -373,7 +447,7 @@ Returns all discovered endpoint patterns.`,
               let linkMatch;
               while ((linkMatch = linkRegex.exec(html.toString())) !== null) {
                 const link = linkMatch[1];
-                if (link.startsWith('/') && !link.startsWith('//')) {
+                if (link.startsWith("/") && !link.startsWith("//")) {
                   links.push(link);
                   if (!visited.has(link)) {
                     toVisit.push({ url: link, depth: depth + 1 });
@@ -393,11 +467,13 @@ Returns all discovered endpoint patterns.`,
               const jsEndpoints = await extractJavascriptEndpoints({
                 url,
                 sessionCookie,
-                includeExternalJS: false
+                includeExternalJS: false,
               });
 
               if (jsEndpoints.endpoints) {
-                jsEndpoints.endpoints.forEach((ep: any) => allEndpoints.add(ep.endpoint));
+                jsEndpoints.endpoints.forEach((ep: any) =>
+                  allEndpoints.add(ep.endpoint)
+                );
               }
 
               pages.push({
@@ -434,7 +510,7 @@ Returns all discovered endpoint patterns.`,
 
   // New tool: test_endpoint_variations
   const test_endpoint_variations = tool({
-    name: 'test_endpoint_variations',
+    name: "test_endpoint_variations",
     description: `Test multiple variations of an endpoint pattern with different parameters.
 
 Use this to:
@@ -442,8 +518,16 @@ Use this to:
 - Test related endpoints that follow similar patterns
 - Systematically probe endpoint variations you've identified`,
     inputSchema: z.object({
-      endpoints: z.array(z.string()).describe('Array of endpoint URLs to test'),
-      sessionCookie: z.string().optional().describe('Session cookie if authentication required'),
+      endpoints: z.array(z.string()).describe("Array of endpoint URLs to test"),
+      sessionCookie: z
+        .string()
+        .optional()
+        .describe("Session cookie if authentication required"),
+      toolCallDescription: z
+        .string()
+        .describe(
+          "A concise, human-readable description of what this tool call is doing (e.g., 'Testing endpoint variations for authorization issues')"
+        ),
     }),
     execute: async (params) => {
       try {
@@ -456,9 +540,9 @@ Use this to:
         // Test each endpoint
         for (const endpoint of endpoints) {
           try {
-            const request: BunFetchRequestInit = { method: 'GET' };
+            const request: BunFetchRequestInit = { method: "GET" };
             if (sessionCookie) {
-              request.headers = { 'Cookie': sessionCookie };
+              request.headers = { Cookie: sessionCookie };
             }
 
             const result = await fetch(endpoint, request);
@@ -508,7 +592,7 @@ Use this to:
 
   // New tool: validate_discovery_completeness
   const validate_discovery_completeness = tool({
-    name: 'validate_discovery_completeness',
+    name: "validate_discovery_completeness",
     description: `Check discovery completeness by analyzing what has been explored.
 
 Returns a confidence score and identifies potential gaps based on:
@@ -517,23 +601,46 @@ Returns a confidence score and identifies potential gaps based on:
 - JavaScript analysis coverage
 - Resource pattern testing coverage`,
     inputSchema: z.object({
-      discoveredEndpoints: z.array(z.string()).describe('All discovered endpoints'),
-      authenticatedWithCredentials: z.boolean().describe('Whether you authenticated with any discovered credentials'),
-      pagesWithJSAnalyzed: z.array(z.string()).describe('Pages where you ran extract_javascript_endpoints'),
-      credentialsFound: z.boolean().describe('Whether any credentials were discovered'),
+      discoveredEndpoints: z
+        .array(z.string())
+        .describe("All discovered endpoints"),
+      authenticatedWithCredentials: z
+        .boolean()
+        .describe("Whether you authenticated with any discovered credentials"),
+      pagesWithJSAnalyzed: z
+        .array(z.string())
+        .describe("Pages where you ran extract_javascript_endpoints"),
+      credentialsFound: z
+        .boolean()
+        .describe("Whether any credentials were discovered"),
+      toolCallDescription: z
+        .string()
+        .describe(
+          "A concise, human-readable description of what this tool call is doing (e.g., 'Validating discovery completeness')"
+        ),
     }),
     execute: async (params) => {
-      const { discoveredEndpoints, authenticatedWithCredentials, pagesWithJSAnalyzed, credentialsFound } = params;
+      const {
+        discoveredEndpoints,
+        authenticatedWithCredentials,
+        pagesWithJSAnalyzed,
+        credentialsFound,
+      } = params;
 
-      const gaps: Array<{ gap: string; severity: string; recommendation: string }> = [];
+      const gaps: Array<{
+        gap: string;
+        severity: string;
+        recommendation: string;
+      }> = [];
       let confidence = 100;
 
       // Check: Authenticated if credentials found
       if (credentialsFound && !authenticatedWithCredentials) {
         gaps.push({
-          gap: 'Credentials found but never used for authentication',
-          severity: 'CRITICAL',
-          recommendation: 'Use authenticate_and_maintain_session with discovered credentials, then use crawl_authenticated_area to explore authenticated sections'
+          gap: "Credentials found but never used for authentication",
+          severity: "CRITICAL",
+          recommendation:
+            "Use authenticate_and_maintain_session with discovered credentials, then use crawl_authenticated_area to explore authenticated sections",
         });
         confidence -= 40;
       }
@@ -541,20 +648,29 @@ Returns a confidence score and identifies potential gaps based on:
       // Check: JavaScript analysis on authenticated pages
       if (authenticatedWithCredentials && pagesWithJSAnalyzed.length === 0) {
         gaps.push({
-          gap: 'Authenticated but no JavaScript analysis performed',
-          severity: 'CRITICAL',
-          recommendation: 'Use extract_javascript_endpoints on /dashboard, /orders, and other authenticated pages'
+          gap: "Authenticated but no JavaScript analysis performed",
+          severity: "CRITICAL",
+          recommendation:
+            "Use extract_javascript_endpoints on /dashboard, /orders, and other authenticated pages",
         });
         confidence -= 30;
       }
 
       // Check: CRUD enumeration for resource patterns
-      const resourcePatterns = discoveredEndpoints.filter(ep => ep.includes('{id}'));
-      if (resourcePatterns.length > 0 && !discoveredEndpoints.some(ep => ep.includes('receipt') || ep.includes('archive'))) {
+      const resourcePatterns = discoveredEndpoints.filter((ep) =>
+        ep.includes("{id}")
+      );
+      if (
+        resourcePatterns.length > 0 &&
+        !discoveredEndpoints.some(
+          (ep) => ep.includes("receipt") || ep.includes("archive")
+        )
+      ) {
         gaps.push({
-          gap: 'Resource patterns found but CRUD operations not enumerated',
-          severity: 'HIGH',
-          recommendation: 'Use enumerate_crud_operations to test all CRUD variations (receipt, archive, delete, edit, etc.)'
+          gap: "Resource patterns found but CRUD operations not enumerated",
+          severity: "HIGH",
+          recommendation:
+            "Use enumerate_crud_operations to test all CRUD variations (receipt, archive, delete, edit, etc.)",
         });
         confidence -= 20;
       }
@@ -562,9 +678,10 @@ Returns a confidence score and identifies potential gaps based on:
       // Check: Minimum endpoint discovery
       if (discoveredEndpoints.length < 5) {
         gaps.push({
-          gap: 'Very few endpoints discovered (less than 5)',
-          severity: 'MEDIUM',
-          recommendation: 'Ensure you crawled authenticated areas, analyzed JavaScript, and tested common paths'
+          gap: "Very few endpoints discovered (less than 5)",
+          severity: "MEDIUM",
+          recommendation:
+            "Ensure you crawled authenticated areas, analyzed JavaScript, and tested common paths",
         });
         confidence -= 10;
       }
@@ -580,8 +697,10 @@ Returns a confidence score and identifies potential gaps based on:
           : `Discovery is only ${confidence}% complete. ${gaps.length} critical gaps found.`,
         readyForReport: complete,
         message: complete
-          ? 'Validation passed. You can now call create_attack_surface_report.'
-          : `Validation failed. Address these gaps before reporting: ${gaps.map(g => g.gap).join('; ')}`,
+          ? "Validation passed. You can now call create_attack_surface_report."
+          : `Validation failed. Address these gaps before reporting: ${gaps
+              .map((g) => g.gap)
+              .join("; ")}`,
       };
     },
   });
@@ -619,14 +738,20 @@ Call this at the END of your analysis with:
               .describe("Why this target needs deep testing"),
           })
         )
-        .describe('ALL targets for deep penetration testing'),
-      keyFindings:
-      z.preprocess((val) => Array.isArray(val) ? val : [val],
-      z.array(z.string())
+        .describe("ALL targets for deep penetration testing"),
+      keyFindings: z.preprocess(
+        (val) => (Array.isArray(val) ? val : [val]),
+        z
+          .array(z.string())
+          .describe(
+            "Key findings from reconnaissance. Format: '[SEVERITY] Finding description'"
+          )
+      ),
+      toolCallDescription: z
+        .string()
         .describe(
-          "Key findings from reconnaissance. Format: '[SEVERITY] Finding description'"
+          "A concise, human-readable description of what this tool call is doing (e.g., 'Creating attack surface report')"
         ),
-    )
     }),
     execute: async (results) => {
       // Save the results to the session for the orchestrator to access
@@ -652,16 +777,16 @@ Session Information:
 - Session ID: ${session.id}
 - Assets will be saved to: ${assetsPath}
 
-${authenticationInstructions
-?
-`<authentication_instructions>
+${
+  authenticationInstructions
+    ? `<authentication_instructions>
 ${authenticationInstructions}
 
 CRITICAL: When identifying targets for penetration testing, YOU MUST include the authentication information with EVERY target that requires authentication. Parse the above instructions and include them in the authenticationInfo field of each target in your final report.
 </authentication_instructions>
 
 `
-: ''
+    : ""
 }
 SCOPE CONSTRAINTS:
 ${scopeDescription}
@@ -675,15 +800,19 @@ Begin your attack surface analysis by:
 6. When complete, call the create_attack_surface_report tool
 
 IMPORTANT SCOPING RULES:
-${scopeConstraints?.strictScope ? `
+${
+  scopeConstraints?.strictScope
+    ? `
 - ONLY test URLs/endpoints within the allowed hosts and ports
 - DO NOT perform port scans or subdomain enumeration outside the target
 - DO NOT test infrastructure services (databases, caches, etc.)
 - Focus ONLY on the web application at the target URL
-` : `
+`
+    : `
 - You may discover and test any related targets
 - Prioritize in-scope targets but can explore adjacent services
-`}
+`
+}
 
 Your goal is to provide a comprehensive map of the attack surface, NOT to perform deep exploitation.
 Focus on breadth of discovery rather than depth of testing.

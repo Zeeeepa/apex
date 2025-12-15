@@ -4,7 +4,6 @@
  * or other types of exploits that require browser access.
  */
 
-
 import { Stagehand } from "@browserbasehq/stagehand";
 import type { MetaTestingSessionInfo } from "./types";
 import type { Logger } from "../logger";
@@ -12,30 +11,30 @@ import { tool } from "@ai-sdk/provider-utils";
 import z, { type ZodTypeAny } from "zod";
 
 const initStagehand = async () => {
-    const stagehand = new Stagehand({
-        env: "BROWSERBASE",
-    });
+  const stagehand = new Stagehand({
+    env: "BROWSERBASE",
+  });
 
-    await stagehand.init();
-    const page = stagehand.context.pages()[0];
+  await stagehand.init();
+  const page = stagehand.context.pages()[0];
 
-    return {
-        stagehand,
-        page
-    }
-}
+  return {
+    stagehand,
+    page,
+  };
+};
 
 function parseZodType(typeString: string): ZodTypeAny {
   const trimmed = typeString.trim();
 
   const primitives: Record<string, () => ZodTypeAny> = {
-    'z.string()': () => z.string(),
-    'z.number()': () => z.number(),
-    'z.boolean()': () => z.boolean(),
-    'z.null()': () => z.null(),
-    'z.undefined()': () => z.undefined(),
-    'z.any()': () => z.any(),
-    'z.unknown()': () => z.unknown(),
+    "z.string()": () => z.string(),
+    "z.number()": () => z.number(),
+    "z.boolean()": () => z.boolean(),
+    "z.null()": () => z.null(),
+    "z.undefined()": () => z.undefined(),
+    "z.any()": () => z.any(),
+    "z.unknown()": () => z.unknown(),
   };
 
   if (primitives[trimmed]) {
@@ -50,7 +49,7 @@ function parseZodType(typeString: string): ZodTypeAny {
     const pairs = splitByComma(innerContent);
 
     for (const pair of pairs) {
-      const colonIndex = pair.indexOf(':');
+      const colonIndex = pair.indexOf(":");
       if (colonIndex === -1) continue;
 
       const key = pair.slice(0, colonIndex).trim();
@@ -85,19 +84,19 @@ function parseZodType(typeString: string): ZodTypeAny {
 // Split by comma, but respect nested braces/parentheses
 function splitByComma(str: string): string[] {
   const results: string[] = [];
-  let current = '';
+  let current = "";
   let depth = 0;
 
   for (const char of str) {
-    if (char === '(' || char === '{' || char === '[') {
+    if (char === "(" || char === "{" || char === "[") {
       depth++;
       current += char;
-    } else if (char === ')' || char === '}' || char === ']') {
+    } else if (char === ")" || char === "}" || char === "]") {
       depth--;
       current += char;
-    } else if (char === ',' && depth === 0) {
+    } else if (char === "," && depth === 0) {
       results.push(current.trim());
-      current = '';
+      current = "";
     } else {
       current += char;
     }
@@ -110,16 +109,15 @@ function splitByComma(str: string): string[] {
   return results;
 }
 
-
 export async function createStagehandTool(
-    session: MetaTestingSessionInfo,
-    logger: Logger,
-    targetUrl: string
+  session: MetaTestingSessionInfo,
+  logger: Logger,
+  targetUrl: string
 ) {
-    const { stagehand, page } = await initStagehand();
+  const { stagehand, page } = await initStagehand();
 
-    const use_browser = tool({
-        description: `Execute actions through a browser session.
+  const use_browser = tool({
+    description: `Execute actions through a browser session.
 
 This tool allows you to take actions through a headless browser session and is useful for testing for XSS vulnerabilities or other vulnerabilities that require browser-use.
 
@@ -134,58 +132,74 @@ Only call one action at a time.
 
 Call this tool multiple times to chain actions together. For example: goto('url') -> act('Click the login button') -> extract('Extract the user's profile data', z.object({name: z.string(), email: z.string(), id: z.number()})).
 `,
-        inputSchema: z.object({
-            goto: z.object({
-                target: z.string().describe("Target url to navigate to")
-            }).optional(),
-            act: z.object({
-                action: z.string().describe("Action to take on the page")
-            }).optional(),
-            extract: z.object({
-                instruction: z.string().describe("Instruction to tell the browser agent what data to extract"),
-                zodType: z.string().describe("A zod type such as z.string() or a zod object with properties such as z.object({id: z.string()})")
-            })
-        }),
+    inputSchema: z.object({
+      goto: z
+        .object({
+          target: z.string().describe("Target url to navigate to"),
+        })
+        .optional(),
+      act: z
+        .object({
+          action: z.string().describe("Action to take on the page"),
+        })
+        .optional(),
+      extract: z.object({
+        instruction: z
+          .string()
+          .describe(
+            "Instruction to tell the browser agent what data to extract"
+          ),
+        zodType: z
+          .string()
+          .describe(
+            "A zod type such as z.string() or a zod object with properties such as z.object({id: z.string()})"
+          ),
+      }),
+      toolCallDescription: z
+        .string()
+        .describe(
+          "A concise, human-readable description of what this tool call is doing (e.g., 'Navigating to login page' or 'Extracting user profile data')"
+        ),
+    }),
 
-        execute: async ({ goto, act, extract }) => {
-            if(goto) {
-                try {
-                    const resp = await page.goto(goto.target);
-                    if(resp) {
-                        return await resp.body();
-                    }
-                    return null;
-                } catch(error) {
-                    logger.error(String(error));
-                    throw error;
-                }
-            }
-
-            if(act) {
-                try {
-                    const resp = await stagehand.act(act.action);
-                    return resp;
-                } catch(error) {
-                    logger.error(String(error));
-                    throw error;
-                }
-            }
-
-            if(extract) {
-                try {
-                    const schema = parseZodType(extract.zodType);
-                    const resp = await stagehand.extract(extract.instruction, schema);
-                    return resp;
-                } catch(error) {
-                    logger.error(String(error));
-                    throw error;
-                }
-
-            }
-
-            throw new Error("Must supply an action within [goto, act, extract]");
+    execute: async ({ goto, act, extract }) => {
+      if (goto) {
+        try {
+          const resp = await page.goto(goto.target);
+          if (resp) {
+            return await resp.body();
+          }
+          return null;
+        } catch (error) {
+          logger.error(String(error));
+          throw error;
         }
-    })
+      }
 
-    return use_browser;
+      if (act) {
+        try {
+          const resp = await stagehand.act(act.action);
+          return resp;
+        } catch (error) {
+          logger.error(String(error));
+          throw error;
+        }
+      }
+
+      if (extract) {
+        try {
+          const schema = parseZodType(extract.zodType);
+          const resp = await stagehand.extract(extract.instruction, schema);
+          return resp;
+        } catch (error) {
+          logger.error(String(error));
+          throw error;
+        }
+      }
+
+      throw new Error("Must supply an action within [goto, act, extract]");
+    },
+  });
+
+  return use_browser;
 }

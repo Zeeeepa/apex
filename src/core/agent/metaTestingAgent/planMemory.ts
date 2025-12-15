@@ -10,21 +10,13 @@
  * - Adaptations track what worked/failed for meta-prompting
  */
 
-import { tool } from 'ai';
-import { z } from 'zod';
-import { join } from 'path';
-import {
-  existsSync,
-  writeFileSync,
-  readFileSync,
-} from 'fs';
-import { Logger } from '../logger';
-import type {
-  PentestPlan,
-  Adaptation,
-  MetaTestingSessionInfo,
-} from './types';
-import { StorePlanSchema, StoreAdaptationSchema } from './types';
+import { tool } from "ai";
+import { z } from "zod";
+import { join } from "path";
+import { existsSync, writeFileSync, readFileSync } from "fs";
+import { Logger } from "../logger";
+import type { PentestPlan, Adaptation, MetaTestingSessionInfo } from "./types";
+import { StorePlanSchema, StoreAdaptationSchema } from "./types";
 
 /**
  * Budget checkpoints for plan review
@@ -38,8 +30,8 @@ export function createPlanMemoryTools(
   session: MetaTestingSessionInfo,
   logger: Logger
 ) {
-  const planPath = join(session.rootPath, 'plan.json');
-  const adaptationsPath = join(session.rootPath, 'adaptations.json');
+  const planPath = join(session.rootPath, "plan.json");
+  const adaptationsPath = join(session.rootPath, "adaptations.json");
 
   /**
    * Store or update the strategic plan
@@ -73,7 +65,7 @@ Phase statuses:
         let existingPlan: Partial<PentestPlan> = {};
         if (existsSync(planPath)) {
           try {
-            existingPlan = JSON.parse(readFileSync(planPath, 'utf-8'));
+            existingPlan = JSON.parse(readFileSync(planPath, "utf-8"));
           } catch {
             // Ignore parse errors, start fresh
           }
@@ -86,16 +78,20 @@ Phase statuses:
         };
 
         writeFileSync(planPath, JSON.stringify(fullPlan, null, 2));
-        logger.info(`Plan stored: Phase ${plan.current_phase}/${plan.total_phases}, Budget: ${plan.budget_used}%`);
+        logger.info(
+          `Plan stored: Phase ${plan.current_phase}/${plan.total_phases}, Budget: ${plan.budget_used}%`
+        );
 
         // Check if at a checkpoint
         const checkpoint = BUDGET_CHECKPOINTS.find(
-          cp => plan.budget_used >= cp && plan.budget_used < cp + 20
+          (cp) => plan.budget_used >= cp && plan.budget_used < cp + 20
         );
 
-        let checkpointMsg = '';
+        let checkpointMsg = "";
         if (checkpoint) {
-          checkpointMsg = `\n\n**Checkpoint ${checkpoint}% reached.** Next checkpoint at ${checkpoint + 20}%.`;
+          checkpointMsg = `\n\n**Checkpoint ${checkpoint}% reached.** Next checkpoint at ${
+            checkpoint + 20
+          }%.`;
         }
 
         return {
@@ -103,9 +99,14 @@ Phase statuses:
           message: `Plan updated successfully.
 
 **Current State:**
-- Phase: ${plan.current_phase}/${plan.total_phases} - "${plan.phases.find(p => p.status === 'active')?.title || 'None active'}"
+- Phase: ${plan.current_phase}/${plan.total_phases} - "${
+            plan.phases.find((p) => p.status === "active")?.title ||
+            "None active"
+          }"
 - Budget used: ${plan.budget_used}%
-- Phases completed: ${plan.phases.filter(p => p.status === 'done').length}/${plan.total_phases}${checkpointMsg}`,
+- Phases completed: ${plan.phases.filter((p) => p.status === "done").length}/${
+            plan.total_phases
+          }${checkpointMsg}`,
         };
       } catch (error: any) {
         logger.error(`Failed to store plan: ${error.message}`);
@@ -133,13 +134,19 @@ After retrieving:
 4. Call store_plan with updated status
 
 This helps maintain strategic coherence across long operations.`,
-    inputSchema: z.object({}),
+    inputSchema: z.object({
+      toolCallDescription: z
+        .string()
+        .describe(
+          "A concise, human-readable description of what this tool call is doing (e.g., 'Retrieving current pentest plan')"
+        ),
+    }),
     execute: async () => {
       try {
         if (!existsSync(planPath)) {
           return {
             success: false,
-            error: 'NO_PLAN',
+            error: "NO_PLAN",
             message: `No plan found. Create initial plan with store_plan tool.
 
 **Required:** At step 0, create a plan with:
@@ -149,23 +156,30 @@ This helps maintain strategic coherence across long operations.`,
           };
         }
 
-        const plan: PentestPlan = JSON.parse(readFileSync(planPath, 'utf-8'));
-        logger.info(`Plan retrieved: Phase ${plan.current_phase}/${plan.total_phases}`);
+        const plan: PentestPlan = JSON.parse(readFileSync(planPath, "utf-8"));
+        logger.info(
+          `Plan retrieved: Phase ${plan.current_phase}/${plan.total_phases}`
+        );
 
         // Format phases for display
-        const phasesDisplay = plan.phases.map(p => {
-          const statusEmoji = {
-            'active': '▶️',
-            'pending': '⏳',
-            'done': '✅',
-            'blocked': '🚫',
-            'partial_failure': '⚠️',
-          }[p.status] || '❓';
-          return `  ${statusEmoji} Phase ${p.id}: ${p.title} [${p.status}] - ${p.criteria}`;
-        }).join('\n');
+        const phasesDisplay = plan.phases
+          .map((p) => {
+            const statusEmoji =
+              {
+                active: "▶️",
+                pending: "⏳",
+                done: "✅",
+                blocked: "🚫",
+                partial_failure: "⚠️",
+              }[p.status] || "❓";
+            return `  ${statusEmoji} Phase ${p.id}: ${p.title} [${p.status}] - ${p.criteria}`;
+          })
+          .join("\n");
 
         // Calculate checkpoint status
-        const nextCheckpoint = BUDGET_CHECKPOINTS.find(cp => plan.budget_used < cp);
+        const nextCheckpoint = BUDGET_CHECKPOINTS.find(
+          (cp) => plan.budget_used < cp
+        );
 
         return {
           success: true,
@@ -176,7 +190,11 @@ Objective: ${plan.objective}
 Target: ${plan.target}
 Current Phase: ${plan.current_phase}/${plan.total_phases}
 Budget Used: ${plan.budget_used}%
-${nextCheckpoint ? `Next Checkpoint: ${nextCheckpoint}%` : 'All checkpoints passed'}
+${
+  nextCheckpoint
+    ? `Next Checkpoint: ${nextCheckpoint}%`
+    : "All checkpoints passed"
+}
 
 **Phases:**
 ${phasesDisplay}
@@ -225,7 +243,7 @@ This data is used by optimize_prompt to:
         let adaptations: Adaptation[] = [];
         if (existsSync(adaptationsPath)) {
           try {
-            adaptations = JSON.parse(readFileSync(adaptationsPath, 'utf-8'));
+            adaptations = JSON.parse(readFileSync(adaptationsPath, "utf-8"));
           } catch {
             adaptations = [];
           }
@@ -240,27 +258,41 @@ This data is used by optimize_prompt to:
 
         writeFileSync(adaptationsPath, JSON.stringify(adaptations, null, 2));
 
-        const workedCount = adaptations.filter(a => a.worked).length;
-        const failedCount = adaptations.filter(a => !a.worked).length;
-        const constraintsCount = adaptations.filter(a => a.constraint_learned).length;
+        const workedCount = adaptations.filter((a) => a.worked).length;
+        const failedCount = adaptations.filter((a) => !a.worked).length;
+        const constraintsCount = adaptations.filter(
+          (a) => a.constraint_learned
+        ).length;
 
-        logger.info(`Adaptation stored: ${adaptation.approach} (${adaptation.worked ? 'SUCCESS' : 'FAILED'})`);
+        logger.info(
+          `Adaptation stored: ${adaptation.approach} (${
+            adaptation.worked ? "SUCCESS" : "FAILED"
+          })`
+        );
 
         return {
           success: true,
-          message: `Adaptation recorded: ${adaptation.worked ? '✅ SUCCESS' : '❌ FAILED'}
+          message: `Adaptation recorded: ${
+            adaptation.worked ? "✅ SUCCESS" : "❌ FAILED"
+          }
 
 Approach: "${adaptation.approach}"
-${adaptation.constraint_learned ? `Constraint learned: "${adaptation.constraint_learned}"` : ''}
+${
+  adaptation.constraint_learned
+    ? `Constraint learned: "${adaptation.constraint_learned}"`
+    : ""
+}
 
 **Running totals:**
 - Successful approaches: ${workedCount}
 - Failed approaches: ${failedCount}
 - Constraints discovered: ${constraintsCount}
 
-${failedCount >= 3 && !adaptation.worked
-  ? '\n**Consider calling optimize_prompt** to update execution guidance with learned patterns.'
-  : ''}`,
+${
+  failedCount >= 3 && !adaptation.worked
+    ? "\n**Consider calling optimize_prompt** to update execution guidance with learned patterns."
+    : ""
+}`,
         };
       } catch (error: any) {
         logger.error(`Failed to store adaptation: ${error.message}`);
@@ -284,14 +316,14 @@ ${failedCount >= 3 && !adaptation.worked
  * Load adaptations from session
  */
 export function loadAdaptations(sessionRootPath: string): Adaptation[] {
-  const adaptationsPath = join(sessionRootPath, 'adaptations.json');
+  const adaptationsPath = join(sessionRootPath, "adaptations.json");
 
   if (!existsSync(adaptationsPath)) {
     return [];
   }
 
   try {
-    return JSON.parse(readFileSync(adaptationsPath, 'utf-8'));
+    return JSON.parse(readFileSync(adaptationsPath, "utf-8"));
   } catch {
     return [];
   }
@@ -301,14 +333,14 @@ export function loadAdaptations(sessionRootPath: string): Adaptation[] {
  * Load plan from session
  */
 export function loadPlan(sessionRootPath: string): PentestPlan | null {
-  const planPath = join(sessionRootPath, 'plan.json');
+  const planPath = join(sessionRootPath, "plan.json");
 
   if (!existsSync(planPath)) {
     return null;
   }
 
   try {
-    return JSON.parse(readFileSync(planPath, 'utf-8'));
+    return JSON.parse(readFileSync(planPath, "utf-8"));
   } catch {
     return null;
   }
