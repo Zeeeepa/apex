@@ -44,7 +44,9 @@ export default function SwarmDashboard({
   onBack,
   onViewReport,
 }: SwarmDashboardProps) {
-  const [currentView, setCurrentView] = useState<"overview" | "detail">("overview");
+  const [currentView, setCurrentView] = useState<"overview" | "detail">(
+    "overview"
+  );
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
   const [focusedIndex, setFocusedIndex] = useState(0);
   const [showDiscoveryLogs, setShowDiscoveryLogs] = useState(false);
@@ -62,11 +64,16 @@ export default function SwarmDashboard({
   // Computed metrics
   const metrics = useMemo(() => {
     const findingsCount = subagents.reduce((sum, s) => {
-      return sum + s.messages.filter((m) =>
-        m.role === "assistant" &&
-        typeof m.content === "string" &&
-        (m.content.includes("finding") || m.content.includes("vulnerability"))
-      ).length;
+      return (
+        sum +
+        s.messages.filter(
+          (m) =>
+            m.role === "assistant" &&
+            typeof m.content === "string" &&
+            (m.content.includes("finding") ||
+              m.content.includes("vulnerability"))
+        ).length
+      );
     }, 0);
 
     return {
@@ -74,13 +81,16 @@ export default function SwarmDashboard({
       activeAgents: subagents.filter((s) => s.status === "pending").length,
       completedAgents: subagents.filter((s) => s.status === "completed").length,
       totalAgents: pentestAgents.length,
-      duration: startTime ? Math.floor((Date.now() - startTime.getTime()) / 1000) : 0,
+      duration: startTime
+        ? Math.floor((Date.now() - startTime.getTime()) / 1000)
+        : 0,
     };
   }, [subagents, pentestAgents.length, startTime]);
 
   // Get currently selected agent for detail view
   const selectedAgent = useMemo(
-    () => (selectedAgentId ? subagents.find((s) => s.id === selectedAgentId) : null),
+    () =>
+      selectedAgentId ? subagents.find((s) => s.id === selectedAgentId) : null,
     [subagents, selectedAgentId]
   );
 
@@ -175,7 +185,7 @@ export default function SwarmDashboard({
         <DiscoveryPanel
           agent={discoveryAgent}
           showLogs={showDiscoveryLogs}
-          onToggleLogs={() => setShowDiscoveryLogs(prev => !prev)}
+          onToggleLogs={() => setShowDiscoveryLogs((prev) => !prev)}
         />
 
         {/* Right: Agent card grid */}
@@ -192,7 +202,10 @@ export default function SwarmDashboard({
             >
               {discoveryAgent?.status === "pending" ? (
                 <box flexDirection="column" alignItems="center" gap={1}>
-                  <SpinnerDots label="Discovering attack surface..." fg="green" />
+                  <SpinnerDots
+                    label="Discovering attack surface..."
+                    fg="green"
+                  />
                   <text fg={dimText}>Press [D] to view discovery logs</text>
                 </box>
               ) : (
@@ -225,7 +238,9 @@ export default function SwarmDashboard({
           gap={1}
         >
           <text fg={greenBullet}>Pentest Completed</text>
-          <text fg={dimText}>{sessionPath}/comprehensive-pentest-report.md</text>
+          <text fg={dimText}>
+            {sessionPath}/comprehensive-pentest-report.md
+          </text>
           <box flexDirection="row" gap={2}>
             <text>
               <span fg={greenBullet}>[Enter]</span>
@@ -261,7 +276,11 @@ interface DiscoveryPanelProps {
   onToggleLogs: () => void;
 }
 
-function DiscoveryPanel({ agent, showLogs, onToggleLogs }: DiscoveryPanelProps) {
+function DiscoveryPanel({
+  agent,
+  showLogs,
+  onToggleLogs,
+}: DiscoveryPanelProps) {
   // Extract endpoints from agent messages
   const endpoints = useMemo(() => {
     if (!agent) return [];
@@ -310,7 +329,8 @@ function DiscoveryPanel({ agent, showLogs, onToggleLogs }: DiscoveryPanelProps) 
             )}
           </box>
           <text fg={dimText}>
-            <span fg={greenBullet}>[D]</span> to collapse | <span fg={greenBullet}>[ESC]</span> to close
+            <span fg={greenBullet}>[D]</span> to collapse |{" "}
+            <span fg={greenBullet}>[ESC]</span> to close
           </text>
         </box>
 
@@ -366,9 +386,7 @@ function DiscoveryPanel({ agent, showLogs, onToggleLogs }: DiscoveryPanelProps) 
           {agent?.status === "completed" && (
             <text fg={greenBullet}>✓ Discovery</text>
           )}
-          {agent?.status === "failed" && (
-            <text fg="red">✗ Discovery</text>
-          )}
+          {agent?.status === "failed" && <text fg="red">✗ Discovery</text>}
         </box>
         <text fg={dimText}>[D]</text>
       </box>
@@ -435,24 +453,28 @@ function AgentCard({ agent, focused, onSelect }: AgentCardProps) {
     failed: RGBA.fromInts(244, 67, 54, 255),
   }[agent.status];
 
-  // Get brief activity from last message
+  // Get brief activity from last message (truncated to single line)
   const lastActivity = useMemo(() => {
     const lastMsg = agent.messages[agent.messages.length - 1];
     if (!lastMsg) return "Starting...";
+    let text = "";
     if (lastMsg.role === "tool" && typeof lastMsg.content === "string") {
-      // Clean up newlines but don't truncate
-      return lastMsg.content.replace(/\n/g, " ").trim();
+      text = lastMsg.content.replace(/\n/g, " ").trim();
+    } else if (typeof lastMsg.content === "string") {
+      text = lastMsg.content.replace(/\n/g, " ").trim();
+    } else {
+      return "Working...";
     }
-    if (typeof lastMsg.content === "string") {
-      // Clean up newlines but don't truncate
-      return lastMsg.content.replace(/\n/g, " ").trim();
+    // Truncate to ~50 chars to fit on one line
+    if (text.length > 50) {
+      return text.substring(0, 47) + "...";
     }
-    return "Working...";
+    return text;
   }, [agent.messages]);
 
   // Count tool calls and findings
   const stats = useMemo(() => {
-    const toolCalls = agent.messages.filter(m => m.role === "tool").length;
+    const toolCalls = agent.messages.filter((m) => m.role === "tool").length;
     return { toolCalls };
   }, [agent.messages]);
 
@@ -488,14 +510,16 @@ function AgentCard({ agent, focused, onSelect }: AgentCardProps) {
         </text>
       </box>
 
-      {/* Activity / Status - allow wrapping */}
-      {agent.status === "pending" ? (
-        <SpinnerDots label={lastActivity} fg="green" />
-      ) : (
-        <text fg={agent.status === "completed" ? greenBullet : dimText}>
-          {agent.status === "completed" ? "✓ Complete" : lastActivity}
-        </text>
-      )}
+      {/* Activity / Status - single line */}
+      <box height={1} overflow="hidden">
+        {agent.status === "pending" ? (
+          <SpinnerDots label={lastActivity} fg="green" />
+        ) : (
+          <text fg={agent.status === "completed" ? greenBullet : dimText}>
+            {agent.status === "completed" ? "✓ Complete" : lastActivity}
+          </text>
+        )}
+      </box>
     </box>
   );
 }
@@ -506,7 +530,11 @@ interface AgentCardGridProps {
   onSelectAgent: (agentId: string) => void;
 }
 
-function AgentCardGrid({ agents, focusedIndex, onSelectAgent }: AgentCardGridProps) {
+function AgentCardGrid({
+  agents,
+  focusedIndex,
+  onSelectAgent,
+}: AgentCardGridProps) {
   // Organize into rows of 2
   const rows = useMemo(() => {
     const result: Subagent[][] = [];

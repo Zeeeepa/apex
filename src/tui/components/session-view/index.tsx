@@ -238,6 +238,7 @@ export default function SessionView({
                       ...existingMsg,
                       status: "completed",
                       content: `✓ ${description}`,
+                      result: (tr as any).output, // Store the tool output
                     };
                   }
                 }
@@ -396,6 +397,7 @@ export default function SessionView({
                         ...existingMsg,
                         status: "completed",
                         content: `✓ ${description}`,
+                        result: (tr as any).output, // Store the tool output
                       };
                     }
                   }
