@@ -26,6 +26,8 @@ export interface DaytonaBenchmarkOptions {
   anthropicKey?: string;
   openrouterKey?: string;
   prefix?: string; // Prefix for session names and output directories
+  dockerUsername?: string; // Docker Hub username for authenticated pulls
+  dockerPassword?: string; // Docker Hub password/token for authenticated pulls
 }
 
 export interface MultipleBenchmarkOptions
@@ -33,7 +35,6 @@ export interface MultipleBenchmarkOptions
   repoPath: string; // Local path to repo root
   benchmarks?: string[]; // Benchmark names (e.g., ["XBOW-001-24", "XBOW-002-24"])
   maxParallel?: number;
-  prefix?: string; // Prefix for session names and output directories
 }
 
 interface PocRunResult {
@@ -323,6 +324,10 @@ export async function runBenchmarkWithDaytona(
       "apk add --no-cache curl make bash coreutils git jq"
     );
 
+    // Get Docker Hub credentials from options or environment
+    const dockerUsername = options.dockerUsername || process.env.DOCKER_USERNAME || "";
+    const dockerPassword = options.dockerPassword || process.env.DOCKER_PASSWORD || "";
+
     sandbox = await daytona.create(
       {
         language: "typescript",
@@ -331,6 +336,8 @@ export async function runBenchmarkWithDaytona(
             options.anthropicKey || process.env.ANTHROPIC_API_KEY || "",
           OPENROUTER_API_KEY:
             options.openrouterKey || process.env.OPENROUTER_API_KEY || "",
+          DOCKER_USERNAME: dockerUsername,
+          DOCKER_PASSWORD: dockerPassword,
         },
         public: true,
         networkBlockAll: false,
@@ -441,6 +448,23 @@ export async function runBenchmarkWithDaytona(
     }
 
     console.log(`[${benchmarkName}] ✅ Docker daemon is ready`);
+
+    // Login to Docker Hub if credentials are provided
+    if (dockerUsername && dockerPassword) {
+      console.log(`[${benchmarkName}] 🔐 Logging in to Docker Hub...`);
+      const loginResult = await sandbox.process.executeCommand(
+        `echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USERNAME" --password-stdin`,
+        undefined,
+        undefined,
+        30000
+      );
+      if (loginResult.exitCode === 0) {
+        console.log(`[${benchmarkName}] ✅ Docker Hub login successful`);
+      } else {
+        console.log(`[${benchmarkName}] ⚠️  Docker Hub login failed: ${loginResult.result?.substring(0, 200)}`);
+        // Continue anyway - some images might be public
+      }
+    }
 
     // Check docker-compose
     console.log(`[${benchmarkName}] 📦 Checking docker-compose...`);
@@ -970,6 +994,8 @@ export async function runMultipleBenchmarks(
           anthropicKey: options.anthropicKey,
           openrouterKey: options.openrouterKey,
           prefix: options.prefix,
+          dockerUsername: options.dockerUsername,
+          dockerPassword: options.dockerPassword,
         });
       })
     )

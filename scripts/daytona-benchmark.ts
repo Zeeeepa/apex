@@ -20,6 +20,8 @@ interface CLIOptions {
   continueRun?: boolean;
   prefix?: string;
   skip?: string[];
+  dockerUsername?: string;
+  dockerPassword?: string;
 }
 
 /**
@@ -119,6 +121,8 @@ async function main() {
     console.error("  --prefix <prefix>            Prefix for benchmark session names and output directories");
     console.error("  --continue                   Skip benchmarks that have already been run");
     console.error("  --skip <benchmarks>          Comma-separated list of benchmarks to skip (e.g., XBEN-001-24,XBEN-002-24)");
+    console.error("  --docker-username <user>     Docker Hub username for authenticated pulls (default: DOCKER_USERNAME env)");
+    console.error("  --docker-password <pass>     Docker Hub password/token for authenticated pulls (default: DOCKER_PASSWORD env)");
     console.error();
     console.error("Environment Variables Required:");
     console.error("  DAYTONA_API_KEY              Daytona API key (required)");
@@ -127,6 +131,8 @@ async function main() {
     console.error();
     console.error("Environment Variables Optional:");
     console.error("  DAYTONA_ORG_ID               Daytona organization ID");
+    console.error("  DOCKER_USERNAME              Docker Hub username for authenticated pulls");
+    console.error("  DOCKER_PASSWORD              Docker Hub password/token for authenticated pulls");
     console.error();
     console.error("Benchmark Selection:");
     console.error("  • If no benchmarks specified: Automatically runs ALL benchmarks in /benchmarks/XBEN-*");
@@ -274,6 +280,28 @@ async function main() {
     options.skip = skipValue.split(",").map((s) => s.trim());
   }
 
+  // Parse --docker-username
+  const dockerUsernameIndex = args.indexOf("--docker-username");
+  if (dockerUsernameIndex !== -1) {
+    const dockerUsernameValue = args[dockerUsernameIndex + 1];
+    if (!dockerUsernameValue) {
+      console.error("Error: --docker-username must be followed by a username");
+      process.exit(1);
+    }
+    options.dockerUsername = dockerUsernameValue;
+  }
+
+  // Parse --docker-password
+  const dockerPasswordIndex = args.indexOf("--docker-password");
+  if (dockerPasswordIndex !== -1) {
+    const dockerPasswordValue = args[dockerPasswordIndex + 1];
+    if (!dockerPasswordValue) {
+      console.error("Error: --docker-password must be followed by a password/token");
+      process.exit(1);
+    }
+    options.dockerPassword = dockerPasswordValue;
+  }
+
   // Parse --continue
   if (args.includes("--continue")) {
     options.continueRun = true;
@@ -289,6 +317,8 @@ async function main() {
     "--max-parallel",
     "--prefix",
     "--skip",
+    "--docker-username",
+    "--docker-password",
     "--continue",
   ];
 
@@ -368,6 +398,8 @@ async function main() {
   const orgId = options.orgId || process.env.DAYTONA_ORG_ID;
   const anthropicKey = options.anthropicKey || process.env.ANTHROPIC_API_KEY;
   const openrouterKey = options.openrouterKey || process.env.OPENROUTER_API_KEY;
+  const dockerUsername = options.dockerUsername || process.env.DOCKER_USERNAME;
+  const dockerPassword = options.dockerPassword || process.env.DOCKER_PASSWORD;
 
   if (!apiKey) {
     console.error("Error: DAYTONA_API_KEY is required");
@@ -398,6 +430,7 @@ async function main() {
     console.log(`Prefix: ${options.prefix}`);
   }
   console.log(`AI Keys: ${anthropicKey ? "Anthropic ✓" : ""} ${openrouterKey ? "OpenRouter ✓" : ""}`);
+  console.log(`Docker Hub: ${dockerUsername ? `${dockerUsername} ✓` : "Not configured (may hit rate limits)"}`);
   console.log("=".repeat(80));
   console.log();
   console.log("Architecture:");
@@ -426,6 +459,8 @@ async function main() {
         anthropicKey,
         openrouterKey,
         prefix: options.prefix,
+        dockerUsername,
+        dockerPassword,
       });
     } else {
       // Multiple benchmarks - run in parallel
@@ -440,6 +475,8 @@ async function main() {
         openrouterKey,
         maxParallel: options.maxParallel || 10,
         prefix: options.prefix,
+        dockerUsername,
+        dockerPassword,
       });
     }
 
