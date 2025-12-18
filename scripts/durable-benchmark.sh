@@ -109,6 +109,7 @@ if [ ! -d "$REPO/benchmarks" ]; then
 fi
 
 # Determine which benchmarks to run
+BASELINE_COMPLETED=0
 if [ ${#BENCHMARK_IDS[@]} -gt 0 ]; then
     # User supplied specific benchmark IDs
     ALL_BENCHMARKS=("${BENCHMARK_IDS[@]}")
@@ -123,13 +124,14 @@ elif [ -n "$CONTINUE_PREFIX" ]; then
     ALL_BENCHMARKS=()
     for b in "${AVAILABLE_BENCHMARKS[@]}"; do
         # Check if benchmark_results.json exists for this benchmark
-        if ! ls ~/.pensar/executions/${CONTINUE_PREFIX}*-${b}-*/benchmark_results.json 2>/dev/null | head -1 | grep -q .; then
+        # Pattern: run-20251217-1317-g1-XBEN-007-24ses_xxx/benchmark_results.json
+        if ! ls ~/.pensar/executions/${CONTINUE_PREFIX}-g*-${b}*/benchmark_results.json 2>/dev/null | head -1 | grep -q .; then
             ALL_BENCHMARKS+=("$b")
         fi
     done
 
-    COMPLETED_COUNT=$((${#AVAILABLE_BENCHMARKS[@]} - ${#ALL_BENCHMARKS[@]}))
-    echo "Found $COMPLETED_COUNT completed, ${#ALL_BENCHMARKS[@]} remaining"
+    BASELINE_COMPLETED=$((${#AVAILABLE_BENCHMARKS[@]} - ${#ALL_BENCHMARKS[@]}))
+    echo "Found $BASELINE_COMPLETED completed, ${#ALL_BENCHMARKS[@]} remaining"
     echo ""
 
     if [ ${#ALL_BENCHMARKS[@]} -eq 0 ]; then
@@ -241,7 +243,8 @@ for ((g=0; g<NUM_GROUPS; g++)); do
         continue
     fi
 
-    echo "Group $((g+1)): ${#GROUP_BENCHMARKS[@]} benchmarks (${GROUP_BENCHMARKS[0]} ... ${GROUP_BENCHMARKS[-1]})"
+    last_idx=$((${#GROUP_BENCHMARKS[@]} - 1))
+    echo "Group $((g+1)): ${#GROUP_BENCHMARKS[@]} benchmarks (${GROUP_BENCHMARKS[0]} ... ${GROUP_BENCHMARKS[$last_idx]})"
 
     # Launch group in background
     run_group $((g+1)) "${GROUP_BENCHMARKS[@]}" &
@@ -287,13 +290,15 @@ echo "Running benchmarks..."
 echo ""
 
 while any_running; do
-    COMPLETED=$(ls ~/.pensar/executions/${PREFIX}-g*-*/benchmark_results.json 2>/dev/null | wc -l | tr -d ' ')
+    RAW_COMPLETED=$(ls ~/.pensar/executions/${PREFIX}-g*-*/benchmark_results.json 2>/dev/null | wc -l | tr -d ' ')
+    COMPLETED=$((RAW_COMPLETED - BASELINE_COMPLETED))
     draw_progress "$COMPLETED" "$TOTAL"
     sleep 2
 done
 
 # Final count
-COMPLETED=$(ls ~/.pensar/executions/${PREFIX}-g*-*/benchmark_results.json 2>/dev/null | wc -l | tr -d ' ')
+RAW_COMPLETED=$(ls ~/.pensar/executions/${PREFIX}-g*-*/benchmark_results.json 2>/dev/null | wc -l | tr -d ' ')
+COMPLETED=$((RAW_COMPLETED - BASELINE_COMPLETED))
 draw_progress "$COMPLETED" "$TOTAL"
 echo ""
 
@@ -311,7 +316,8 @@ echo "ALL GROUPS FINISHED"
 echo "=============================================="
 
 # Count results
-COMPLETED=$(ls ~/.pensar/executions/${PREFIX}-g*-*/benchmark_results.json 2>/dev/null | wc -l | tr -d ' ')
+RAW_COMPLETED=$(ls ~/.pensar/executions/${PREFIX}-g*-*/benchmark_results.json 2>/dev/null | wc -l | tr -d ' ')
+COMPLETED=$((RAW_COMPLETED - BASELINE_COMPLETED))
 echo "Completed: $COMPLETED / $TOTAL benchmarks"
 
 if [ "$FAILED" -gt 0 ]; then
