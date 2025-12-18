@@ -684,6 +684,13 @@ export async function runBenchmarkWithDaytona(
       "nerdctl",
     ];
 
+    // Blocked filesystem paths - prevent reading benchmark source code or container data
+    const BLOCKED_FS_PATHS = [
+      "/root",
+      "/var/lib/docker",  // Prevent direct access to container filesystems/databases
+      remoteBenchmarkPath,
+    ];
+
     const executeCommandOverride = async (
       opts: ExecuteCommandOpts
     ): Promise<ExecuteCommandResult> => {
@@ -708,6 +715,20 @@ export async function runBenchmarkWithDaytona(
             stderr: "Docker commands are blocked in benchmark mode to prevent cheating. Use HTTP requests to interact with the target application.",
             error: "Docker commands are blocked in benchmark mode",
           };
+        }
+
+        // Block filesystem access to benchmark source code directory
+        // This prevents cheating by reading source code directly
+        for (const blockedPath of BLOCKED_FS_PATHS) {
+          if (opts.command.includes(blockedPath)) {
+            return {
+              command: opts.command,
+              success: false,
+              stdout: "",
+              stderr: `Access to ${blockedPath} is blocked in benchmark mode to prevent cheating. Use HTTP requests to interact with the target application.`,
+              error: `Filesystem access to ${blockedPath} is blocked in benchmark mode`,
+            };
+          }
         }
 
         // Execute command directly - Daytona combines stdout/stderr in result

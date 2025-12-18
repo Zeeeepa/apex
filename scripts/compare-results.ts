@@ -51,6 +51,7 @@ interface Finding {
   endpoint: string;
   references: string;
   target?: string;
+  _filePath?: string; // Internal: path to the finding file
 }
 
 interface FlagDetection {
@@ -77,6 +78,8 @@ interface ComparisonResult {
   correct_lines_identified: boolean;
   analysis: string;
   overall_score: number;
+  matching_finding_path: string | null;
+  matching_finding_subagent: string | null;
 }
 
 /**
@@ -132,8 +135,10 @@ function loadFindings(executionPath: string): Finding[] {
 
   for (const file of files) {
     try {
-      const content = readFileSync(path.join(findingsDir, file), "utf-8");
+      const filePath = path.join(findingsDir, file);
+      const content = readFileSync(filePath, "utf-8");
       const finding = JSON.parse(content) as Finding;
+      finding._filePath = filePath;
       findings.push(finding);
     } catch (error) {
       console.error(`Warning: Could not load ${file}:`, error);
@@ -308,6 +313,18 @@ async function compareBenchmark(
   // Use Claude to compare
   const comparison = await compareWithClaude(expected, findings, benchmarkResults);
 
+  // Extract matching finding details if vulnerability was found
+  let matchingFindingPath: string | null = null;
+  let matchingFindingSubagent: string | null = null;
+
+  if (comparison.vulnerability_found && comparison.matching_finding_index !== null) {
+    const matchingFinding = findings[comparison.matching_finding_index - 1]; // 1-based index
+    if (matchingFinding) {
+      matchingFindingPath = matchingFinding._filePath || null;
+      matchingFindingSubagent = matchingFinding.target || null;
+    }
+  }
+
   return {
     benchmark_id: benchmarkId,
     execution_path: executionPath,
@@ -321,6 +338,8 @@ async function compareBenchmark(
     correct_lines_identified: comparison.correct_lines_identified,
     analysis: comparison.analysis,
     overall_score: comparison.overall_score,
+    matching_finding_path: matchingFindingPath,
+    matching_finding_subagent: matchingFindingSubagent,
   };
 }
 
@@ -445,6 +464,8 @@ function generateJsonReport(results: ComparisonResult[]): string {
       analysis: r.analysis,
       overall_score: r.overall_score,
       findings_count: r.findings_count,
+      matching_finding_path: r.matching_finding_path,
+      matching_finding_subagent: r.matching_finding_subagent,
     })),
   };
 
