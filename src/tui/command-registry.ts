@@ -10,6 +10,15 @@ export interface AppCommandContext {
 };
 
 /**
+ * Command option definition for help text and autocomplete
+ */
+export interface CommandOption {
+  name: string;
+  description: string;
+  valueHint?: string; // e.g., "<url>" for --target <url>
+}
+
+/**
  * Command configuration object - easy to map over and export
  */
 export interface CommandConfig {
@@ -17,6 +26,7 @@ export interface CommandConfig {
   aliases?: string[];
   description?: string;
   category?: string;
+  options?: CommandOption[];
   handler: (args: string[], ctx: AppCommandContext) => void | Promise<void>;
 }
 
@@ -73,6 +83,10 @@ export const commands: CommandConfig[] = [
     aliases: ["w"],
     description: "Start a web app pentest session",
     category: "Pentesting",
+    options: [
+      { name: "--target", description: "Target URL to test", valueHint: "<url>" },
+      { name: "--auto", description: "Enable auto swarm mode" },
+    ],
     handler: async (args, ctx) => {
       const hasAuto = args.includes('--auto');
       const targetIdx = args.indexOf('--target');

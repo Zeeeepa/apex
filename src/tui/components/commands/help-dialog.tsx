@@ -26,19 +26,29 @@ export default function HelpDialog() {
   }
 
   const message = useMemo(() => {
-    // Generate commands list
+    // Generate commands list with options
     const commandsList = commands
       .map((cmd) => {
         const aliases = cmd.aliases?.length
           ? ` (${cmd.aliases.map((a) => `/${a}`).join(", ")})`
           : "";
-        return ` - /${cmd.name}${aliases}: ${
-          cmd.description || "No description"
-        }`;
-      })
-      .join("\n");
 
-    return `Available Commands:\n${commandsList}`;
+        let line = ` /${cmd.name}${aliases}: ${cmd.description || "No description"}`;
+
+        // Add options if present
+        if (cmd.options?.length) {
+          const optionLines = cmd.options.map((opt) => {
+            const valueHint = opt.valueHint ? ` ${opt.valueHint}` : "";
+            return `   ${opt.name}${valueHint}  ${opt.description}`;
+          });
+          line += "\n" + optionLines.join("\n");
+        }
+
+        return line;
+      })
+      .join("\n\n");
+
+    return `Available Commands:\n\n${commandsList}`;
   }, [commands]);
 
   return (

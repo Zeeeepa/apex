@@ -63,15 +63,27 @@ export function CommandProvider({ children }: CommandProviderProps) {
 
   // Generate autocomplete options from router commands
   const autocompleteOptions = useMemo((): AutocompleteOption[] => {
-    const commands = router.getAllCommands();
+    const routerCommands = router.getAllCommands();
     const options: AutocompleteOption[] = [];
 
-    for (const cmd of commands) {
+    for (const cmd of routerCommands) {
+      // Find the original command config to get options
+      const cmdConfig = commands.find((c) => c.name === cmd.name);
+
+      // Build description with options hint
+      let description = cmd.description || "";
+      if (cmdConfig?.options?.length) {
+        const optionsList = cmdConfig.options
+          .map((opt) => opt.name)
+          .join(" ");
+        description += ` [${optionsList}]`;
+      }
+
       // Add main command
       options.push({
         value: `/${cmd.name}`,
         label: `/${cmd.name}`,
-        description: cmd.description,
+        description,
       });
 
       // Add aliases
