@@ -6,17 +6,23 @@ export type RoutePath =
     | "help"
     | "pentest"
     | "thorough"
-    | "init"
+    | "web"
     | "dns"
     | "config"
     | "models"
     | "providers"
     | "disclosure";
 
+export interface WebCommandOptions {
+    auto?: boolean;
+    target?: string;
+}
+
 export type Route =
     {
         type: "base",
-        path: RoutePath
+        path: RoutePath,
+        options?: WebCommandOptions
     }
   | {
         type: "session",

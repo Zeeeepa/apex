@@ -241,11 +241,12 @@ Be generous with matching - if the finding describes the same vulnerability conc
 }
 
 /**
- * Find all execution directories, optionally filtered by benchmark IDs
+ * Find all execution directories, optionally filtered by benchmark IDs or prefix
  */
 function findExecutions(
   executionsDir: string,
-  benchmarkIds?: string[]
+  benchmarkIds?: string[],
+  prefix?: string
 ): Array<{ benchmarkId: string; path: string }> {
   const executions: Array<{ benchmarkId: string; path: string; mtime: number }> = [];
 
@@ -255,6 +256,11 @@ function findExecutions(
     const fullPath = path.join(executionsDir, entry);
 
     if (!statSync(fullPath).isDirectory()) {
+      continue;
+    }
+
+    // Filter by prefix if specified
+    if (prefix && !entry.startsWith(prefix)) {
       continue;
     }
 
@@ -464,6 +470,8 @@ Options:
   --execution-path <path>     Path to a specific execution directory
   --benchmark-ids <ids...>    Specific benchmark IDs to compare
                               (e.g., XBEN-001-24 XBEN-002-24)
+  --prefix <prefix>           Filter executions by prefix
+                              (e.g., run-20251217-1317)
   --latest-only               Only compare the latest execution per benchmark
   --format <text|json>        Output format (default: text)
   --output <path>             Write output to file instead of stdout
@@ -484,6 +492,9 @@ Examples:
 
   # Only compare latest execution for each benchmark
   bun run scripts/compare-results.ts --latest-only
+
+  # Compare executions from a specific run
+  bun run scripts/compare-results.ts --prefix run-20251217-1317
 `);
 }
 
@@ -495,6 +506,7 @@ async function main(): Promise<void> {
   let benchmarksDir = path.join(process.env.HOME || "~", "validation-benchmarks", "benchmarks");
   let executionPath: string | null = null;
   let benchmarkIds: string[] | null = null;
+  let prefix: string | null = null;
   let latestOnly = false;
   let outputFormat = "text";
   let outputPath: string | null = null;
@@ -517,6 +529,8 @@ async function main(): Promise<void> {
       while (args[i + 1] && !args[i + 1]!.startsWith("-")) {
         benchmarkIds.push(args[++i]!);
       }
+    } else if (arg === "--prefix" && args[i + 1]) {
+      prefix = args[++i]!;
     } else if (arg === "--latest-only") {
       latestOnly = true;
     } else if (arg === "--format" && args[i + 1]) {
@@ -561,7 +575,7 @@ async function main(): Promise<void> {
       process.exit(1);
     }
 
-    executions = findExecutions(executionsDir, benchmarkIds || undefined);
+    executions = findExecutions(executionsDir, benchmarkIds || undefined, prefix || undefined);
 
     if (latestOnly) {
       // Keep only the latest execution per benchmark

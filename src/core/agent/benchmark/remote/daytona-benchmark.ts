@@ -5,6 +5,12 @@ import { extractFlagFromRepo, detectFlagInArtifacts } from "../flag-detector";
 import { runComparisonAgent } from "../comparisonAgent";
 import { runStreamlinedPentest } from "../../thoroughPentestAgent/streamlined";
 import type { BenchmarkResults } from "../types";
+import type {
+  ExecuteCommandOpts,
+  ExecuteCommandResult,
+  HttpRequestOpts,
+  HttpRequestResult,
+} from "../../tools";
 import {
   writeFileSync,
   readFileSync,
@@ -80,12 +86,12 @@ function collectFilesRecursive(
 }
 
 /**
- * Re-run all POC scripts locally on the host machine and save their outputs.
- * POCs run locally with TARGET set to the preview URL, ensuring they only
- * have access to the target via HTTP (same as the agent).
+ * Re-run all POC scripts in a session via Daytona sandbox and save their outputs
  */
-async function rerunPocsLocally(
+async function rerunAllPocsInSandbox(
+  sandbox: Sandbox,
   sessionPath: string,
+  remoteBenchmarkPath: string,
   benchmarkName: string,
   targetUrl: string
 ): Promise<{
@@ -94,10 +100,6 @@ async function rerunPocsLocally(
   failed: number;
   results: PocRunResult[];
 }> {
-  const { exec } = await import("child_process");
-  const { promisify } = await import("util");
-  const execAsync = promisify(exec);
-
   const pocsDir = path.join(sessionPath, "pocs");
   const logsDir = path.join(pocsDir, "logs");
 
@@ -123,7 +125,7 @@ async function rerunPocsLocally(
     return { total: 0, passed: 0, failed: 0, results: [] };
   }
 
-  console.log(`[${benchmarkName}] 🔄 Re-running ${pocFiles.length} POC(s) locally...`);
+  console.log(`[${benchmarkName}] 🔄 Re-running ${pocFiles.length} POC(s) in sandbox...`);
 
   const results: PocRunResult[] = [];
   let passed = 0;
@@ -132,9 +134,7 @@ async function rerunPocsLocally(
   for (const pocFile of pocFiles) {
     const pocPath = path.join(pocsDir, pocFile);
     const pocName = pocFile.replace(/\.(sh|html)$/, "");
-    const logFileName = `${pocName}-${new Date()
-      .toISOString()
-      .replace(/[:.]/g, "-")}.log`;
+    const logFileName = `${pocFile}.log`;
     const logPath = path.join(logsDir, logFileName);
 
     if (pocFile.endsWith(".html")) {
@@ -161,50 +161,78 @@ Timestamp: ${new Date().toISOString()}
       continue;
     }
 
-    // Execute bash POC locally on host machine
+    // Read the POC file content and upload to sandbox
+    const pocContent = readFileSync(pocPath, "utf-8");
+    const remotePocPath = `/tmp/poc-${pocName}.sh`;
+
+    // Upload POC script to sandbox
+    await sandbox.fs.uploadFiles([
+      {
+        source: Buffer.from(pocContent),
+        destination: remotePocPath,
+      },
+    ]);
+
+    // Execute bash POC in sandbox
     const startTime = Date.now();
     let result: PocRunResult;
 
     try {
-      // Run the POC script locally with TARGET environment variable
-      const execResult = await execAsync(`bash "${pocPath}"`, {
-        env: { ...process.env, TARGET: targetUrl },
-        timeout: 120000, // 2 minute timeout
-        maxBuffer: 10 * 1024 * 1024, // 10MB buffer
-      });
+      // Make script executable and run it
+      const execResult = await sandbox.process.executeCommand(
+        `chmod +x "${remotePocPath}" && TARGET="${targetUrl}" bash "${remotePocPath}"`,
+        undefined,
+        undefined,
+        120000 // 2 minute timeout
+      );
 
       const duration = Date.now() - startTime;
 
-      result = {
-        pocFile,
-        pocName,
-        exitCode: 0,
-        stdout: execResult.stdout || "",
-        stderr: execResult.stderr || "",
-        duration,
-        success: true,
-      };
-      passed++;
-      console.log(
-        `[${benchmarkName}]   ✅ ${pocFile} (${(duration / 1000).toFixed(1)}s)`
-      );
+      if (execResult.exitCode === 0) {
+        result = {
+          pocFile,
+          pocName,
+          exitCode: 0,
+          stdout: execResult.result || "",
+          stderr: "",
+          duration,
+          success: true,
+        };
+        passed++;
+        console.log(
+          `[${benchmarkName}]   ✅ ${pocFile} (${(duration / 1000).toFixed(1)}s)`
+        );
+      } else {
+        result = {
+          pocFile,
+          pocName,
+          exitCode: execResult.exitCode ?? 1,
+          stdout: execResult.result || "",
+          stderr: execResult.result || "",
+          duration,
+          success: false,
+          error: `Exit code: ${execResult.exitCode}`,
+        };
+        failed++;
+        console.log(
+          `[${benchmarkName}]   ❌ ${pocFile} (exit code: ${result.exitCode})`
+        );
+      }
     } catch (error: any) {
       const duration = Date.now() - startTime;
-
-      // exec throws on non-zero exit code, extract info from error
       result = {
         pocFile,
         pocName,
-        exitCode: error.code ?? 1,
-        stdout: error.stdout || "",
-        stderr: error.stderr || error.message || "",
+        exitCode: 1,
+        stdout: "",
+        stderr: error.message || "",
         duration,
         success: false,
         error: error.message,
       };
       failed++;
       console.log(
-        `[${benchmarkName}]   ❌ ${pocFile} (exit code: ${result.exitCode})`
+        `[${benchmarkName}]   ❌ ${pocFile} (error: ${error.message})`
       );
     }
 
@@ -218,7 +246,7 @@ Success: ${result.success}
 Duration: ${result.duration}ms
 Timestamp: ${new Date().toISOString()}
 Target: ${targetUrl}
-Execution: Local (host machine)
+Execution: Sandbox
 
 ${"=".repeat(60)}
 STDOUT:
@@ -241,7 +269,7 @@ ${result.error ? `\n${"=".repeat(60)}\nERROR:\n${"=".repeat(60)}\n${result.error
     timestamp: new Date().toISOString(),
     benchmarkName,
     targetUrl,
-    executionMode: "local",
+    executionMode: "sandbox",
     total: pocFiles.length,
     passed,
     failed,
@@ -271,9 +299,9 @@ ${result.error ? `\n${"=".repeat(60)}\nERROR:\n${"=".repeat(60)}\n${result.error
  * Architecture:
  * - Target app runs inside Daytona sandbox (Docker-in-Docker)
  * - Agent runs locally on host machine
- * - Agent interacts with target ONLY via the public Daytona preview URL
- * - No tool overrides - agent cannot access sandbox internals or Docker
- * - This prevents "cheating" by accessing Docker containers directly
+ * - Agent commands/HTTP requests are proxied to sandbox via tool overrides
+ * - Docker commands are BLOCKED to prevent cheating (accessing containers directly)
+ * - Target URL is localhost (inside sandbox) for realistic testing
  */
 export async function runBenchmarkWithDaytona(
   options: DaytonaBenchmarkOptions
@@ -282,15 +310,6 @@ export async function runBenchmarkWithDaytona(
   const apiKey = options.apiKey || process.env.DAYTONA_API_KEY;
   const orgId = options.orgId || process.env.DAYTONA_ORG_ID;
   const startTime = Date.now();
-
-  // Set AI API keys in process.env so local agent can use them
-  // (agent runs locally, not in the sandbox)
-  if (options.anthropicKey) {
-    process.env.ANTHROPIC_API_KEY = options.anthropicKey;
-  }
-  if (options.openrouterKey) {
-    process.env.OPENROUTER_API_KEY = options.openrouterKey;
-  }
 
   if (!apiKey) {
     throw new Error("DAYTONA_API_KEY is required");
@@ -627,18 +646,14 @@ export async function runBenchmarkWithDaytona(
 
     const actualHostPort = parseInt(portQueryResult.result?.trim() || String(portInfo.hostPort), 10);
 
-    // Step 7: Build target URL from Daytona preview URL (NOT localhost)
-    // This ensures the agent can only interact via HTTP from the host machine,
-    // preventing "cheating" by accessing Docker containers directly
-    const preview = await sandbox.getPreviewLink(actualHostPort);
-    const targetUrl = preview.url;
+    // Step 7: Build target URL from actual mapped port (localhost inside sandbox)
+    const targetUrl = `http://localhost:${actualHostPort}`;
     console.log(`[${benchmarkName}] 🎯 Target URL: ${targetUrl}`);
 
-    // Step 8: Create local session with benchmark guidance and scope constraints
-    // Parse the preview URL to get the hostname for scope constraints
-    const previewUrlObj = new URL(targetUrl);
-    const previewHostname = previewUrlObj.hostname;
+    // const preview = await sandbox.getPreviewLink(actualHostPort);
+    // console.log(`[${benchmarkName}] Preview URL: ${preview.url}`);
 
+    // Step 8: Create local session with benchmark guidance and scope constraints
     const sessionPrefix = prefix ? `${prefix}-${benchmarkName}` : `benchmark-${benchmarkName}`;
     const session = await Session.create({
       targets: [targetUrl],
@@ -648,8 +663,8 @@ export async function runBenchmarkWithDaytona(
       config: {
         outcomeGuidance: Session.BENCHMARK_OUTCOME_GUIDANCE,
         scopeConstraints: {
-          allowedHosts: [previewHostname],
-          allowedPorts: previewUrlObj.port ? [parseInt(previewUrlObj.port, 10)] : [443, 80],
+          allowedHosts: ["localhost"],
+          allowedPorts: [actualHostPort],
           strictScope: true,
         },
       },
@@ -657,18 +672,214 @@ export async function runBenchmarkWithDaytona(
 
     console.log(`[${benchmarkName}] 📝 Local session created: ${session.id}`);
 
-    // Step 9: Run streamlined pentest WITHOUT tool overrides
-    // Agent runs locally and makes HTTP requests to the preview URL from the host machine.
-    // This prevents "cheating" by accessing Docker containers or sandbox internals directly.
-    // The agent can only interact with the target via the public preview URL.
+    // Step 9: Create tool overrides that proxy to Daytona sandbox
+    // These execute commands/requests in the sandbox but BLOCK docker commands
+    // to prevent cheating by accessing Docker containers directly
+    const BLOCKED_DOCKER_COMMANDS = [
+      "docker",
+      "docker-compose",
+      "dockerd",
+      "containerd",
+      "ctr",
+      "nerdctl",
+    ];
+
+    const executeCommandOverride = async (
+      opts: ExecuteCommandOpts
+    ): Promise<ExecuteCommandResult> => {
+      try {
+        if (!sandbox) throw new Error("Sandbox not created");
+
+        // Check for blocked docker commands
+        const commandLower = opts.command.toLowerCase().trim();
+        const firstWord = commandLower.split(/\s+/)[0] || "";
+
+        // Block docker commands to prevent cheating
+        if (BLOCKED_DOCKER_COMMANDS.some(blocked =>
+          firstWord === blocked ||
+          firstWord.startsWith(`${blocked} `) ||
+          commandLower.includes("docker ") ||
+          commandLower.includes("docker-compose ")
+        )) {
+          return {
+            command: opts.command,
+            success: false,
+            stdout: "",
+            stderr: "Docker commands are blocked in benchmark mode to prevent cheating. Use HTTP requests to interact with the target application.",
+            error: "Docker commands are blocked in benchmark mode",
+          };
+        }
+
+        // Execute command directly - Daytona combines stdout/stderr in result
+        const result = await sandbox.process.executeCommand(
+          opts.command,
+          undefined,
+          undefined,
+          opts.timeout || 120000
+        );
+
+        const output = result.result || "";
+        const success = result.exitCode === 0;
+
+        // Match the exact format from tools.ts
+        return {
+          command: opts.command,
+          success,
+          stdout: output,
+          stderr: success ? "" : output,
+          error: success ? "" : output,
+        };
+      } catch (error: any) {
+        return {
+          command: opts.command,
+          success: false,
+          stdout: "",
+          stderr: error.message,
+          error: error.message,
+        };
+      }
+    };
+
+    const httpRequestOverride = async (
+      opts: HttpRequestOpts
+    ): Promise<HttpRequestResult> => {
+      try {
+        if (!sandbox) throw new Error("Sandbox not created");
+
+        // Build curl command - use -i to include headers in output
+        const timeoutSec = Math.ceil((opts.timeout || 10000) / 1000);
+        let curlCmd = `curl -s -i --max-time ${timeoutSec} --connect-timeout 10`;
+
+        // Handle redirects
+        if (opts.followRedirects !== false) {
+          curlCmd += " -L --max-redirs 10";
+        }
+
+        // Add method
+        curlCmd += ` -X ${opts.method || "GET"}`;
+
+        // Add headers
+        if (opts.headers) {
+          for (const [key, value] of Object.entries(opts.headers)) {
+            const safeValue = String(value).replace(/'/g, "'\\''");
+            curlCmd += ` -H '${key}: ${safeValue}'`;
+          }
+        }
+
+        // Add body using heredoc for complex payloads
+        if (opts.body) {
+          // Use base64 to safely transfer the body
+          const bodyBase64 = Buffer.from(opts.body).toString("base64");
+          curlCmd = `echo '${bodyBase64}' | base64 -d | curl -s -i --max-time ${timeoutSec} --connect-timeout 10`;
+          if (opts.followRedirects !== false) {
+            curlCmd += " -L --max-redirs 10";
+          }
+          curlCmd += ` -X ${opts.method || "GET"}`;
+          if (opts.headers) {
+            for (const [key, value] of Object.entries(opts.headers)) {
+              const safeValue = String(value).replace(/'/g, "'\\''");
+              curlCmd += ` -H '${key}: ${safeValue}'`;
+            }
+          }
+          curlCmd += " --data-binary @-";
+        }
+
+        // Add URL
+        const safeUrl = opts.url.replace(/'/g, "'\\''");
+        curlCmd += ` '${safeUrl}'`;
+
+        const result = await sandbox.process.executeCommand(
+          curlCmd,
+          undefined,
+          undefined,
+          (opts.timeout || 10000) + 15000
+        );
+
+        const output = result.result || "";
+
+        // Parse curl -i output: headers\r\n\r\nbody
+        // Find the blank line separating headers from body
+        const headerEndIndex = output.indexOf("\r\n\r\n");
+        let headersText = "";
+        let body = "";
+
+        if (headerEndIndex !== -1) {
+          headersText = output.substring(0, headerEndIndex);
+          body = output.substring(headerEndIndex + 4);
+        } else {
+          // Try with just \n\n
+          const altIndex = output.indexOf("\n\n");
+          if (altIndex !== -1) {
+            headersText = output.substring(0, altIndex);
+            body = output.substring(altIndex + 2);
+          } else {
+            body = output;
+          }
+        }
+
+        // Parse status from first line: HTTP/1.1 200 OK
+        const statusLine = headersText.split("\n")[0] || "";
+        const statusMatch = statusLine.match(/HTTP\/[\d.]+\s+(\d+)\s*(.*)/);
+        const status = statusMatch ? parseInt(statusMatch[1], 10) : 0;
+        const statusText = statusMatch ? statusMatch[2]?.trim() || "" : "";
+
+        // Parse headers
+        const headers: Record<string, string> = {};
+        const headerLines = headersText.split("\n").slice(1);
+        for (const line of headerLines) {
+          const colonIndex = line.indexOf(":");
+          if (colonIndex > 0) {
+            const key = line.substring(0, colonIndex).trim().toLowerCase();
+            const value = line.substring(colonIndex + 1).trim();
+            if (key) {
+              headers[key] = value;
+            }
+          }
+        }
+
+        // Detect redirect
+        const redirected = headers["location"] !== undefined || status >= 300 && status < 400;
+
+        // Truncate body like the original tool does (5000 chars)
+        const truncatedBody = body.length > 5000
+          ? `${body.substring(0, 5000)}... \n\n (truncated) use execute_command with grep / tail to paginate the response`
+          : body;
+
+        // Match the exact format from tools.ts - success: true if no exception
+        return {
+          success: true,
+          status,
+          statusText,
+          headers,
+          body: truncatedBody,
+          url: opts.url,
+          redirected,
+        };
+      } catch (error: any) {
+        // Match the exact error format from tools.ts
+        return {
+          success: false,
+          url: opts.url,
+          status: 0,
+          statusText: "",
+          headers: {},
+          body: "",
+          redirected: false,
+        };
+      }
+    };
+
+    // Step 10: Run streamlined pentest with tool overrides (scope constraints are in session config)
     console.log(`[${benchmarkName}] 🔍 Starting streamlined pentest...`);
-    console.log(`[${benchmarkName}] ℹ️  Agent running locally, HTTP requests to preview URL (no sandbox access)`);
+    console.log(`[${benchmarkName}] ℹ️  Agent running locally with tool overrides (commands/HTTP proxied to sandbox, docker commands BLOCKED)`);
     const pentestResult = await runStreamlinedPentest({
       target: targetUrl,
       model,
       session,
-      // NO toolOverride - agent uses default tools running on host machine
-      // This ensures agent can only interact via HTTP to the preview URL
+      toolOverride: {
+        execute_command: executeCommandOverride,
+        http_request: httpRequestOverride,
+      },
       onProgress: (status) => {
         const progressParts: string[] = [`[${benchmarkName}] [${status.phase}]`];
 
@@ -689,9 +900,6 @@ export async function runBenchmarkWithDaytona(
           console.log(`[${benchmarkName}]   Findings so far: ${status.findingsCount}`);
         }
       },
-      sessionConfig: {
-        remoteSandboxUrl: targetUrl
-      }
     });
 
     if (!pentestResult.success) {
@@ -723,11 +931,12 @@ export async function runBenchmarkWithDaytona(
       };
     }
 
-    // Step 13: Re-run all POCs locally and save their outputs
-    // POCs run on host machine with TARGET set to preview URL
-    console.log(`[${benchmarkName}] 🔄 Re-running POCs locally...`);
-    const pocRunResults = await rerunPocsLocally(
+    // Step 13: Re-run all POCs in sandbox and save their outputs
+    console.log(`[${benchmarkName}] 🔄 Re-running POCs in sandbox...`);
+    const pocRunResults = await rerunAllPocsInSandbox(
+      sandbox,
       session.rootPath,
+      remoteBenchmarkPath,
       benchmarkName,
       targetUrl
     );

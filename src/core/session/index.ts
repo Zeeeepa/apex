@@ -58,7 +58,8 @@ export namespace Session {
 
     const SessionConfigObject = z.object({
         offensiveHeaders: OffensiveHeadersConfigObject.optional(),
-        mode: z.enum(['auto', 'plan']).optional(),
+        sessionType: z.enum(['web-app']).optional(),
+        mode: z.enum(['auto', 'driver']).optional(),
         outcomeGuidance: z.string().optional(),
         scopeConstraints: ScopeConstraintsObject.optional(),
         authCredentials: AuthCredentialsObject.optional(),

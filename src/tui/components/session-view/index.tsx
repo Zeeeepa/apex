@@ -7,6 +7,7 @@ import SwarmDashboard, {
   type UIMessage,
   type Subagent,
 } from "../swarm-dashboard";
+import DriverDashboard from "../driver-dashboard";
 import { Session } from "../../../core/session";
 import {
   loadSessionState,
@@ -527,7 +528,12 @@ export default function SessionView({
     );
   }
 
-  // Render SwarmDashboard
+  // Driver mode - render DriverDashboard for manual agent orchestration
+  if (session.config?.mode === 'driver') {
+    return <DriverDashboard session={session} />;
+  }
+
+  // Auto mode - Render SwarmDashboard with streamlined pentest
   return (
     <SwarmDashboard
       subagents={subagents}

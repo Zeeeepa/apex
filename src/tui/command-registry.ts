@@ -69,13 +69,18 @@ export const commands: CommandConfig[] = [
   //   },
   // },
   {
-    name: "init",
-    description: "Start a new pentest session",
-    category: "General",
+    name: "web",
+    aliases: ["w"],
+    description: "Start a web app pentest session",
+    category: "Pentesting",
     handler: async (args, ctx) => {
+      const hasAuto = args.includes('--auto');
+      const targetIdx = args.indexOf('--target');
+      const target = targetIdx !== -1 ? args[targetIdx + 1] : undefined;
       ctx.navigate({
         type: "base",
-        path: "init"
+        path: "web",
+        options: { auto: hasAuto, target }
       });
     },
   },

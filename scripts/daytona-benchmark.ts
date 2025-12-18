@@ -156,8 +156,9 @@ async function main() {
     console.error("  - Uploads each benchmark directory to Daytona sandbox");
     console.error("  - Parses docker-compose to determine target port/URL");
     console.error("  - Runs docker compose up inside sandbox (DinD)");
-    console.error("  - Agent runs locally, targets Daytona preview URL (no sandbox access)");
-    console.error("  - Re-runs POCs locally against preview URL");
+    console.error("  - Agent runs locally with tool overrides for sandbox execution");
+    console.error("  - Commands/HTTP proxied to sandbox (docker commands BLOCKED)");
+    console.error("  - Re-runs POCs in sandbox and saves outputs");
     console.error("  - Detects flags in pentest artifacts");
     console.error("  - Generates comprehensive reports (JSON + Markdown)");
     console.error();
@@ -438,9 +439,10 @@ async function main() {
   console.log("  • Uploads benchmark directory to sandbox");
   console.log("  • Parses docker-compose for target port");
   console.log("  • Runs docker compose inside sandbox (nested containers)");
-  console.log("  • Agent runs locally (NO sandbox access)");
-  console.log("  • HTTP requests target Daytona preview URL from host");
-  console.log("  • Re-runs POCs locally against preview URL");
+  console.log("  • Agent runs locally with tool overrides");
+  console.log("  • Commands/HTTP requests execute in sandbox");
+  console.log("  • Docker commands BLOCKED to prevent cheating");
+  console.log("  • Re-runs POCs in sandbox and saves outputs");
   console.log("  • Detects flags in pentest artifacts");
   console.log("  • Generates JSON + Markdown reports");
   console.log("=".repeat(80) + "\n");

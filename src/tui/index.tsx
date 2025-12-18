@@ -9,7 +9,7 @@ import CommandInput from "./command-input";
 import { CommandProvider } from "./command-provider";
 import { AgentProvider } from "./agentProvider";
 import HelpDialog from "./components/commands/help-dialog";
-import InitWizard from "./components/commands/init-wizard";
+import WebWizard from "./components/commands/web-wizard";
 import SessionView from "./components/session-view";
 import SessionsDisplay from "./components/commands/sessions-display";
 import ConfigDialog from "./components/commands/config-dialog";
@@ -182,12 +182,12 @@ function AppContent({
     }
 
     // Escape - Return to home from any non-home route
-    // Exclude "init" and "session" routes - they handle their own ESC behavior
+    // Exclude "web" and "session" routes - they handle their own ESC behavior
     if (key.name === "escape") {
       const isHome = route.data.type === "base" && route.data.path === "home";
-      const isInit = route.data.type === "base" && route.data.path === "init";
+      const isWeb = route.data.type === "base" && route.data.path === "web";
       const isSession = route.data.type === "session";
-      if (!isHome && !isInit && !isSession) {
+      if (!isHome && !isWeb && !isSession) {
         route.navigate({
           type: "base",
           path: "home"
@@ -352,8 +352,11 @@ function CommandDisplay({
           <RouteSwitch.Case when="help">
             <HelpDialog/>
           </RouteSwitch.Case>
-          <RouteSwitch.Case when="init">
-            <InitWizard />
+          <RouteSwitch.Case when="web">
+            <WebWizard
+              initialTarget={route.data.options?.target}
+              autoMode={route.data.options?.auto}
+            />
           </RouteSwitch.Case>
           <RouteSwitch.Case when="config">
             <ConfigDialog />
@@ -435,7 +438,7 @@ function Home () {
         <text>
           <span fg={greenBullet}>█ </span>
           <span fg={dimText}>Quick start: </span>
-          <span fg={creamText}>/init</span>
+          <span fg={creamText}>/web</span>
         </text>
         <text>
           <span fg={greenBullet}>█ </span>
