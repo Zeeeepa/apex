@@ -1,18 +1,21 @@
 import type { CommandDefinition } from "./command-router";
+import type { Route } from "./context/route";
 
 /**
  * Define your application's CommandContext type with specific methods
  */
 export interface AppCommandContext {
-  openHelp: () => void;
-  openConfig: () => void;
-  openPentest: () => void;
-  openThoroughPentest: () => void;
-  openSessions: () => void;
-  openModels: () => void;
-  // Add more context methods here as needed
-  // clearScreen?: () => void;
-  // showMessage?: (msg: string) => void;
+  route: Route;
+  navigate: (route: Route) => void;
+};
+
+/**
+ * Command option definition for help text and autocomplete
+ */
+export interface CommandOption {
+  name: string;
+  description: string;
+  valueHint?: string; // e.g., "<url>" for --target <url>
 }
 
 /**
@@ -23,6 +26,7 @@ export interface CommandConfig {
   aliases?: string[];
   description?: string;
   category?: string;
+  options?: CommandOption[];
   handler: (args: string[], ctx: AppCommandContext) => void | Promise<void>;
 }
 
@@ -35,39 +39,63 @@ export const commands: CommandConfig[] = [
     description: "Show help dialog",
     category: "General",
     handler: async (args, ctx) => {
-      ctx.openHelp();
+      ctx.navigate({
+        type: "base",
+        path: "help"
+      });
     },
   },
+  // {
+  //   name: "config",
+  //   description: "Show config dialog",
+  //   category: "General",
+  //   handler: async (args, ctx) => {
+  //     ctx.navigate({
+  //       type: "base",
+  //       path: "config"
+  //     });
+  //   },
+  // },
+  // {
+  //   name: "quicktest",
+  //   description: "Show quick pentest agent",
+  //   category: "General",
+  //   handler: async (args, ctx) => {
+  //     ctx.navigate({
+  //       type: "base",
+  //       path: "pentest"
+  //     });
+  //   },
+  // },
+  // {
+  //   name: "pentest",
+  //   description: "Show pentest agent",
+  //   category: "General",
+  //   handler: async (args, ctx) => {
+  //     ctx.navigate({
+  //       type: "base",
+  //       path: "thorough"
+  //     });
+  //   },
+  // },
   {
-    name: "config",
-    description: "Show config dialog",
-    category: "General",
+    name: "web",
+    aliases: ["w"],
+    description: "Start a web app pentest session",
+    category: "Pentesting",
+    options: [
+      { name: "--target", description: "Target URL to test", valueHint: "<url>" },
+      { name: "--auto", description: "Enable auto swarm mode" },
+    ],
     handler: async (args, ctx) => {
-      ctx.openConfig();
-    },
-  },
-  {
-    name: "quicktest",
-    description: "Show quick pentest agent",
-    category: "General",
-    handler: async (args, ctx) => {
-      ctx.openPentest();
-    },
-  },
-  {
-    name: "pentest",
-    description: "Show pentest agent",
-    category: "General",
-    handler: async (args, ctx) => {
-      ctx.openThoroughPentest();
-    },
-  },
-  {
-    name: "sessions",
-    description: "Show available sessions",
-    category: "General",
-    handler: async (args, ctx) => {
-      ctx.openSessions();
+      const hasAuto = args.includes('--auto');
+      const targetIdx = args.indexOf('--target');
+      const target = targetIdx !== -1 ? args[targetIdx + 1] : undefined;
+      ctx.navigate({
+        type: "base",
+        path: "web",
+        options: { auto: hasAuto, target }
+      });
     },
   },
   {
@@ -75,7 +103,21 @@ export const commands: CommandConfig[] = [
     description: "Show available AI models",
     category: "General",
     handler: async (args, ctx) => {
-      ctx.openModels();
+      ctx.navigate({
+        type: "base",
+        path: "models"
+      });
+    },
+  },
+  {
+    name: "providers",
+    description: "Manage AI providers and API keys",
+    category: "General",
+    handler: async (args, ctx) => {
+      ctx.navigate({
+        type: "base",
+        path: "providers"
+      });
     },
   },
 

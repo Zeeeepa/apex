@@ -5,40 +5,63 @@ import {
   type TextChunk,
 } from "@opentui/core";
 import { SpinnerDots } from "./sprites";
-import type { Message, ToolMessage } from "../../core/messages";
 import { useState, memo } from "react";
 import { marked } from "marked";
-import type { Subagent } from "./hooks/pentestAgent";
-import fs from "fs";
+import type { Message } from "../../core/messages/types";
+import { useTerminalDimensions } from "@opentui/react";
 
-// File logger
-const LOG_FILE = "/tmp/apex-debug.log";
-function logToFile(message: string, data?: any) {
-  const timestamp = new Date().toISOString();
-  const logLine = `[${timestamp}] ${message} ${data ? JSON.stringify(data, null, 2) : ''}\n`;
-  fs.appendFileSync(LOG_FILE, logLine);
-}
+export type Subagent = {
+  id: string;
+  name: string;
+  type: "attack-surface" | "pentest";
+  target: string;
+  messages: Message[];
+  createdAt: Date;
+  status: "pending" | "completed" | "failed";
+};
 
+// Flexible display message type (doesn't require storage fields)
+export type DisplayMessage = {
+  role: "user" | "assistant" | "system" | "tool";
+  content: string | unknown[];
+  createdAt: Date;
+  // Optional tool fields
+  toolCallId?: string;
+  toolName?: string;
+  args?: Record<string, unknown>;
+  result?: unknown; // Tool output/result
+  status?: "pending" | "completed";
+};
+
+// Type guard for tool messages
+type ToolDisplayMessage = DisplayMessage & {
+  role: "tool";
+  toolCallId: string;
+  toolName: string;
+};
 
 function getStableKey(
-  item: Message | Subagent,
+  item: DisplayMessage | Subagent,
   contextId: string = "root"
 ): string {
   if ("messages" in item) {
     return `subagent-${item.id}`;
   } else if (item.role === "tool" && "toolCallId" in item) {
-    return `${contextId}-tool-${(item as ToolMessage).toolCallId}`;
+    return `${contextId}-tool-${(item as ToolDisplayMessage).toolCallId}`;
   } else {
-    const content = typeof item.content === "string"
-      ? item.content
-      : JSON.stringify(item.content);
+    const content =
+      typeof item.content === "string"
+        ? item.content
+        : JSON.stringify(item.content);
     const contentHash = content.length;
-    return `${contextId}-${item.role}-${item.createdAt.getTime()}-${contentHash}`;
+    return `${contextId}-${
+      item.role
+    }-${item.createdAt.getTime()}-${contentHash}`;
   }
 }
 
 interface AgentDisplayProps {
-  messages: Message[];
+  messages: DisplayMessage[];
   isStreaming?: boolean;
   children?: React.ReactNode;
   subagents?: Subagent[];
@@ -50,6 +73,13 @@ interface AgentDisplayProps {
 
 // Utility function to convert markdown to StyledText
 function markdownToStyledText(content: string): StyledText {
+  // Handle empty or whitespace-only content
+  if (!content || !content.trim()) {
+    return new StyledText([
+      { __isChunk: true, text: content || "", attributes: 0 },
+    ]);
+  }
+
   try {
     const tokens = marked.lexer(content);
     const chunks: TextChunk[] = [];
@@ -237,16 +267,12 @@ export default function AgentDisplay({
   );
 }
 
-const SubAgentDisplay = memo(function SubAgentDisplay({ subagent }: { subagent: Subagent }) {
+const SubAgentDisplay = memo(function SubAgentDisplay({
+  subagent,
+}: {
+  subagent: Subagent;
+}) {
   const [open, setOpen] = useState(false);
-
-  // LOG: Rendering subagent
-  logToFile(`[Render] SubAgentDisplay for ${subagent.id}:`, {
-    name: subagent.name,
-    nameLength: subagent.name?.length || 0,
-    status: subagent.status,
-    messageCount: subagent.messages.length
-  });
 
   return (
     <box
@@ -282,7 +308,12 @@ const SubAgentDisplay = memo(function SubAgentDisplay({ subagent }: { subagent: 
   );
 });
 
-const AgentMessage = memo(function AgentMessage({ message }: { message: Message }) {
+const AgentMessage = memo(function AgentMessage({
+  message,
+}: {
+  message: DisplayMessage;
+}) {
+  const dimensions = useTerminalDimensions();
   let content = "";
 
   if (typeof message.content === "string") {
@@ -300,24 +331,14 @@ const AgentMessage = memo(function AgentMessage({ message }: { message: Message 
     content = JSON.stringify(message.content, null, 2);
   }
 
-  // LOG: Rendering message
-  if (message.role === "tool") {
-    logToFile(`[Render] AgentMessage (tool):`, {
-      toolCallId: (message as ToolMessage).toolCallId,
-      content: content.substring(0, 50),
-      contentLength: content.length,
-      isEmpty: content === "",
-      status: (message as ToolMessage).status
-    });
-  }
-
   // Render markdown for assistant messages
   const displayContent =
     message.role === "assistant" ? markdownToStyledText(content) : content;
 
   // Check if this is a pending tool message
   const isPendingTool =
-    message.role === "tool" && (message as ToolMessage).status === "pending";
+    message.role === "tool" &&
+    (message as ToolDisplayMessage).status === "pending";
 
   return (
     <box
@@ -342,6 +363,7 @@ const AgentMessage = memo(function AgentMessage({ message }: { message: Message 
           />
         )}
         <box
+          maxWidth={dimensions.width - 20}
           padding={message.role !== "tool" ? 1 : 0}
           backgroundColor={
             message.role !== "tool" ? RGBA.fromInts(40, 40, 40, 255) : undefined
@@ -367,28 +389,80 @@ const AgentMessage = memo(function AgentMessage({ message }: { message: Message 
           />
         )}
       </box>
-      <ToolArgs message={message} />
+      <ToolDetails message={message} />
     </box>
   );
 });
 
-function ToolArgs({ message }: { message: Message }) {
-  const [open, setOpen] = useState(false);
-  if (message.role !== "tool" || !("args" in message)) {
+function ToolDetails({ message }: { message: DisplayMessage }) {
+  const [showArgs, setShowArgs] = useState(false);
+  const [showResult, setShowResult] = useState(false);
+
+  if (message.role !== "tool") {
     return null;
   }
 
-  const args = message.args;
+  const hasArgs = "args" in message && message.args;
+  const hasResult = "result" in message && message.result !== undefined;
+
+  if (!hasArgs && !hasResult) {
+    return null;
+  }
+
+  // Format result for display (truncate if too long)
+  const formatResult = (result: unknown): string => {
+    try {
+      const str = JSON.stringify(result, null, 2);
+      // Truncate very long results
+      if (str.length > 2000) {
+        return str.substring(0, 2000) + "\n... (truncated)";
+      }
+      return str;
+    } catch {
+      return String(result);
+    }
+  };
 
   return (
-    <box onMouseDown={(e) => {
-      e.stopPropagation();
-      setOpen(!open);
-    }}>
-      <box flexDirection="row" alignItems="center" gap={1}>
-        <text>{open ? "▼ Hide args" : "▶ Show args"}</text>
-      </box>
-      {open && <text>{JSON.stringify(args, null, 2)}</text>}
+    <box flexDirection="column" gap={1}>
+      {hasArgs && (
+        <box
+          onMouseDown={(e) => {
+            e.stopPropagation();
+            setShowArgs(!showArgs);
+          }}
+        >
+          <box flexDirection="row" alignItems="center" gap={1}>
+            <text fg={RGBA.fromInts(150, 150, 150, 255)}>
+              {showArgs ? "▼ Hide args" : "▶ Show args"}
+            </text>
+          </box>
+          {showArgs && (
+            <text fg={RGBA.fromInts(180, 180, 180, 255)}>
+              {JSON.stringify(message.args, null, 2)}
+            </text>
+          )}
+        </box>
+      )}
+      {hasResult && (
+        <box
+          onMouseDown={(e) => {
+            e.stopPropagation();
+            setShowResult(!showResult);
+          }}
+        >
+          <box flexDirection="row" alignItems="center" gap={1}>
+            <text fg={RGBA.fromInts(100, 200, 100, 255)}>
+              {showResult ? "▼ Hide output" : "▶ Show output"}
+            </text>
+          </box>
+          {showResult && (
+            <text fg={RGBA.fromInts(150, 220, 150, 255)}>
+              {formatResult(message.result)}
+            </text>
+          )}
+        </box>
+      )}
     </box>
   );
 }

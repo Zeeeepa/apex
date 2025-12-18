@@ -3,158 +3,175 @@ import { RGBA } from "@opentui/core";
 import { type ModelInfo } from "../../../core/ai";
 import { useAgent } from "../../agentProvider";
 import { useEffect, useState } from "react";
-import type { Config } from "../../../core/config/config";
-import { config } from "../../../core/config";
-import Input from "../input";
 import { AVAILABLE_MODELS } from "../../../core/ai/models";
+import { useRoute } from "../../context/route";
+import { useConfig } from "../../context/config";
+import {
+  getConfiguredProviders,
+  type ProviderType,
+} from "../../../core/providers";
 
-export default function ModelsDisplay({
-  closeModels,
-}: {
-  closeModels: () => void;
-}) {
-  const [appConfig, setAppConfig] = useState<Config | null>(null);
-  const [models, setModels] = useState<ModelInfo[]>([]);
+interface GroupedModels {
+  providerId: ProviderType;
+  providerName: string;
+  models: ModelInfo[];
+  configured: boolean;
+}
+
+export default function ModelsDisplay() {
+  const route = useRoute();
+  const _config = useConfig();
+
+  const [groupedModels, setGroupedModels] = useState<GroupedModels[]>([]);
   const { model: selectedModel, setModel } = useAgent();
-  const [customModel, setCustomModel] = useState<string>("");
-  const [focusArea, setFocusArea] = useState<"custom" | "list">("custom");
+  const [highlightedIndex, setHighlightedIndex] = useState(0);
+  const [showAllForProvider, setShowAllForProvider] = useState<
+    Record<string, boolean>
+  >({});
 
-  const [highlightedIndex, setHighlightedIndex] = useState(() =>
-    models.findIndex((m) => m.id === selectedModel.id)
-  );
+  const MAX_MODELS_BEFORE_SHOW_MORE = 5;
 
   useEffect(() => {
-    async function getConfig() {
-      const _config = await config.get();
-      setAppConfig(_config);
-      const openAiConfigured = !!_config.openAiAPIKey;
-      const anthropicConfigured = !!_config.anthropicAPIKey;
-      const bedrockConfigured = !!_config.bedrockAPIKey;
-      const openRouterConfigured = !!_config.openRouterAPIKey;
-      const _models = AVAILABLE_MODELS.filter((m) => {
-        if (m.provider === "openai") return openAiConfigured;
-        if (m.provider === "anthropic") return anthropicConfigured;
-        if (m.provider === "bedrock") return bedrockConfigured;
-        if (m.provider === "openrouter") return openRouterConfigured;
-        return false;
-      });
+    const configuredProviders = getConfiguredProviders(_config.data);
 
-      setModels(_models);
-    }
-    getConfig();
-  }, []);
+    // Group models by provider
+    const grouped: GroupedModels[] = [];
+
+    configuredProviders.forEach((provider) => {
+      if (provider.configured) {
+        const models = AVAILABLE_MODELS.filter(
+          (m) => m.provider === provider.id
+        );
+        if (models.length > 0) {
+          grouped.push({
+            providerId: provider.id,
+            providerName: provider.name,
+            models,
+            configured: true,
+          });
+        }
+      }
+    });
+
+    setGroupedModels(grouped);
+  }, [_config.data]);
+
+  // Flatten the models list for navigation
+  const flatModels: ModelInfo[] = [];
+  groupedModels.forEach((group) => {
+    const shouldShowAll = showAllForProvider[group.providerId] ?? false;
+    const modelsToShow = shouldShowAll
+      ? group.models
+      : group.models.slice(0, MAX_MODELS_BEFORE_SHOW_MORE);
+    flatModels.push(...modelsToShow);
+  });
 
   useKeyboard((key) => {
     // Escape - Close models display
     if (key.name === "escape") {
-      closeModels();
+      route.navigate({
+        type: "base",
+        path: "home",
+      });
       return;
     }
 
-    // Tab focus switching between custom input and list
-    if (key.name === "tab" && !key.shift) {
-      setFocusArea((prev) => (prev === "custom" ? "list" : "custom"));
+    // Ctrl+P - Connect provider
+    if (key.ctrl && key.name === "p") {
+      route.navigate({
+        type: "base",
+        path: "providers",
+      });
       return;
     }
-    if (key.name === "tab" && key.shift) {
-      setFocusArea((prev) => (prev === "list" ? "custom" : "list"));
+
+    // Arrow Up - Previous model
+    if (key.name === "up" && flatModels.length > 0) {
+      setHighlightedIndex((prev) =>
+        prev > 0 ? prev - 1 : flatModels.length - 1
+      );
       return;
     }
 
-    // When list is focused, handle navigation and selection
-    if (focusArea === "list") {
-      // Arrow Up - Previous model
-      if (key.name === "up" && models.length > 0) {
-        setHighlightedIndex((prev) =>
-          prev > 0 ? prev - 1 : models.length - 1
-        );
-        return;
-      }
+    // Arrow Down - Next model
+    if (key.name === "down" && flatModels.length > 0) {
+      setHighlightedIndex((prev) =>
+        prev < flatModels.length - 1 ? prev + 1 : 0
+      );
+      return;
+    }
 
-      // Arrow Down - Next model
-      if (key.name === "down" && models.length > 0) {
-        setHighlightedIndex((prev) =>
-          prev < models.length - 1 ? prev + 1 : 0
-        );
-        return;
+    // Enter - Select model
+    if (key.name === "return" && flatModels.length > 0) {
+      const sel = flatModels[highlightedIndex];
+      if (sel) {
+        setModel(sel);
+        route.navigate({
+          type: "base",
+          path: "home",
+        });
       }
-
-      // Enter - Select model
-      if (key.name === "return" && models.length > 0) {
-        const sel = models[highlightedIndex];
-        if (sel) {
-          setModel(sel);
-          closeModels();
-        }
-        return;
-      }
+      return;
     }
   });
 
+  const toggleShowMore = (providerId: ProviderType) => {
+    setShowAllForProvider((prev) => ({
+      ...prev,
+      [providerId]: !prev[providerId],
+    }));
+  };
+
+  // Calculate the current flat index position
+  let currentFlatIndex = 0;
+
   return (
     <box
-      alignItems="center"
-      justifyContent="center"
-      flexDirection="column"
-      backgroundColor={RGBA.fromInts(0, 0, 0, 100)}
+      position="absolute"
+      top={0}
+      left={0}
+      zIndex={1000}
       width="100%"
-      maxHeight="100%"
-      flexGrow={1}
-      flexShrink={1}
-      overflow="hidden"
-      gap={1}
+      height="100%"
+      justifyContent="center"
+      alignItems="center"
+      backgroundColor={"transparent"}
     >
-      <box flexDirection="column" width="80%" gap={1}>
-        <text fg="green">Available Models</text>
-        <text fg="white">
-          Current: <span fg="green">{selectedModel.name}</span>
-        </text>
-
-        <box flexDirection="column" gap={1}>
-          <Input
-            label="Custom local model (vLLM)"
-            description="Requires LOCAL_MODEL_URL env var. Press Enter to set."
-            value={customModel}
-            focused={focusArea === "custom"}
-            onChange={(value) =>
-              setCustomModel(typeof value === "string" ? value : "")
-            }
-            onPaste={(text: string) => {
-              const cleaned = String(text);
-              setCustomModel((prev) => `${prev}${cleaned}`);
-            }}
-            onSubmit={() => {
-              const id = customModel.trim();
-              if (!id) return;
-              const localModel: ModelInfo = { id, name: id, provider: "local" };
-              setModel(localModel);
-              setCustomModel("");
-              closeModels();
-            }}
-          />
+      <box
+        width={70}
+        maxHeight="80%"
+        borderColor="green"
+        backgroundColor="black"
+        flexDirection="column"
+        padding={2}
+      >
+        {/* Header */}
+        <box
+          flexDirection="row"
+          justifyContent="space-between"
+          marginBottom={2}
+        >
+          <text fg="green">
+            Select model
+          </text>
+          <text fg="gray">esc</text>
         </box>
 
+        {/* Models List */}
         <scrollbox
           style={{
             rootOptions: {
               width: "100%",
-              maxWidth: "100%",
               flexGrow: 1,
               flexShrink: 1,
               overflow: "hidden",
-              borderColor: "green",
-              focusedBorderColor: "green",
-              border: true,
-              paddingLeft: 1,
-              paddingRight: 1,
             },
             wrapperOptions: {
               overflow: "hidden",
             },
             contentOptions: {
-              flexGrow: 1,
               flexDirection: "column",
-              gap: 1,
+              gap: 0,
             },
             scrollbarOptions: {
               trackOptions: {
@@ -163,40 +180,112 @@ export default function ModelsDisplay({
               },
             },
           }}
-          focused={focusArea === "list"}
         >
-          {models.map((model, index) => {
-            const isSelected = model.id === selectedModel.id;
-            const isHighlighted = index === highlightedIndex;
+          {groupedModels.length === 0 ? (
+            <box flexDirection="column" gap={1} paddingLeft={1}>
+              <text fg="gray">No providers configured.</text>
+              <text fg="gray">
+                Press <span fg="green">Ctrl+P</span> to connect a provider.
+              </text>
+            </box>
+          ) : (
+            groupedModels.map((group) => {
+              const shouldShowAll =
+                showAllForProvider[group.providerId] ?? false;
+              const modelsToShow = shouldShowAll
+                ? group.models
+                : group.models.slice(0, MAX_MODELS_BEFORE_SHOW_MORE);
+              const hasMore = group.models.length > MAX_MODELS_BEFORE_SHOW_MORE;
 
-            return (
-              <box
-                key={model.id}
-                flexDirection="column"
-                gap={0}
-                onMouseDown={() => {
-                  setModel(model);
-                  closeModels();
-                }}
-              >
-                <text
-                  fg={isHighlighted ? "green" : isSelected ? "white" : "gray"}
-                >
-                  {isHighlighted ? "▶ " : "  "}
-                  {model.name}
-                  {isSelected ? " ✓" : ""}
-                </text>
-                <text fg="gray"> {model.id}</text>
-                <text fg="gray"> {model.provider}</text>
-              </box>
-            );
-          })}
+              return (
+                <box key={group.providerId} flexDirection="column" marginBottom={2}>
+                  {/* Provider section header */}
+                  <text fg="white" marginBottom={1}>
+                    {group.providerName}
+                  </text>
+
+                  {/* Models in this provider */}
+                  {modelsToShow.map((model) => {
+                    const isSelected = model.id === selectedModel.id;
+                    const isHighlighted =
+                      flatModels[highlightedIndex]?.id === model.id;
+                    currentFlatIndex++;
+
+                    return (
+                      <box
+                        key={model.id}
+                        flexDirection="row"
+                        justifyContent="space-between"
+                        paddingLeft={1}
+                        paddingRight={1}
+                        backgroundColor={
+                          isHighlighted
+                            ? RGBA.fromInts(200, 200, 0, 100)
+                            : undefined
+                        }
+                        onMouseDown={() => {
+                          setModel(model);
+                          route.navigate({
+                            type: "base",
+                            path: "home",
+                          });
+                        }}
+                      >
+                        <text
+                          fg={
+                            isHighlighted ? "black" : isSelected ? "green" : "white"
+                          }
+                        >
+                          {isHighlighted ? "● " : "  "}
+                          {model.name}
+                        </text>
+                        {/* Show "Free" label for free models if applicable */}
+                        {/* <text fg="green">Free</text> */}
+                      </box>
+                    );
+                  })}
+
+                  {/* Show more button */}
+                  {hasMore && (
+                    <box
+                      paddingLeft={1}
+                      onMouseDown={() => toggleShowMore(group.providerId)}
+                    >
+                      <text fg="gray">
+                        {shouldShowAll ? "show less" : "show more"}
+                      </text>
+                    </box>
+                  )}
+                </box>
+              );
+            })
+          )}
         </scrollbox>
 
-        <box flexDirection="row" width="100%" gap={1}>
+        {/* Footer - Connect provider */}
+        <box
+          marginTop={2}
+          flexDirection="column"
+          gap={1}
+          paddingTop={1}
+        >
+          <box
+            flexDirection="row"
+            justifyContent="space-between"
+            onMouseDown={() => {
+              route.navigate({
+                type: "base",
+                path: "providers",
+              });
+            }}
+          >
+            <text fg="green">Connect provider</text>
+            <text fg="gray">ctrl+p</text>
+          </box>
+
+          {/* Help text */}
           <text fg="gray">
-            <span fg="green">[TAB]</span> Focus input/list ·{" "}
-            <span fg="green">[↑↓]</span> Navigate list ·{" "}
+            <span fg="green">[↑↓]</span> Navigate ·{" "}
             <span fg="green">[ENTER]</span> Select ·{" "}
             <span fg="green">[ESC]</span> Close
           </text>

@@ -210,11 +210,14 @@ export function streamResponse(
         try {
           if (!silent) {
             console.log(
-              'Repairing tool call:',
-              toolCall.toolName,
-              'Error:',
-              error
+              `🔧 Repairing tool call: ${toolCall.toolName}`
             );
+            console.log(`   Error: ${error.message || error}`);
+
+            // Log specific details for common enum errors
+            if (error.message && (error.message.includes('severity') || error.message.includes('riskLevel'))) {
+              console.log(`   Note: This appears to be an enum validation error. Tool call repair will normalize the value.`);
+            }
           }
 
           // Get the actual tool definition which contains the Zod schema
@@ -239,6 +242,9 @@ export function streamResponse(
               JSON.stringify(jsonSchema),
               `Error encountered: ${error}`,
               'Please fix the inputs to match the schema.',
+               "",
+              "IMPORTANT: For enum fields like 'severity' or 'riskLevel', use ONLY the exact values from the enum (e.g., 'HIGH', 'CRITICAL', 'MEDIUM', 'LOW').",
+              "Do not add prefixes, suffixes, or formatting characters like '>', '-', '!', etc.",
             ].join('\n'),
           });
 

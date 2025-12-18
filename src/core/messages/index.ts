@@ -1,51 +1,71 @@
-import type { Session } from "../agent/sessions";
 import fs from "fs";
-import { z } from "zod";
+import { nanoid, z } from 'zod';
 import { ModelMessageObject } from "./types";
-import type { ToolMessage } from "./types";
-import type { ModelMessage } from "ai";
+import type { ToolMessage, Message } from "./types";
+import { Identifier } from "../id/id";
+import { Storage } from "../storage";
+import { Session } from "../session";
 
-type Message = z.infer<typeof ModelMessageObject>;
+export namespace Messages {
 
-export function getMessages(session: Session): Message[] {
-  const messages = fs.readFileSync(session.rootPath + "/messages.json", "utf8");
-  return ModelMessageObject.array().parse(JSON.parse(messages));
-}
+  const StreamInput = z.object({
+    sessionId: Identifier.schema("session"),
+  });
 
-export function saveMessages(session: Session, messages: Message[]) {
-  fs.writeFileSync(
-    session.rootPath + "/messages.json",
-    JSON.stringify(messages, null, 2)
-  );
-}
-
-export function saveSubagentMessages(
-  orchestratorSession: Session,
-  subagentId: string,
-  messages: Message[]
-) {
-  const subagentDir = `${orchestratorSession.rootPath}/subagents/${subagentId}`;
-
-  // Create subagents directory if it doesn't exist
-  if (!fs.existsSync(`${orchestratorSession.rootPath}/subagents`)) {
-    fs.mkdirSync(`${orchestratorSession.rootPath}/subagents`, {
-      recursive: true,
-    });
+  export async function* stream (input: z.output<typeof StreamInput>) {
+    const list = await Array.fromAsync(await Storage.list(["message", input.sessionId]));
+    for (let i = list.length - 1; i  >= 0; i--) {
+      yield await get({
+        sessionId: input.sessionId,
+        messageId: list[i][2]
+      })
+    }
   }
 
-  // Create subagent-specific directory if it doesn't exist
-  if (!fs.existsSync(subagentDir)) {
-    fs.mkdirSync(subagentDir, { recursive: true });
-  }
+  const GetInput = z.object({
+    sessionId: Identifier.schema("session"),
+    messageId: Identifier.schema("message")
+  });
 
-  // Save messages
-  fs.writeFileSync(
-    `${subagentDir}/messages.json`,
-    JSON.stringify(messages, null, 2)
-  );
+  export const get = async (input: z.output<typeof GetInput>) => {
+    return await Storage.read<Message>(["message", input.sessionId, input.messageId]);
+  }
+  
+  export function save(session: Session.SessionInfo, messages: Message[]) {
+    fs.writeFileSync(
+      session.rootPath + "/messages.json",
+      JSON.stringify(messages, null, 2)
+    );
+  }
+  
+  export function saveSubagentMessages(
+    orchestratorSession: Session.SessionInfo,
+    subagentId: string,
+    messages: Message[]
+  ) {
+    const subagentDir = `${orchestratorSession.rootPath}/subagents/${subagentId}`;
+  
+    // Create subagents directory if it doesn't exist
+    if (!fs.existsSync(`${orchestratorSession.rootPath}/subagents`)) {
+      fs.mkdirSync(`${orchestratorSession.rootPath}/subagents`, {
+        recursive: true,
+      });
+    }
+  
+    // Create subagent-specific directory if it doesn't exist
+    if (!fs.existsSync(subagentDir)) {
+      fs.mkdirSync(subagentDir, { recursive: true });
+    }
+  
+    // Save messages
+    fs.writeFileSync(
+      `${subagentDir}/messages.json`,
+      JSON.stringify(messages, null, 2)
+    );
+  }
 }
 
-export function mapMessages(messages: ModelMessage[]): Message[] {
+export function mapMessages(messages: Message[]): Message[] {
   const result: Message[] = [];
 
   // First pass: collect tool results to know which tool calls have completed
@@ -68,6 +88,8 @@ export function mapMessages(messages: ModelMessage[]): Message[] {
     // Handle system messages
     if (message.role === "system") {
       result.push({
+        id: Identifier.create("message", true),
+        sessionId: message.sessionId,
         role: "system",
         content: message.content,
         createdAt: new Date(),
@@ -88,6 +110,8 @@ export function mapMessages(messages: ModelMessage[]): Message[] {
               .join("");
 
       result.push({
+        id: Identifier.create("message", true),
+        sessionId: message.sessionId,
         role: "user",
         content,
         createdAt: new Date(),
@@ -110,6 +134,8 @@ export function mapMessages(messages: ModelMessage[]): Message[] {
       // Simple string content
       if (typeof content === "string") {
         result.push({
+          id: Identifier.create("message", true),
+          sessionId: message.sessionId,
           role: "assistant",
           content,
           createdAt: new Date(),
@@ -143,6 +169,8 @@ export function mapMessages(messages: ModelMessage[]): Message[] {
       // Add assistant message with text content only
       if (textParts.length > 0) {
         result.push({
+          id: Identifier.create("message", true),
+          sessionId: message.sessionId,
           role: "assistant",
           content: textParts.join(""),
           createdAt: new Date(),
@@ -162,6 +190,8 @@ export function mapMessages(messages: ModelMessage[]): Message[] {
         const hasResult = toolResults.has(toolCall.toolCallId);
 
         result.push({
+          id: Identifier.create("message", true),
+          sessionId: message.sessionId,
           role: "tool",
           status: hasResult ? "completed" : "pending",
           toolCallId: toolCall.toolCallId,

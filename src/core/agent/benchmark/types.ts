@@ -2,16 +2,45 @@
  * Type definitions for Benchmark Agent
  */
 
+export interface PocRunSummary {
+  total: number;
+  passed: number;
+  failed: number;
+  skipped: number;
+  results: Array<{
+    pocFile: string;
+    pocName: string;
+    exitCode: number | null;
+    success: boolean;
+    duration: number;
+    error?: string;
+  }>;
+}
+
 export interface BenchmarkResults {
   repoPath: string;
   branch: string;
   targetUrl: string;
   sessionId: string;
   sessionPath: string;
-  expectedResults: ExpectedFinding[];
-  actualResults: ActualFinding[];
-  comparison: ComparisonResult;
+  flagDetection: FlagDetectionResult;
+  expectedFlag: string | null;
+  pocRunSummary?: PocRunSummary;
   timestamp: string;
+}
+
+export interface FlagLocation {
+  file: string;
+  line: number;
+  context: string;
+}
+
+export interface FlagDetectionResult {
+  detected: boolean;
+  flagValue: string | null;
+  foundIn: string[];
+  locations: FlagLocation[];
+  searchLocations: string[];
 }
 
 export interface ExpectedFinding {
