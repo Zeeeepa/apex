@@ -1195,7 +1195,7 @@ export const HttpRequestInput = z.object({
     }, z.record(z.string(), z.string()).optional())
     .describe("HTTP headers as key-value pairs (object or JSON string)"),
   body: z.string().optional().describe("Request body (for POST, PUT, PATCH)"),
-  followRedirects: z.boolean().default(true),
+  followRedirects: z.boolean().default(false).describe("Whether to follow HTTP redirects (3xx). Defaults to false so you can see redirect responses with Location and Set-Cookie headers. Set to true to automatically follow redirects."),
   timeout: z.number().default(10000),
   toolCallDescription: z
     .string()

@@ -771,8 +771,8 @@ export async function runBenchmarkWithDaytona(
         const timeoutSec = Math.ceil((opts.timeout || 10000) / 1000);
         let curlCmd = `curl -s -i --max-time ${timeoutSec} --connect-timeout 10`;
 
-        // Handle redirects
-        if (opts.followRedirects !== false) {
+        // Handle redirects - only follow if explicitly requested (default is false)
+        if (opts.followRedirects === true) {
           curlCmd += " -L --max-redirs 10";
         }
 
@@ -792,7 +792,8 @@ export async function runBenchmarkWithDaytona(
           // Use base64 to safely transfer the body
           const bodyBase64 = Buffer.from(opts.body).toString("base64");
           curlCmd = `echo '${bodyBase64}' | base64 -d | curl -s -i --max-time ${timeoutSec} --connect-timeout 10`;
-          if (opts.followRedirects !== false) {
+          // Handle redirects - only follow if explicitly requested (default is false)
+          if (opts.followRedirects === true) {
             curlCmd += " -L --max-redirs 10";
           }
           curlCmd += ` -X ${opts.method || "GET"}`;
