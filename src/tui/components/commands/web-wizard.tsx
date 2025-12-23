@@ -3,9 +3,13 @@ import { useKeyboard } from "@opentui/react";
 import { RGBA } from "@opentui/core";
 import Input from "../input";
 import { useRoute } from "../../context/route";
+import { useConfig } from "../../context/config";
+import { useAgent } from "../../agentProvider";
 import { Session } from "../../../core/session";
 import { SpinnerDots } from "../sprites";
 import { generateRandomName } from "../../../util/name";
+import { type ModelInfo } from "../../../core/ai";
+import { getAvailableModels } from "../../../core/providers/utils";
 
 // Wizard step types
 type WizardStep = "target" | "configure" | "creating";
@@ -46,6 +50,25 @@ const dimText = RGBA.fromInts(120, 120, 120, 255);
 
 export default function WebWizard({ initialTarget, autoMode = false }: WebWizardProps) {
   const route = useRoute();
+  const config = useConfig();
+  const { model, setModel } = useAgent();
+
+  // Available models based on configured API keys
+  const [availableModels, setAvailableModels] = useState<ModelInfo[]>([]);
+  const [selectedModelIndex, setSelectedModelIndex] = useState(0);
+
+  // Load available models when config changes
+  useEffect(() => {
+    if (config.data) {
+      const models = getAvailableModels(config.data);
+      setAvailableModels(models);
+      // Find current model in the list
+      const currentIndex = models.findIndex(m => m.id === model.id);
+      if (currentIndex >= 0) {
+        setSelectedModelIndex(currentIndex);
+      }
+    }
+  }, [config.data, model.id]);
 
   // Determine initial step based on whether target was provided
   const initialStep: WizardStep = initialTarget ? "configure" : "target";
@@ -73,7 +96,7 @@ export default function WebWizard({ initialTarget, autoMode = false }: WebWizard
   }));
 
   // UI state for target step
-  const [targetFocusedField, setTargetFocusedField] = useState(0); // 0=name, 1=target
+  const [targetFocusedField, setTargetFocusedField] = useState(0); // 0=name, 1=target, 2=model (if multiple available)
 
   // UI state for configure step
   const [focusedSection, setFocusedSection] = useState(0); // 0=auth, 1=scope, 2=headers
@@ -247,7 +270,7 @@ export default function WebWizard({ initialTarget, autoMode = false }: WebWizard
           const maxFields = getMaxFieldsForSection(focusedSection);
           if (focusedField < maxFields - 1) {
             setFocusedField(focusedField + 1);
-          } else if (focusedSection < 2) {
+          } else if (focusedSection < 3) {
             setFocusedSection(focusedSection + 1);
             setFocusedField(0);
           }
@@ -276,15 +299,25 @@ export default function WebWizard({ initialTarget, autoMode = false }: WebWizard
           }));
           return;
         }
+        // Model selection
+        if (focusedSection === 3 && availableModels.length > 1) {
+          const newIndex = key.name === "up"
+            ? (selectedModelIndex - 1 + availableModels.length) % availableModels.length
+            : (selectedModelIndex + 1) % availableModels.length;
+          setSelectedModelIndex(newIndex);
+          setModel(availableModels[newIndex]!);
+          return;
+        }
       }
     }
   });
 
   function getMaxFieldsForSection(section: number): number {
     switch (section) {
-      case 0: return 4;
-      case 1: return 3;
-      case 2: return state.headers.mode === "custom" ? 3 : 1;
+      case 0: return 4; // Auth
+      case 1: return 3; // Scope
+      case 2: return state.headers.mode === "custom" ? 3 : 1; // Headers
+      case 3: return 1; // Model
       default: return 1;
     }
   }
@@ -508,6 +541,35 @@ export default function WebWizard({ initialTarget, autoMode = false }: WebWizard
                   </box>
                 )}
               </box>
+            )}
+          </box>
+        )}
+      </box>
+
+      {/* Model Section */}
+      <box flexDirection="column" gap={1}>
+        <text>
+          <span fg={greenBullet}>█ </span>
+          <span fg={focusedSection === 3 ? creamText : dimText}>AI Model</span>
+          <span fg={dimText}> ({availableModels[selectedModelIndex]?.name || model.name})</span>
+        </text>
+        {focusedSection === 3 && (
+          <box flexDirection="column" gap={1} paddingLeft={2}>
+            {availableModels.length > 1 ? (
+              <>
+                {availableModels.map((m, i) => (
+                  <text key={m.id} fg={i === selectedModelIndex ? greenBullet : dimText}>
+                    {i === selectedModelIndex ? "●" : "○"} {m.name}
+                  </text>
+                ))}
+                <text fg={dimText}>Use ↑/↓ to select</text>
+              </>
+            ) : (
+              <text fg={dimText}>
+                {availableModels.length === 1
+                  ? `Using: ${availableModels[0]?.name}`
+                  : "No models available - configure API keys in /providers"}
+              </text>
             )}
           </box>
         )}
