@@ -1,6 +1,8 @@
-import { createContext, useContext, useState, useMemo, useCallback, type ReactNode } from "react";
+import { createContext, useContext, useState, useMemo, useCallback, useEffect, type ReactNode } from "react";
 import { type ModelInfo } from "../core/ai";
 import { AVAILABLE_MODELS } from "../core/ai/models";
+import { get as getConfig } from "../core/config/config";
+import { getAvailableModels } from "../core/providers/utils";
 
 interface TokenUsage {
   inputTokens: number;
@@ -45,6 +47,16 @@ export function AgentProvider({ children }: AgentProviderProps) {
   const [hasExecuted, setHasExecuted] = useState<boolean>(false);
   const [thinking, setThinking] = useState<boolean>(false);
   const [isExecuting, setIsExecuting] = useState<boolean>(false);
+
+  // Auto-select first model from a configured provider
+  useEffect(() => {
+    getConfig().then((config) => {
+      const available = getAvailableModels(config);
+      if (available.length > 0) {
+        setModel(available[0]!);
+      }
+    }).catch(() => {});
+  }, []);
 
   const addTokenUsage = useCallback((input: number, output: number) => {
     setHasExecuted(true);
