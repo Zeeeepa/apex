@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useKeyboard } from "@opentui/react";
 import { RGBA } from "@opentui/core";
 import Input from "../input";
@@ -51,11 +51,57 @@ const dimText = RGBA.fromInts(120, 120, 120, 255);
 export default function WebWizard({ initialTarget, autoMode = false }: WebWizardProps) {
   const route = useRoute();
   const config = useConfig();
-  const { model, setModel } = useAgent();
+  const { model, setModel, isModelUserSelected } = useAgent();
 
   // Available models based on configured API keys
   const [availableModels, setAvailableModels] = useState<ModelInfo[]>([]);
   const [selectedModelIndex, setSelectedModelIndex] = useState(0);
+
+  // Model picker state
+  const [modelSearchQuery, setModelSearchQuery] = useState("");
+  const [expandedProviders, setExpandedProviders] = useState<Set<string>>(new Set(["anthropic"]));
+
+  // Provider display names
+  const providerNames: Record<string, string> = {
+    anthropic: "Claude",
+    openai: "OpenAI",
+    openrouter: "OpenRouter",
+    bedrock: "Bedrock",
+  };
+
+  // Provider order
+  const providerOrder = ["anthropic", "openai", "openrouter", "bedrock"];
+
+  // Group models by provider and filter by search
+  const groupedModels = useMemo(() => {
+    const groups: Record<string, ModelInfo[]> = {};
+    const query = modelSearchQuery.toLowerCase().trim();
+
+    for (const m of availableModels) {
+      // Fuzzy match: check if query matches model name or id
+      if (query && !m.name.toLowerCase().includes(query) && !m.id.toLowerCase().includes(query)) {
+        continue;
+      }
+      if (!groups[m.provider]) {
+        groups[m.provider] = [];
+      }
+      groups[m.provider].push(m);
+    }
+    return groups;
+  }, [availableModels, modelSearchQuery]);
+
+  // Flat list of visible models for keyboard navigation
+  const visibleModels = useMemo(() => {
+    const result: ModelInfo[] = [];
+    for (const provider of providerOrder) {
+      const models = groupedModels[provider];
+      if (!models || models.length === 0) continue;
+      if (expandedProviders.has(provider)) {
+        result.push(...models);
+      }
+    }
+    return result;
+  }, [groupedModels, expandedProviders]);
 
   // Load available models when config changes
   useEffect(() => {
@@ -66,6 +112,13 @@ export default function WebWizard({ initialTarget, autoMode = false }: WebWizard
       const currentIndex = models.findIndex(m => m.id === model.id);
       if (currentIndex >= 0) {
         setSelectedModelIndex(currentIndex);
+      }
+      // Auto-expand provider of current model
+      if (models.length > 0) {
+        const currentModel = models.find(m => m.id === model.id) || models[0];
+        if (currentModel) {
+          setExpandedProviders(new Set([currentModel.provider]));
+        }
       }
     }
   }, [config.data, model.id]);
@@ -299,13 +352,75 @@ export default function WebWizard({ initialTarget, autoMode = false }: WebWizard
           }));
           return;
         }
-        // Model selection
-        if (focusedSection === 3 && availableModels.length > 1) {
-          const newIndex = key.name === "up"
-            ? (selectedModelIndex - 1 + availableModels.length) % availableModels.length
-            : (selectedModelIndex + 1) % availableModels.length;
-          setSelectedModelIndex(newIndex);
-          setModel(availableModels[newIndex]!);
+        // Model selection - navigate through visible models
+        if (focusedSection === 3 && visibleModels.length > 0) {
+          const currentVisibleIndex = visibleModels.findIndex(m => m.id === model.id);
+          const newVisibleIndex = key.name === "up"
+            ? Math.max(0, currentVisibleIndex - 1)
+            : Math.min(visibleModels.length - 1, currentVisibleIndex + 1);
+          const newModel = visibleModels[newVisibleIndex];
+          if (newModel) {
+            setModel(newModel);
+            const newGlobalIndex = availableModels.findIndex(m => m.id === newModel.id);
+            if (newGlobalIndex >= 0) {
+              setSelectedModelIndex(newGlobalIndex);
+            }
+          }
+          return;
+        }
+      }
+
+      // Model section: handle typing for search, backspace, escape
+      if (focusedSection === 3) {
+        // Backspace - remove last char from search
+        if (key.name === "backspace") {
+          setModelSearchQuery(prev => prev.slice(0, -1));
+          return;
+        }
+        // Escape - clear search
+        if (key.name === "escape" && modelSearchQuery) {
+          setModelSearchQuery("");
+          return;
+        }
+        // Left/Right - toggle provider expansion
+        if (key.name === "left" || key.name === "right") {
+          // Find which provider the current model belongs to
+          const currentProvider = model.provider;
+          if (key.name === "left") {
+            setExpandedProviders(prev => {
+              const next = new Set(prev);
+              next.delete(currentProvider);
+              return next;
+            });
+          } else {
+            setExpandedProviders(prev => new Set([...prev, currentProvider]));
+          }
+          return;
+        }
+        // Tab in model section - toggle next provider expansion
+        if (key.name === "tab" && !key.shift) {
+          const availableProviders = providerOrder.filter(p => groupedModels[p]?.length > 0);
+          if (availableProviders.length > 0) {
+            // Find next provider to toggle
+            const currentExpanded = [...expandedProviders];
+            const nextToExpand = availableProviders.find(p => !expandedProviders.has(p));
+            if (nextToExpand) {
+              setExpandedProviders(prev => new Set([...prev, nextToExpand]));
+            } else {
+              // All expanded, go to next section
+              setFocusedSection(0);
+              setFocusedField(0);
+            }
+            return;
+          }
+        }
+        // Printable character - add to search
+        if (key.sequence && key.sequence.length === 1 && /[a-zA-Z0-9\-_.]/.test(key.sequence)) {
+          setModelSearchQuery(prev => prev + key.sequence);
+          // Auto-expand all providers when searching
+          if (!modelSearchQuery) {
+            setExpandedProviders(new Set(providerOrder));
+          }
           return;
         }
       }
@@ -353,6 +468,9 @@ export default function WebWizard({ initialTarget, autoMode = false }: WebWizard
       <box width="100%" flexDirection="column" gap={2} paddingLeft={4}>
         <text fg={creamText}>Configure Web App Pentest</text>
         <text fg={dimText}>{modeDescription}</text>
+        <text fg={dimText}>
+          Model: {model.name} [{isModelUserSelected ? "user" : "default"}]
+        </text>
 
         {error && <text fg="red">Error: {error}</text>}
 
@@ -551,26 +669,57 @@ export default function WebWizard({ initialTarget, autoMode = false }: WebWizard
         <text>
           <span fg={greenBullet}>█ </span>
           <span fg={focusedSection === 3 ? creamText : dimText}>AI Model</span>
-          <span fg={dimText}> ({availableModels[selectedModelIndex]?.name || model.name})</span>
+          <span fg={dimText}> ({model.name})</span>
+          <span fg={dimText}> [{isModelUserSelected ? "user" : "default"}]</span>
         </text>
         {focusedSection === 3 && (
-          <box flexDirection="column" gap={1} paddingLeft={2}>
-            {availableModels.length > 1 ? (
-              <>
-                {availableModels.map((m, i) => (
-                  <text key={m.id} fg={i === selectedModelIndex ? greenBullet : dimText}>
-                    {i === selectedModelIndex ? "●" : "○"} {m.name}
-                  </text>
-                ))}
-                <text fg={dimText}>Use ↑/↓ to select</text>
-              </>
-            ) : (
-              <text fg={dimText}>
-                {availableModels.length === 1
-                  ? `Using: ${availableModels[0]?.name}`
-                  : "No models available - configure API keys in /providers"}
-              </text>
+          <box flexDirection="column" gap={0} paddingLeft={2}>
+            {/* Search input */}
+            {modelSearchQuery && (
+              <text fg={creamText}>Search: {modelSearchQuery}_</text>
             )}
+            {!modelSearchQuery && (
+              <text fg={dimText}>Type to search models...</text>
+            )}
+
+            {/* Provider groups */}
+            {providerOrder.map(provider => {
+              const models = groupedModels[provider];
+              if (!models || models.length === 0) return null;
+
+              const isExpanded = expandedProviders.has(provider);
+              const providerName = providerNames[provider] || provider;
+
+              return (
+                <box key={provider} flexDirection="column" gap={0}>
+                  {/* Provider header */}
+                  <text
+                    fg={isExpanded ? creamText : dimText}
+                  >
+                    {isExpanded ? "▾" : "▸"} {providerName} ({models.length})
+                  </text>
+
+                  {/* Models list (when expanded) */}
+                  {isExpanded && (
+                    <box flexDirection="column" gap={0} paddingLeft={2}>
+                      {models.map((m) => {
+                        const isSelected = m.id === model.id;
+                        const isDefault = m.id === "claude-haiku-4-5" || m.id === "gpt-4o-mini";
+                        return (
+                          <text key={m.id} fg={isSelected ? greenBullet : dimText}>
+                            {isSelected ? "●" : "○"} {m.name}
+                            {isDefault && !isModelUserSelected && isSelected ? " [default]" : ""}
+                          </text>
+                        );
+                      })}
+                    </box>
+                  )}
+                </box>
+              );
+            })}
+
+            {/* Help text */}
+            <text fg={dimText}>↑/↓ select • Type to search • ←/→ collapse/expand</text>
           </box>
         )}
       </box>
