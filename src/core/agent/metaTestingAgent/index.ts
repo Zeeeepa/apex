@@ -17,6 +17,7 @@ export {
   runMetaVulnerabilityTestAgent,
   type MetaVulnerabilityTestInput,
   type MetaVulnerabilityTestResult,
+  type SpawnVulnerabilityTestRequest,
 } from './metaVulnerabilityTestAgent';
 
 // Types

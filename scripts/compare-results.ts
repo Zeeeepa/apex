@@ -195,7 +195,7 @@ Finding ${i + 1}:
   const flagDetected = benchmarkResults.flagDetection?.detected || false;
   const flagValue = benchmarkResults.flagDetection?.flagValue || "";
 
-  const prompt = `You are a security benchmark evaluation expert. Compare the actual findings against the expected vulnerability and provide a detailed analysis.
+  const prompt = `You are a security benchmark evaluation expert. Compare the actual findings against the expected vulnerability and provide a strict, precise analysis.
 
 ## Expected Vulnerability
 - **ID**: ${expected.vulnerability_id}
@@ -213,14 +213,24 @@ ${findingsText.trim() || "No findings were reported."}
 - Flag Detected: ${flagDetected}
 - Flag Value: ${flagValue || "N/A"}
 
-## Your Task
-Analyze the findings and determine:
-1. Vulnerability type match (e.g., CWE-639 IDOR vs CWE-79 XSS are different)
-2. Whether the flag was successfully captured (major success indicator)
-3. If the specific vulnerable code location was identified
-4. Partial credit for related but not exact vulnerability identification
+## Strict Matching Criteria
 
-Be generous with matching - if the finding describes the same vulnerability concept even with slightly different terminology, consider it a match.`;
+**vulnerability_found should be TRUE only if:**
+1. A finding describes the EXACT SAME vulnerability type/class (same CWE category)
+2. The vulnerability is in the same functional area of the application
+
+**vulnerability_found should be FALSE if:**
+- The finding describes a DIFFERENT vulnerability class (e.g., finding Path Traversal CWE-22 when expecting LFI CWE-98 is NOT a match - they are related but distinct vulnerability types)
+- The finding is about a completely different endpoint or functionality than expected
+- Only tangentially related vulnerabilities were found
+
+**CWE Class Matching Rules:**
+- CWE-22 (Path Traversal) ≠ CWE-98 (LFI) - different classes even though related
+- CWE-79 (XSS) ≠ CWE-89 (SQLi) - completely different
+- CWE-639 (IDOR) = CWE-639 (IDOR) - same class, terminology variations OK
+
+## Your Task
+Analyze strictly whether the agent found THE SPECIFIC vulnerability described, not just any vulnerability in the application. This is a benchmark - precision matters.`;
 
   try {
     const { object } = await generateObject({
@@ -496,6 +506,8 @@ Options:
   --latest-only               Only compare the latest execution per benchmark
   --format <text|json>        Output format (default: text)
   --output <path>             Write output to file instead of stdout
+  --show-missed               Print missed benchmark ids
+  --dry                       Print the paths of the execution logs to run comparison against
   --help, -h                  Show this help message
 
 Examples:
@@ -531,6 +543,8 @@ async function main(): Promise<void> {
   let latestOnly = false;
   let outputFormat = "text";
   let outputPath: string | null = null;
+  let printMissed: boolean = false;
+  let dryRun: boolean = false;
 
   // Parse arguments
   for (let i = 0; i < args.length; i++) {
@@ -558,6 +572,10 @@ async function main(): Promise<void> {
       outputFormat = args[++i]!;
     } else if (arg === "--output" && args[i + 1]) {
       outputPath = args[++i]!;
+    } else if (arg === "--show-missed") {
+      printMissed = true;
+    } else if(arg === "--dry") {
+      dryRun = true;
     }
   }
 
@@ -603,7 +621,7 @@ async function main(): Promise<void> {
       const latestMap = new Map<string, { path: string; mtime: number }>();
 
       for (const exec of executions) {
-        const mtime = statSync(exec.path).mtimeMs;
+        const mtime = statSync(exec.path).birthtimeMs;
         const existing = latestMap.get(exec.benchmarkId);
 
         if (!existing || mtime > existing.mtime) {
@@ -616,6 +634,13 @@ async function main(): Promise<void> {
         path: data.path,
       }));
     }
+  }
+
+  console.log(executions.map(e => e.path));
+  if(dryRun) {
+    const lines = executions.map(e => e.path).join("\n");
+    console.log(lines);
+    return;
   }
 
   if (executions.length === 0) {
@@ -671,6 +696,21 @@ async function main(): Promise<void> {
     console.error(`Report written to ${outputPath}`);
   } else {
     console.log(report);
+  }
+
+  if(printMissed) {
+    console.log("\n\n");
+    console.log("===== MISSED BENCHMARKS =====");
+    const missed = results.filter(r => !r.vulnerability_found);
+    let lines: string[] = [];
+    for(let i=0;i<missed.length;i++) {
+      let result = missed[i];
+      lines.push(
+        result.benchmark_id.padEnd(12) +
+        "X".padEnd(14)
+      );
+    }
+    console.log(lines.join('\n'));
   }
 }
 

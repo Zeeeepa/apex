@@ -31,6 +31,7 @@ import { createPocTool, createDocumentFindingTool } from './pocTools';
 import { createPlanMemoryTools, loadPlan, loadAdaptations } from './planMemory';
 import { createPromptOptimizerTool, loadOptimizedPrompt } from './promptOptimizer';
 import { buildMetaTestingPrompt, buildUserPrompt } from './prompts/execution';
+import { createAuthBypassTool } from './authBypassAgent';
 
 /**
  * Retry configuration for API overload errors
@@ -166,6 +167,7 @@ export async function runMetaTestingAgent(
   const { document_finding, findingPaths } = createDocumentFindingTool(sessionInfo, logger, targets[0]?.target || 'unknown');
   const { store_plan, get_plan, store_adaptation } = createPlanMemoryTools(sessionInfo, logger);
   const { optimize_prompt } = createPromptOptimizerTool(sessionInfo, logger);
+  const auth_bypass_test = createAuthBypassTool(sessionInfo, logger, model, toolOverride);
 
   // Create completion tool
   const complete_testing = tool({
@@ -198,6 +200,9 @@ Provide a summary of what was tested and found.`,
     execute_command: baseTools.execute_command,
     http_request: baseTools.http_request,
     fuzz_endpoint: baseTools.fuzz_endpoint,
+    mutate_payload: baseTools.mutate_payload,
+    smart_enumerate: baseTools.smart_enumerate,
+    cve_lookup: baseTools.cve_lookup,
 
     // POC tools
     create_poc,
@@ -210,6 +215,9 @@ Provide a summary of what was tested and found.`,
 
     // Meta-prompting
     optimize_prompt,
+
+    // Specialized subagents
+    auth_bypass_test,
 
     // Completion
     complete_testing,
