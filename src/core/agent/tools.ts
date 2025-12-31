@@ -4029,7 +4029,8 @@ export function createPentestTools(
     ) => Promise<ExecuteCommandResult>;
     http_request?: (opts: HttpRequestOpts) => Promise<HttpRequestResult>;
   },
-  onTokenUsage?: (inputTokens: number, outputTokens: number) => void
+  onTokenUsage?: (inputTokens: number, outputTokens: number) => void,
+  abortSignal?: AbortSignal
 ) {
   // Get offensive headers from session config
   const offensiveHeaders = Session.getOffensiveHeaders(session);
@@ -4070,15 +4071,25 @@ export function createPentestTools(
       method,
       headers,
     }) => {
+      // Check if already aborted before starting
+      if (abortSignal?.aborted) {
+        return { error: "Fuzzing aborted by user", results: [] };
+      }
+
       const length = Math.floor(endNumber - startNumber) + 1;
       const ids = Array.from({ length }, (_, i) => startNumber + i);
 
       const fuzz = async (value: number) => {
+        // Check abort before each request
+        if (abortSignal?.aborted) {
+          throw new Error("Aborted");
+        }
         const result = await fetch(
           url.replace(`{${parameter}}`, value.toLocaleString()),
           {
             method: method,
             headers: { ...offensiveHeaders, ...headers },
+            signal: abortSignal,
           }
         );
         const body = await result.text();
@@ -4090,6 +4101,11 @@ export function createPentestTools(
       const input = ids.map((id) => limit(() => fuzz(id)));
 
       const results = await Promise.allSettled(input);
+
+      // Check if aborted after all requests
+      if (abortSignal?.aborted) {
+        return { error: "Fuzzing aborted by user", results: [] };
+      }
 
       // TODO: probably a better way to do this
       return results
@@ -4146,9 +4162,31 @@ IMPORTANT: Always analyze results and adjust your approach based on findings.`,
     inputSchema: ExecuteCommandInput,
     execute: async ({ command, timeout = 30000, toolCallDescription }) => {
       try {
+        // Check if already aborted before starting
+        if (abortSignal?.aborted) {
+          return {
+            success: false,
+            error: "Command aborted by user",
+            stdout: "",
+            stderr: "",
+            command,
+          };
+        }
+
         // Apply rate limiting before command execution
         if (rateLimiter) {
           await rateLimiter.acquireSlot();
+        }
+
+        // Check again after rate limiting wait
+        if (abortSignal?.aborted) {
+          return {
+            success: false,
+            error: "Command aborted by user",
+            stdout: "",
+            stderr: "",
+            command,
+          };
         }
 
         if (toolOverride?.execute_command) {
@@ -4168,6 +4206,18 @@ IMPORTANT: Always analyze results and adjust your approach based on findings.`,
           timeout,
           maxBuffer: 10 * 1024 * 1024, // 10MB buffer
         });
+
+        // Check if aborted while command was running
+        if (abortSignal?.aborted) {
+          return {
+            success: false,
+            error: "Command completed but session was aborted",
+            stdout: stdout || "",
+            stderr: stderr || "",
+            command: finalCommand,
+          };
+        }
+
         return {
           success: true,
           stdout:
@@ -4224,6 +4274,7 @@ COMMON TESTING PATTERNS:
       timeout,
       toolCallDescription,
     }) => {
+      let timeoutId: ReturnType<typeof setTimeout> | undefined;
       try {
         // Apply rate limiting before HTTP request
         if (rateLimiter) {
@@ -4242,8 +4293,28 @@ COMMON TESTING PATTERNS:
           });
         }
 
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), timeout);
+        // Check if already aborted before starting
+        if (abortSignal?.aborted) {
+          return {
+            success: false,
+            error: "Request aborted by user",
+            url,
+            method,
+            status: 0,
+            statusText: "",
+            headers: {},
+            body: "",
+            redirected: false,
+          };
+        }
+
+        const timeoutController = new AbortController();
+        timeoutId = setTimeout(() => timeoutController.abort(), timeout);
+
+        // Combine parent abort signal with timeout - either can cancel
+        const combinedSignal = abortSignal
+          ? AbortSignal.any([abortSignal, timeoutController.signal])
+          : timeoutController.signal;
 
         const response = await fetch(url, {
           method,
@@ -4253,7 +4324,7 @@ COMMON TESTING PATTERNS:
           },
           body: body || undefined,
           redirect: followRedirects ? "follow" : "manual",
-          signal: controller.signal,
+          signal: combinedSignal,
         });
 
         clearTimeout(timeoutId);
@@ -4283,6 +4354,26 @@ COMMON TESTING PATTERNS:
           redirected: response.redirected,
         };
       } catch (error: any) {
+        if (timeoutId) clearTimeout(timeoutId);
+
+        // Distinguish between user abort and timeout
+        if (error.name === 'AbortError') {
+          const errorMsg = abortSignal?.aborted
+            ? "Request aborted by user"
+            : `Request timeout after ${timeout}ms`;
+          return {
+            success: false,
+            error: errorMsg,
+            url,
+            method,
+            status: 0,
+            statusText: "",
+            headers: {},
+            body: "",
+            redirected: false,
+          };
+        }
+
         return {
           success: false,
           error: error.message,

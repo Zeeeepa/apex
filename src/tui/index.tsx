@@ -32,7 +32,7 @@ import { AsciiTitle } from "./components/ascii-title";
 import { SessionProvider } from "./context/session";
 import { InputProvider, useInput } from "./context/input";
 import { FocusProvider, useFocus } from "./context/focus";
-import { DialogProvider } from "./components/dialog";
+import { DialogProvider, useDialog } from "./components/dialog";
 import { Session } from "../core/session";
 import ShortcutsDialog from "./components/commands/shortcuts-dialog";
 
@@ -123,6 +123,7 @@ function AppContent({
   const renderer = useRenderer();
   const { isInputEmpty } = useInput();
   const { refocusCommandInput } = useFocus();
+  const { setExternalDialogOpen } = useDialog();
   const [showCreateSessionDialog, setShowCreateSessionDialog] = useState(false);
   const [showSessionsDialog, setShowSessionsDialog] = useState(false);
   const [showShortcutsDialog, setShowShortcutsDialog] = useState(false);
@@ -211,6 +212,7 @@ function AppContent({
 
     // ? - Show keyboard shortcuts (when input is empty)
     if (key.sequence === "?" && isInputEmpty) {
+      setExternalDialogOpen(true);
       setShowShortcutsDialog(true);
       return;
     }
@@ -259,6 +261,7 @@ function AppContent({
 
   const handleCloseShortcutsDialog = () => {
     setShowShortcutsDialog(false);
+    setExternalDialogOpen(false);
     setInputKey((prev) => prev + 1);
     refocusCommandInput();
   };
