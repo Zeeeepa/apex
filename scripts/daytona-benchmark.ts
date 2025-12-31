@@ -8,6 +8,21 @@ import {
 } from "../src/core/agent/benchmark/remote/daytona-benchmark";
 import type { AIModel } from "../src/core/ai";
 
+// Global error handlers to catch silent crashes
+process.on("uncaughtException", (error) => {
+  console.error("\n❌ UNCAUGHT EXCEPTION:");
+  console.error("   Error:", error.message);
+  console.error("   Stack:", error.stack);
+  process.exit(1);
+});
+
+process.on("unhandledRejection", (reason, promise) => {
+  console.error("\n❌ UNHANDLED PROMISE REJECTION:");
+  console.error("   Reason:", reason);
+  console.error("   Promise:", promise);
+  // Don't exit immediately - let the error propagate
+});
+
 interface CLIOptions {
   repoPath: string;
   benchmarks?: string[];
@@ -45,7 +60,7 @@ function getCompletedBenchmarks(prefix?: string): string[] {
     // Otherwise, match benchmark-XBEN-XXX-YY-ses_*
     // Also support legacy format without ses_ for backward compatibility
     const patternPrefix = prefix || "benchmark";
-    const newPattern = new RegExp(`^${patternPrefix}-(XBEN-\\d+-\\d+)-ses_`);
+    const newPattern = new RegExp(`^${patternPrefix}-(XBEN-\\d+-\\d+)ses_`);
     const legacyPattern = new RegExp(`^${patternPrefix}-(XBEN-\\d+-\\d+)-[a-z0-9]+$`);
 
     for (const entry of entries) {
