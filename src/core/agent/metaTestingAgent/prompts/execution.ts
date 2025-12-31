@@ -9,14 +9,8 @@
  * - Meta-prompting for runtime optimization
  */
 
-/**
- * Outcome guidance template placeholder
- */
 export const OUTCOME_GUIDANCE_TEMPLATE = `{{OUTCOME_GUIDANCE}}`;
 
-/**
- * Main system prompt for MetaTestingAgent
- */
 export const META_TESTING_SYSTEM_PROMPT = `# Meta Testing Agent
 
 You are a cognitive security testing agent. You reason through vulnerabilities systematically, track confidence, and adapt based on results.

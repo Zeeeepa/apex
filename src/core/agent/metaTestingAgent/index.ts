@@ -12,7 +12,6 @@
  */
 
 // Main agents
-export { runMetaTestingAgent } from './agent';
 export {
   runMetaVulnerabilityTestAgent,
   type MetaVulnerabilityTestInput,
