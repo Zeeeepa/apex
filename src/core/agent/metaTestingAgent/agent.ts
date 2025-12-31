@@ -158,7 +158,9 @@ export async function runMetaTestingAgent(
   const baseTools = createPentestTools(
     session,
     model,
-    toolOverride
+    toolOverride,
+    undefined,  // onTokenUsage - not needed here
+    abortSignal
   );
 
   // Create our specialized tools

@@ -95,7 +95,8 @@ export async function runAgent(opts: RunAgentProps): Promise<{
     session,
     model,
     toolOverride,
-    onToolTokenUsage
+    onToolTokenUsage,
+    abortSignal
   );
 
   // Attack Surface specific tool: document_asset
