@@ -10,6 +10,7 @@ import { COMMAND_INJECTION_TESTING_PROMPT } from './command-injection';
 import { LFI_TESTING_PROMPT } from './lfi';
 import { SSRF_TESTING_PROMPT } from './ssrf';
 import { CRYPTO_TESTING_PROMPT } from './crypto';
+import { CVE_TESTING_PROMPT } from './cve';
 import { GENERIC_TESTING_PROMPT } from './generic';
 import type { VulnerabilityClass } from '../types';
 
@@ -22,6 +23,7 @@ export { COMMAND_INJECTION_TESTING_PROMPT } from './command-injection';
 export { LFI_TESTING_PROMPT } from './lfi';
 export { SSRF_TESTING_PROMPT } from './ssrf';
 export { CRYPTO_TESTING_PROMPT } from './crypto';
+export { CVE_TESTING_PROMPT } from './cve';
 export { GENERIC_TESTING_PROMPT } from './generic';
 
 /**
@@ -35,6 +37,7 @@ const VULNERABILITY_PROMPT_MAP: Record<VulnerabilityClass, string> = {
   'lfi': LFI_TESTING_PROMPT,
   'ssrf': SSRF_TESTING_PROMPT,
   'crypto': CRYPTO_TESTING_PROMPT,
+  'cve': CVE_TESTING_PROMPT,
   'generic': GENERIC_TESTING_PROMPT,
 };
 
@@ -82,6 +85,7 @@ export function getVulnerabilityClassName(vulnClass: VulnerabilityClass): string
     'lfi': 'Local File Inclusion (LFI)',
     'ssrf': 'Server-Side Request Forgery (SSRF)',
     'crypto': 'Cryptographic Vulnerabilities',
+    'cve': 'Known CVE Exploitation',
     'generic': 'Generic Vulnerabilities',
   };
   return names[vulnClass] || vulnClass;
@@ -204,9 +208,21 @@ export function inferVulnerabilityClasses(objective: string): VulnerabilityClass
     classes.push('crypto');
   }
 
+  // Known CVE Exploitation
+  // Detect explicit CVE mentions and exploit-related keywords
+  if (
+    lower.includes('cve') ||
+    lower.includes('known vulnerability') ||
+    lower.includes('known exploit') ||
+    lower.includes('nuclei') ||
+    /cve-\d{4}-\d+/i.test(objective)  // CVE ID pattern (e.g., CVE-2021-41773)
+  ) {
+    classes.push('cve');
+  }
+
   // If no specific classes detected, return all for comprehensive testing
   if (classes.length === 0) {
-    return ['sqli', 'idor', 'xss', 'command-injection', 'lfi', 'ssrf', 'crypto', 'generic'];
+    return ['sqli', 'idor', 'xss', 'command-injection', 'lfi', 'ssrf', 'crypto', 'cve', 'generic'];
   }
 
   return classes;

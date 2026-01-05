@@ -1896,7 +1896,7 @@ const CVELookupInput = z.object({
     .string()
     .describe(
       "A concise, human-readable description of what this tool call is doing"
-    ),
+    ).optional(),
 });
 
 export interface CVETemplate {
@@ -1904,12 +1904,8 @@ export interface CVETemplate {
   name: string;
   severity: string;
   description?: string;
-  cve_ids?: string[];
-  cwe_ids?: string[];
-  cvss_score?: number;
   tags?: string[];
   template_content?: string; // Raw YAML template with exploit patterns
-  template_url?: string;
 }
 
 export interface CVELookupResult {
@@ -1928,7 +1924,7 @@ export interface CVELookupResult {
  *
  * Requires DISCOVERY_API_KEY environment variable to be set.
  */
-function createCVELookupTool() {
+export function createCVELookupTool() {
   return tool({
     name: "cve_lookup",
     description: `Search for known CVEs and get exploit templates from the Nuclei template database.
@@ -2014,7 +2010,7 @@ Parse the template_content field to extract actionable exploit payloads.`,
         }
 
         const searchData = (await searchResponse.json()) as Record<string, any>;
-        const searchResults = (searchData.data || searchData.templates || []) as any[];
+        const searchResults = (searchData.results || searchData.data || searchData.templates || []) as any[];
 
         if (searchResults.length === 0) {
           return {
@@ -2025,85 +2021,38 @@ Parse the template_content field to extract actionable exploit payloads.`,
           };
         }
 
-        // Step 2: Fetch full template content for each result
+        // Build template objects from search results
         const templates: CVETemplate[] = [];
+        const GITHUB_RAW_BASE = "https://raw.githubusercontent.com/projectdiscovery/nuclei-templates/main";
 
         for (const result of searchResults.slice(0, limit)) {
-          const templateId = result.id || result.template_id;
+          const templateObj: CVETemplate = {
+            id: result.id || result.template_id || "unknown",
+            name: result.name || "Unknown",
+            severity: result.severity || "unknown",
+            description: result.description,
+            tags: result.tags,
+          };
 
-          if (!templateId) {
-            // If no ID, use what we have from search results
-            templates.push({
-              id: result.id || "unknown",
-              name: result.name || result.info?.name || "Unknown",
-              severity: result.severity || result.info?.severity || "unknown",
-              description: result.description || result.info?.description,
-              cve_ids: result.cve_ids || result.classification?.cve_id,
-              cwe_ids: result.cwe_ids || result.classification?.cwe_id,
-              cvss_score: result.cvss_score || result.classification?.cvss_score,
-              tags: result.tags || result.info?.tags,
-              template_content: result.template || result.content,
-              template_url: result.url || result.uri,
-            });
-            continue;
-          }
-
-          try {
-            // Fetch full template content
-            const templateResponse = await fetch(
-              `https://api.projectdiscovery.io/v1/template/${encodeURIComponent(templateId)}`,
-              {
-                method: "GET",
-                headers: {
-                  "X-API-Key": apiKey,
-                  "Content-Type": "application/json",
-                },
+          // Use raw content if available, otherwise fetch from GitHub
+          if (result.raw) {
+            templateObj.template_content = result.raw;
+          } else {
+            const templatePath = result.uri || (result.dir && result.filename ? `${result.dir}/${result.filename}` : null);
+            if (templatePath) {
+              try {
+                const githubUrl = `${GITHUB_RAW_BASE}/${templatePath}`;
+                const templateResponse = await fetch(githubUrl);
+                if (templateResponse.ok) {
+                  templateObj.template_content = await templateResponse.text();
+                }
+              } catch {
+                // Silently fail - template_content will be undefined
               }
-            );
-
-            if (templateResponse.ok) {
-              const templateData = (await templateResponse.json()) as Record<string, any>;
-              const template = templateData.template || templateData;
-
-              templates.push({
-                id: template.id || templateId,
-                name: template.name || result.name || "Unknown",
-                severity: template.severity || result.severity || "unknown",
-                description: template.description || result.description,
-                cve_ids: template.cve_ids || template.classification?.cve_id,
-                cwe_ids: template.cwe_ids || template.classification?.cwe_id,
-                cvss_score:
-                  template.cvss_score || template.classification?.cvss_score,
-                tags: template.tags,
-                template_content: template.template || template.content || template.raw,
-                template_url: template.url || template.uri,
-              });
-            } else {
-              // Fallback to search result data if template fetch fails
-              templates.push({
-                id: templateId,
-                name: result.name || "Unknown",
-                severity: result.severity || "unknown",
-                description: result.description,
-                cve_ids: result.cve_ids,
-                cwe_ids: result.cwe_ids,
-                cvss_score: result.cvss_score,
-                tags: result.tags,
-                template_url: result.url || result.uri,
-              });
             }
-          } catch (templateError) {
-            // If individual template fetch fails, use search result data
-            templates.push({
-              id: templateId,
-              name: result.name || "Unknown",
-              severity: result.severity || "unknown",
-              description: result.description,
-              cve_ids: result.cve_ids,
-              cwe_ids: result.cwe_ids,
-              tags: result.tags,
-            });
           }
+
+          templates.push(templateObj);
         }
 
         return {

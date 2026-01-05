@@ -11,6 +11,7 @@ export type VulnerabilityClass =
   | 'lfi'              // Local File Inclusion / Path Traversal
   | 'ssrf'             // Server-Side Request Forgery
   | 'crypto'           // Cryptographic vulnerabilities (malleability, padding oracle, weak algorithms)
+  | 'cve'              // Known CVE exploitation (version-specific vulnerabilities)
   | 'generic';         // XXE, SSTI, CSRF, etc.
 
 /**
