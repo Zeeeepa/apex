@@ -1,7 +1,12 @@
 import { Daytona, Image, Sandbox } from "@daytonaio/sdk";
 import type { AIModel } from "../../../ai";
 import { Session } from "../../../session";
-import { extractFlagFromRepo, detectFlagInArtifacts } from "../flag-detector";
+import {
+  extractFlagFromRepo,
+  detectFlagInArtifacts,
+  extractPACEFlags,
+  detectMultipleFlagsInArtifacts,
+} from "../flag-detector";
 import { runComparisonAgent } from "../comparisonAgent";
 import { runStreamlinedPentest } from "../../thoroughPentestAgent/streamlined";
 import type { BenchmarkResults } from "../types";
@@ -34,6 +39,8 @@ export interface DaytonaBenchmarkOptions {
   prefix?: string; // Prefix for session names and output directories
   dockerUsername?: string; // Docker Hub username for authenticated pulls
   dockerPassword?: string; // Docker Hub password/token for authenticated pulls
+  benchmarkType?: "xben" | "pace"; // Benchmark type: xben (default) or pace (PACEbench)
+  vulnsMode?: boolean; // If true, use vulnerability detection mode instead of flag detection
 }
 
 export interface MultipleBenchmarkOptions
@@ -567,16 +574,35 @@ export async function runBenchmarkWithDaytona(
       throw new Error(`File upload failed: ${uploadError.message}`);
     }
 
-    // Step 3: Extract flag from local benchmark directory
-    console.log(`[${benchmarkName}] 🔍 Extracting flag from benchmark...`);
-    const expectedFlag = await extractFlagFromRepo(benchmarkPath, benchmarkName);
+    // Step 3: Extract flag(s) from local benchmark directory
+    // For PACEbench, extract multiple flags; for XBEN, extract single flag
+    console.log(`[${benchmarkName}] 🔍 Extracting flag(s) from benchmark...`);
 
-    if (expectedFlag) {
-      console.log(
-        `[${benchmarkName}] ✅ FLAG found: ${expectedFlag.substring(0, 20)}...`
-      );
+    let expectedFlag: string | null = null;
+    let expectedFlags: Array<{ name: string; value: string }> = [];
+
+    if (options.benchmarkType === "pace") {
+      // PACEbench: Extract multiple flags from flags/ directory
+      expectedFlags = await extractPACEFlags(benchmarkPath, benchmarkName);
+      if (expectedFlags.length > 0) {
+        console.log(
+          `[${benchmarkName}] ✅ Found ${expectedFlags.length} PACE flags`
+        );
+        // Use the first flag for docker build (if needed)
+        expectedFlag = expectedFlags[0]?.value || null;
+      } else {
+        console.log(`[${benchmarkName}] ⚠️  No PACE flags found in benchmark`);
+      }
     } else {
-      console.log(`[${benchmarkName}] ⚠️  FLAG not found in benchmark`);
+      // XBEN: Extract single flag computed from benchmark name
+      expectedFlag = await extractFlagFromRepo(benchmarkPath, benchmarkName);
+      if (expectedFlag) {
+        console.log(
+          `[${benchmarkName}] ✅ FLAG found: ${expectedFlag.substring(0, 20)}...`
+        );
+      } else {
+        console.log(`[${benchmarkName}] ⚠️  FLAG not found in benchmark`);
+      }
     }
 
     // Step 4: Build docker images with flag injection using make build
@@ -986,7 +1012,15 @@ export async function runBenchmarkWithDaytona(
     // Step 12: Detect flag in artifacts
     console.log(`[${benchmarkName}] 🎯 Detecting flag in artifacts...`);
     let flagDetection;
-    if (expectedFlag) {
+    if (options.benchmarkType === "pace" && expectedFlags.length > 0) {
+      // PACEbench: Detect multiple flags
+      flagDetection = await detectMultipleFlagsInArtifacts(
+        session.rootPath,
+        expectedFlags,
+        benchmarkName
+      );
+    } else if (expectedFlag) {
+      // XBEN: Detect single flag
       flagDetection = await detectFlagInArtifacts(
         session.rootPath,
         expectedFlag,
@@ -1350,11 +1384,11 @@ export async function runMultipleBenchmarks(
   const settledResults = await Promise.allSettled(
     benchmarks.map((benchmarkName) =>
       limit(async (): Promise<BenchmarkExecutionResult> => {
-        const benchmarkPath = path.join(
-          options.repoPath,
-          "benchmarks",
-          benchmarkName
-        );
+        // Construct benchmark path based on benchmark type
+        const benchmarkPath = options.benchmarkType === "pace"
+          ? path.join(options.repoPath, "docker", "FullChain", benchmarkName)
+          : path.join(options.repoPath, "benchmarks", benchmarkName);
+
         try {
           const result = await runBenchmarkWithDaytona({
             benchmarkPath,
@@ -1367,6 +1401,8 @@ export async function runMultipleBenchmarks(
             prefix: options.prefix,
             dockerUsername: options.dockerUsername,
             dockerPassword: options.dockerPassword,
+            benchmarkType: options.benchmarkType,
+            vulnsMode: options.vulnsMode,
           });
           return {
             benchmarkName,
