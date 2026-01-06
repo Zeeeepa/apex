@@ -41,6 +41,10 @@ export interface DaytonaBenchmarkOptions {
   dockerPassword?: string; // Docker Hub password/token for authenticated pulls
   benchmarkType?: "xben" | "pace"; // Benchmark type: xben (default) or pace (PACEbench)
   vulnsMode?: boolean; // If true, use vulnerability detection mode instead of flag detection
+  // Sandbox resource configuration (per Daytona docs: min 2 vCPU, 4GiB for DinD)
+  sandboxCpu?: number; // vCPUs for sandbox (default: 4)
+  sandboxMemory?: number; // Memory in GiB for sandbox (default: 8)
+  sandboxDisk?: number; // Disk in GiB for sandbox (default: 4)
 }
 
 export interface MultipleBenchmarkOptions
@@ -340,6 +344,7 @@ export async function runBenchmarkWithDaytona(
 
   let sandbox: Sandbox | undefined;
   let remoteBenchmarkPath = "";
+  let sessionRootPath = ""; // Track session path for error logging in catch block
 
   try {
     // Step 1: Create sandbox with DinD support and sufficient resources
@@ -374,18 +379,21 @@ export async function runBenchmarkWithDaytona(
         },
         public: true,
         networkBlockAll: false,
-        // Increased resources for Docker-in-Docker (per Daytona docs)
+        // Configurable resources for Docker-in-Docker (per Daytona docs: min 2 vCPU, 4GiB)
         resources: {
-          cpu: 4, // At least 2 vCPU recommended for DinD
-          memory: 8, // At least 4GiB recommended for DinD
-          disk: 4, // More disk for Docker images
+          cpu: options.sandboxCpu ?? 4,
+          memory: options.sandboxMemory ?? 8,
+          disk: options.sandboxDisk ?? 4,
         },
         image: dindImage,
       },
       { timeout: 300000 } // 5 minute timeout for sandbox creation
     );
 
-    console.log(`[${benchmarkName}] ✅ Sandbox created: ${sandbox.id}`);
+    const cpu = options.sandboxCpu ?? 4;
+    const memory = options.sandboxMemory ?? 8;
+    const disk = options.sandboxDisk ?? 4;
+    console.log(`[${benchmarkName}] ✅ Sandbox created: ${sandbox.id} (${cpu} vCPU, ${memory}GB RAM, ${disk}GB disk)`);
 
     // Wait for sandbox to be ready
     console.log(
@@ -705,6 +713,25 @@ export async function runBenchmarkWithDaytona(
     });
 
     console.log(`[${benchmarkName}] 📝 Local session created: ${session.id}`);
+    sessionRootPath = session.rootPath; // Store for catch block error logging
+
+    // Helper to log errors to session's logs directory
+    const logError = (phase: string, error: any) => {
+      try {
+        const errorLogFile = path.join(session.rootPath, "logs", "benchmark-errors.jsonl");
+        const entry = {
+          timestamp: new Date().toISOString(),
+          benchmarkName,
+          phase,
+          error: error?.message || String(error),
+          stack: error?.stack,
+        };
+        const { appendFileSync } = require("fs");
+        appendFileSync(errorLogFile, JSON.stringify(entry) + "\n");
+      } catch {
+        // Silently fail if we can't write to log
+      }
+    };
 
     // Step 9: Create tool overrides that proxy to Daytona sandbox
     // These execute commands/requests in the sandbox but BLOCK docker commands
@@ -825,6 +852,12 @@ export async function runBenchmarkWithDaytona(
         if (error?.stack) {
           console.error(`[${benchmarkName}]    Stack:`, error.stack.split('\n').slice(0, 5).join('\n'));
         }
+
+        logError("execute_command", {
+          message: error?.message || String(error),
+          stack: error?.stack,
+          command: opts.command.substring(0, 500),
+        });
 
         return {
           command: opts.command,
@@ -953,6 +986,15 @@ export async function runBenchmarkWithDaytona(
           redirected,
         };
       } catch (error: any) {
+        console.error(`[${benchmarkName}] ❌ httpRequestOverride error:`, error?.message || error);
+
+        logError("http_request", {
+          message: error?.message || String(error),
+          stack: error?.stack,
+          url: opts.url,
+          method: opts.method,
+        });
+
         // Match the exact error format from tools.ts
         return {
           success: false,
@@ -969,40 +1011,55 @@ export async function runBenchmarkWithDaytona(
     // Step 10: Run streamlined pentest with tool overrides (scope constraints are in session config)
     console.log(`[${benchmarkName}] 🔍 Starting streamlined pentest...`);
     console.log(`[${benchmarkName}] ℹ️  Agent running locally with tool overrides (commands/HTTP proxied to sandbox, docker commands BLOCKED)`);
-    const pentestResult = await runStreamlinedPentest({
-      target: targetUrl,
-      model,
-      session,
-      toolOverride: {
-        execute_command: executeCommandOverride,
-        http_request: httpRequestOverride,
-      },
-      onProgress: (status) => {
-        const progressParts: string[] = [`[${benchmarkName}] [${status.phase}]`];
 
-        if (
-          status.tasksCompleted !== undefined &&
-          status.totalTasks !== undefined
-        ) {
-          progressParts.push(`[${status.tasksCompleted}/${status.totalTasks} tasks]`);
-        }
-        if (status.activeAgents !== undefined && status.activeAgents > 0) {
-          progressParts.push(`[${status.activeAgents} active]`);
-        }
-        progressParts.push(status.message);
+    let pentestResult;
+    try {
+      pentestResult = await runStreamlinedPentest({
+        target: targetUrl,
+        model,
+        session,
+        toolOverride: {
+          execute_command: executeCommandOverride,
+          http_request: httpRequestOverride,
+        },
+        onProgress: (status) => {
+          const progressParts: string[] = [`[${benchmarkName}] [${status.phase}]`];
 
-        console.log(progressParts.join(" "));
+          if (
+            status.tasksCompleted !== undefined &&
+            status.totalTasks !== undefined
+          ) {
+            progressParts.push(`[${status.tasksCompleted}/${status.totalTasks} tasks]`);
+          }
+          if (status.activeAgents !== undefined && status.activeAgents > 0) {
+            progressParts.push(`[${status.activeAgents} active]`);
+          }
+          progressParts.push(status.message);
 
-        if (status.findingsCount !== undefined && status.findingsCount > 0) {
-          console.log(`[${benchmarkName}]   Findings so far: ${status.findingsCount}`);
-        }
-      },
-    });
+          console.log(progressParts.join(" "));
+
+          if (status.findingsCount !== undefined && status.findingsCount > 0) {
+            console.log(`[${benchmarkName}]   Findings so far: ${status.findingsCount}`);
+          }
+        },
+      });
+    } catch (pentestError: any) {
+      console.error(`[${benchmarkName}] ❌ Pentest threw an exception: ${pentestError.message}`);
+      logError("pentest_execution", {
+        message: pentestError?.message || String(pentestError),
+        stack: pentestError?.stack,
+      });
+      // Re-throw to be handled by the outer catch
+      throw pentestError;
+    }
 
     if (!pentestResult.success) {
       console.log(
         `[${benchmarkName}] ⚠️  Pentest completed with error: ${pentestResult.error}`
       );
+      logError("pentest_result", {
+        message: pentestResult.error || "Pentest returned success=false",
+      });
     }
 
     console.log(
@@ -1113,6 +1170,28 @@ export async function runBenchmarkWithDaytona(
   } catch (error: any) {
     const duration = ((Date.now() - startTime) / 1000 / 60).toFixed(2);
     console.error(`\n[${benchmarkName}] ❌ Failed after ${duration}m: ${error.message}`);
+    if (error.stack) {
+      console.error(`[${benchmarkName}] Stack: ${error.stack}`);
+    }
+
+    // Log error to session's logs directory if session was created
+    if (sessionRootPath) {
+      try {
+        const errorLogFile = path.join(sessionRootPath, "logs", "benchmark-errors.jsonl");
+        const entry = {
+          timestamp: new Date().toISOString(),
+          benchmarkName,
+          phase: "benchmark_fatal",
+          error: error?.message || String(error),
+          stack: error?.stack,
+          duration,
+        };
+        const { appendFileSync } = require("fs");
+        appendFileSync(errorLogFile, JSON.stringify(entry) + "\n");
+      } catch {
+        // Silently fail if we can't write to log
+      }
+    }
 
     // Return a failure result
     return {
@@ -1120,7 +1199,7 @@ export async function runBenchmarkWithDaytona(
       branch: benchmarkName,
       targetUrl: "",
       sessionId: "",
-      sessionPath: "",
+      sessionPath: sessionRootPath,
       flagDetection: {
         detected: false,
         flagValue: null,
@@ -1403,6 +1482,9 @@ export async function runMultipleBenchmarks(
             dockerPassword: options.dockerPassword,
             benchmarkType: options.benchmarkType,
             vulnsMode: options.vulnsMode,
+            sandboxCpu: options.sandboxCpu,
+            sandboxMemory: options.sandboxMemory,
+            sandboxDisk: options.sandboxDisk,
           });
           return {
             benchmarkName,
@@ -1430,7 +1512,10 @@ export async function runMultipleBenchmarks(
     } else {
       // Promise rejection (shouldn't happen with our try/catch, but handle it)
       const errorCategory = categorizeError(settled.reason);
-      console.error(`\n❌ [${benchmarks[index]}] REJECTED (${errorCategory}): ${settled.reason?.message || settled.reason}`);
+      console.error(`\n❌ [${benchmarks[index]}] PROMISE REJECTED (${errorCategory}): ${settled.reason?.message || settled.reason}`);
+      if (settled.reason?.stack) {
+        console.error(`[${benchmarks[index]}] Stack: ${settled.reason.stack}`);
+      }
       return {
         benchmarkName: benchmarks[index]!,
         status: 'failed' as const,

@@ -16,11 +16,17 @@ process.on("uncaughtException", (error) => {
   process.exit(1);
 });
 
-process.on("unhandledRejection", (reason, promise) => {
+process.on("unhandledRejection", (reason: any, promise) => {
   console.error("\n❌ UNHANDLED PROMISE REJECTION:");
   console.error("   Reason:", reason);
-  console.error("   Promise:", promise);
-  // Don't exit immediately - let the error propagate
+  if (reason?.stack) {
+    console.error("   Stack:", reason.stack);
+  }
+  // Exit after a short delay to allow logging to flush
+  setTimeout(() => {
+    console.error("   Exiting due to unhandled rejection...");
+    process.exit(1);
+  }, 1000);
 });
 
 interface CLIOptions {
@@ -39,6 +45,10 @@ interface CLIOptions {
   dockerPassword?: string;
   pace?: boolean;
   vulns?: boolean;
+  // Sandbox resource configuration
+  sandboxCpu?: number;
+  sandboxMemory?: number;
+  sandboxDisk?: number;
 }
 
 /**
@@ -191,6 +201,9 @@ async function main() {
     console.error("  --docker-password <pass>     Docker Hub password/token for authenticated pulls (default: DOCKER_PASSWORD env)");
     console.error("  --pace                       Run PACEbench FullChain challenges instead of XBEN");
     console.error("  --vulns                      Enable vulnerability detection mode (requires --pace)");
+    console.error("  --sandbox-cpu <num>          vCPUs for Daytona sandbox (default: 4)");
+    console.error("  --sandbox-memory <num>       Memory in GiB for Daytona sandbox (default: 8)");
+    console.error("  --sandbox-disk <num>         Disk in GiB for Daytona sandbox (default: 4)");
     console.error();
     console.error("Environment Variables Required:");
     console.error("  DAYTONA_API_KEY              Daytona API key (required)");
@@ -386,6 +399,54 @@ async function main() {
     options.vulns = true;
   }
 
+  // Parse --sandbox-cpu
+  const sandboxCpuIndex = args.indexOf("--sandbox-cpu");
+  if (sandboxCpuIndex !== -1) {
+    const sandboxCpuValue = args[sandboxCpuIndex + 1];
+    if (!sandboxCpuValue) {
+      console.error("Error: --sandbox-cpu must be followed by a number");
+      process.exit(1);
+    }
+    const sandboxCpuNum = parseInt(sandboxCpuValue, 10);
+    if (isNaN(sandboxCpuNum) || sandboxCpuNum < 1) {
+      console.error("Error: --sandbox-cpu must be a positive number");
+      process.exit(1);
+    }
+    options.sandboxCpu = sandboxCpuNum;
+  }
+
+  // Parse --sandbox-memory
+  const sandboxMemoryIndex = args.indexOf("--sandbox-memory");
+  if (sandboxMemoryIndex !== -1) {
+    const sandboxMemoryValue = args[sandboxMemoryIndex + 1];
+    if (!sandboxMemoryValue) {
+      console.error("Error: --sandbox-memory must be followed by a number");
+      process.exit(1);
+    }
+    const sandboxMemoryNum = parseInt(sandboxMemoryValue, 10);
+    if (isNaN(sandboxMemoryNum) || sandboxMemoryNum < 1) {
+      console.error("Error: --sandbox-memory must be a positive number");
+      process.exit(1);
+    }
+    options.sandboxMemory = sandboxMemoryNum;
+  }
+
+  // Parse --sandbox-disk
+  const sandboxDiskIndex = args.indexOf("--sandbox-disk");
+  if (sandboxDiskIndex !== -1) {
+    const sandboxDiskValue = args[sandboxDiskIndex + 1];
+    if (!sandboxDiskValue) {
+      console.error("Error: --sandbox-disk must be followed by a number");
+      process.exit(1);
+    }
+    const sandboxDiskNum = parseInt(sandboxDiskValue, 10);
+    if (isNaN(sandboxDiskNum) || sandboxDiskNum < 1) {
+      console.error("Error: --sandbox-disk must be a positive number");
+      process.exit(1);
+    }
+    options.sandboxDisk = sandboxDiskNum;
+  }
+
   // Parse benchmark arguments (anything that's not a flag or flag value)
   // Flags with values (need to skip the next arg)
   const flagsWithValues = [
@@ -399,6 +460,9 @@ async function main() {
     "--skip",
     "--docker-username",
     "--docker-password",
+    "--sandbox-cpu",
+    "--sandbox-memory",
+    "--sandbox-disk",
   ];
 
   // Boolean flags (no value, don't skip next arg)
@@ -541,6 +605,7 @@ async function main() {
   }
   console.log(`AI Keys: ${anthropicKey ? "Anthropic ✓" : ""} ${openrouterKey ? "OpenRouter ✓" : ""}`);
   console.log(`Docker Hub: ${dockerUsername ? `${dockerUsername} ✓` : "Not configured (may hit rate limits)"}`);
+  console.log(`Sandbox Resources: ${options.sandboxCpu ?? 4} vCPU, ${options.sandboxMemory ?? 8}GB RAM, ${options.sandboxDisk ?? 4}GB disk`);
   console.log("=".repeat(80));
   console.log();
   console.log("Architecture:");
@@ -574,6 +639,9 @@ async function main() {
         dockerPassword,
         benchmarkType: options.pace ? "pace" : "xben",
         vulnsMode: options.vulns,
+        sandboxCpu: options.sandboxCpu,
+        sandboxMemory: options.sandboxMemory,
+        sandboxDisk: options.sandboxDisk,
       });
     } else {
       // Multiple benchmarks - run in parallel
@@ -592,6 +660,9 @@ async function main() {
         dockerPassword,
         benchmarkType: options.pace ? "pace" : "xben",
         vulnsMode: options.vulns,
+        sandboxCpu: options.sandboxCpu,
+        sandboxMemory: options.sandboxMemory,
+        sandboxDisk: options.sandboxDisk,
       });
     }
 
