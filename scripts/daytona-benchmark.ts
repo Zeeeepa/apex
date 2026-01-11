@@ -45,6 +45,7 @@ interface CLIOptions {
   dockerPassword?: string;
   pace?: boolean;
   vulns?: boolean;
+  custom?: string; // Custom benchmark name - uses repoPath as target directory directly
   // Sandbox resource configuration
   sandboxCpu?: number;
   sandboxMemory?: number;
@@ -201,6 +202,7 @@ async function main() {
     console.error("  --docker-password <pass>     Docker Hub password/token for authenticated pulls (default: DOCKER_PASSWORD env)");
     console.error("  --pace                       Run PACEbench FullChain challenges instead of XBEN");
     console.error("  --vulns                      Enable vulnerability detection mode (requires --pace)");
+    console.error("  --custom <name>              Run against a custom target (first arg is target directory)");
     console.error("  --sandbox-cpu <num>          vCPUs for Daytona sandbox (default: 4)");
     console.error("  --sandbox-memory <num>       Memory in GiB for Daytona sandbox (default: 8)");
     console.error("  --sandbox-disk <num>         Disk in GiB for Daytona sandbox (default: 4)");
@@ -230,6 +232,9 @@ async function main() {
     console.error("  # Run with custom model and parallel limit");
     console.error("  bun run scripts/daytona-benchmark.ts /path/to/xben-challenges \\");
     console.error("    --model claude-haiku-4-5 --max-parallel 2");
+    console.error();
+    console.error("  # Run against a custom target directory (e.g., ~/coffee-shop)");
+    console.error("  bun run scripts/daytona-benchmark.ts ~/coffee-shop --custom coffee-shop");
     console.error();
     console.error("How it works:");
     console.error("  - Uses Daytona Docker-in-Docker sandboxes for target isolation");
@@ -399,6 +404,17 @@ async function main() {
     options.vulns = true;
   }
 
+  // Parse --custom
+  const customIndex = args.indexOf("--custom");
+  if (customIndex !== -1) {
+    const customValue = args[customIndex + 1];
+    if (!customValue) {
+      console.error("Error: --custom must be followed by a benchmark name");
+      process.exit(1);
+    }
+    options.custom = customValue;
+  }
+
   // Parse --sandbox-cpu
   const sandboxCpuIndex = args.indexOf("--sandbox-cpu");
   if (sandboxCpuIndex !== -1) {
@@ -463,6 +479,7 @@ async function main() {
     "--sandbox-cpu",
     "--sandbox-memory",
     "--sandbox-disk",
+    "--custom",
   ];
 
   // Boolean flags (no value, don't skip next arg)
@@ -500,6 +517,92 @@ async function main() {
   if (options.vulns && !options.pace) {
     console.error("Error: --vulns flag requires --pace flag");
     process.exit(1);
+  }
+
+  // If --custom is specified, use repoPath as the target directory directly
+  // and skip benchmark enumeration
+  if (options.custom) {
+    // Validate environment variables
+    const apiKey = options.apiKey || process.env.DAYTONA_API_KEY;
+    const orgId = options.orgId || process.env.DAYTONA_ORG_ID;
+    const anthropicKey = options.anthropicKey || process.env.ANTHROPIC_API_KEY;
+    const openrouterKey = options.openrouterKey || process.env.OPENROUTER_API_KEY;
+    const dockerUsername = options.dockerUsername || process.env.DOCKER_USERNAME;
+    const dockerPassword = options.dockerPassword || process.env.DOCKER_PASSWORD;
+
+    if (!apiKey) {
+      console.error("Error: DAYTONA_API_KEY is required");
+      console.error("Set it via environment variable or --daytona-api-key flag");
+      process.exit(1);
+    }
+
+    if (!anthropicKey && !openrouterKey) {
+      console.error("Error: At least one AI API key is required");
+      console.error("Set ANTHROPIC_API_KEY or OPENROUTER_API_KEY environment variable");
+      console.error("Or use --anthropic-key or --openrouter-key flag");
+      process.exit(1);
+    }
+
+    // Display configuration for custom mode
+    console.log("\n" + "=".repeat(80));
+    console.log("DAYTONA DOCKER-IN-DOCKER BENCHMARK RUNNER");
+    console.log("=".repeat(80));
+    console.log(`Target Directory: ${repoPath}`);
+    console.log(`Benchmark Name: ${options.custom}`);
+    console.log(`Mode: Custom Target`);
+    console.log(`Model: ${options.model || "claude-sonnet-4-5"}`);
+    if (orgId) {
+      console.log(`Daytona Org: ${orgId}`);
+    }
+    if (options.prefix) {
+      console.log(`Prefix: ${options.prefix}`);
+    }
+    console.log(`AI Keys: ${anthropicKey ? "Anthropic ✓" : ""} ${openrouterKey ? "OpenRouter ✓" : ""}`);
+    console.log(`Docker Hub: ${dockerUsername ? `${dockerUsername} ✓` : "Not configured (may hit rate limits)"}`);
+    console.log(`Sandbox Resources: ${options.sandboxCpu ?? 4} vCPU, ${options.sandboxMemory ?? 8}GB RAM, ${options.sandboxDisk ?? 4}GB disk`);
+    console.log("=".repeat(80));
+    console.log();
+    console.log("Architecture:");
+    console.log("  • Creates Daytona sandbox with Docker-in-Docker (DinD)");
+    console.log("  • Uploads target directory to sandbox");
+    console.log("  • Parses docker-compose for target port");
+    console.log("  • Runs docker compose inside sandbox (nested containers)");
+    console.log("  • Agent runs locally with tool overrides");
+    console.log("  • Commands/HTTP requests execute in sandbox");
+    console.log("  • Docker commands BLOCKED to prevent cheating");
+    console.log("  • Generates JSON + Markdown reports");
+    console.log("=".repeat(80) + "\n");
+
+    try {
+      console.log(`Running against custom target: ${options.custom} (${repoPath})`);
+      await runBenchmarkWithDaytona({
+        benchmarkPath: repoPath,
+        benchmarkName: options.custom,
+        model: (options.model || "claude-sonnet-4-5") as AIModel,
+        apiKey,
+        orgId,
+        anthropicKey,
+        openrouterKey,
+        prefix: options.prefix,
+        dockerUsername,
+        dockerPassword,
+        benchmarkType: "target",
+        vulnsMode: options.vulns,
+        sandboxCpu: options.sandboxCpu,
+        sandboxMemory: options.sandboxMemory,
+        sandboxDisk: options.sandboxDisk,
+      });
+      console.log("\n✅ Benchmark execution completed successfully!");
+    } catch (error: any) {
+      console.error("\n❌ Benchmark execution failed:");
+      console.error(error.message);
+      if (error.stack) {
+        console.error("\nStack trace:");
+        console.error(error.stack);
+      }
+      process.exit(1);
+    }
+    return;
   }
 
   // If no benchmarks specified, enumerate based on benchmark type

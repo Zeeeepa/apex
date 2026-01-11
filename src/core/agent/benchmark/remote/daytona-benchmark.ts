@@ -26,6 +26,7 @@ import {
 } from "fs";
 import path from "path";
 import pLimit from "p-limit";
+import ignore, { type Ignore } from "ignore";
 import { parseDockerComposePort } from "../docker-utils";
 
 export interface DaytonaBenchmarkOptions {
@@ -39,7 +40,7 @@ export interface DaytonaBenchmarkOptions {
   prefix?: string; // Prefix for session names and output directories
   dockerUsername?: string; // Docker Hub username for authenticated pulls
   dockerPassword?: string; // Docker Hub password/token for authenticated pulls
-  benchmarkType?: "xben" | "pace"; // Benchmark type: xben (default) or pace (PACEbench)
+  benchmarkType?: "xben" | "pace" | "target"; // Benchmark type: xben (default), pace (PACEbench), or target (custom)
   vulnsMode?: boolean; // If true, use vulnerability detection mode instead of flag detection
   // Sandbox resource configuration (per Daytona docs: min 2 vCPU, 4GiB for DinD)
   sandboxCpu?: number; // vCPUs for sandbox (default: 4)
@@ -66,25 +67,51 @@ interface PocRunResult {
 }
 
 /**
- * Recursively collect all files from a directory
+ * Load .gitignore from a directory and return an Ignore instance
+ */
+function loadGitignore(baseDir: string): Ignore {
+  const ig = ignore();
+
+  // Always ignore .git directory
+  ig.add(".git");
+
+  // Load .gitignore if it exists
+  const gitignorePath = path.join(baseDir, ".gitignore");
+  if (existsSync(gitignorePath)) {
+    const gitignoreContent = readFileSync(gitignorePath, "utf-8");
+    ig.add(gitignoreContent);
+  }
+
+  return ig;
+}
+
+/**
+ * Recursively collect all files from a directory, respecting .gitignore
  */
 function collectFilesRecursive(
   dirPath: string,
   baseDir: string,
-  files: Array<{ source: Buffer; destination: string }> = []
+  files: Array<{ source: Buffer; destination: string }> = [],
+  ig?: Ignore
 ): Array<{ source: Buffer; destination: string }> {
   const entries = readdirSync(dirPath);
 
   for (const entry of entries) {
     const fullPath = path.join(dirPath, entry);
+    // Calculate relative path from base directory (use forward slashes for ignore matching)
+    const relativePath = path.relative(baseDir, fullPath).replace(/\\/g, "/");
+
+    // Check if this path should be ignored
+    if (ig && ig.ignores(relativePath)) {
+      continue;
+    }
+
     const stat = statSync(fullPath);
 
     if (stat.isDirectory()) {
       // Recursively collect files from subdirectory
-      collectFilesRecursive(fullPath, baseDir, files);
+      collectFilesRecursive(fullPath, baseDir, files, ig);
     } else if (stat.isFile()) {
-      // Calculate relative path from base directory
-      const relativePath = path.relative(baseDir, fullPath);
       const contents = readFileSync(fullPath);
       files.push({
         source: contents,
@@ -94,6 +121,57 @@ function collectFilesRecursive(
   }
 
   return files;
+}
+
+/**
+ * Wait for a service to be ready by polling the target URL
+ * Returns true if the service became ready, false if timeout was reached
+ */
+async function waitForServiceReady(
+  sandbox: Sandbox,
+  targetUrl: string,
+  benchmarkName: string,
+  maxWaitMs: number = 120000, // 2 minutes default
+  pollIntervalMs: number = 3000 // 3 seconds between polls
+): Promise<boolean> {
+  const startTime = Date.now();
+  let attempt = 0;
+
+  console.log(`[${benchmarkName}] ⏳ Waiting for service to be ready at ${targetUrl}...`);
+
+  while (Date.now() - startTime < maxWaitMs) {
+    attempt++;
+    try {
+      // Use curl with a short timeout to check if the service responds
+      const result = await sandbox.process.executeCommand(
+        `curl -s -o /dev/null -w "%{http_code}" --connect-timeout 5 --max-time 10 ${targetUrl} 2>/dev/null || echo "000"`,
+        undefined,
+        undefined,
+        15000
+      );
+
+      const httpCode = parseInt(result.result?.trim() || "0", 10);
+
+      // Consider any HTTP response (even 4xx/5xx) as "service is up"
+      // A 000 means connection refused/timeout
+      if (httpCode > 0) {
+        const elapsed = Math.round((Date.now() - startTime) / 1000);
+        console.log(`[${benchmarkName}] ✅ Service ready (HTTP ${httpCode}) after ${elapsed}s`);
+        return true;
+      }
+
+      console.log(`[${benchmarkName}] ⏳ Attempt ${attempt}: Service not ready yet (HTTP ${httpCode}), retrying...`);
+    } catch (error: any) {
+      console.log(`[${benchmarkName}] ⏳ Attempt ${attempt}: Connection failed, retrying...`);
+    }
+
+    // Wait before next poll
+    await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+  }
+
+  const elapsed = Math.round((Date.now() - startTime) / 1000);
+  console.log(`[${benchmarkName}] ⚠️ Service not ready after ${elapsed}s (${attempt} attempts)`);
+  return false;
 }
 
 /**
@@ -524,10 +602,11 @@ export async function runBenchmarkWithDaytona(
     // Use posix path for Linux sandbox
     remoteBenchmarkPath = path.posix.join(userHome ?? "", "benchmark");
 
-    // Collect all files from benchmark directory
-    const filesToUpload = collectFilesRecursive(benchmarkPath, benchmarkPath);
+    // Load .gitignore and collect all files from benchmark directory
+    const ig = loadGitignore(benchmarkPath);
+    const filesToUpload = collectFilesRecursive(benchmarkPath, benchmarkPath, [], ig);
     console.log(
-      `[${benchmarkName}] 📁 Found ${filesToUpload.length} files to upload`
+      `[${benchmarkName}] 📁 Found ${filesToUpload.length} files to upload (respecting .gitignore)`
     );
 
     // Map to Daytona upload format with remote path prefix (use posix paths for Linux sandbox)
@@ -672,10 +751,6 @@ export async function runBenchmarkWithDaytona(
 
     console.log(`[${benchmarkName}] ✅ Docker compose started`);
 
-    // Wait a bit for services to be ready
-    console.log(`[${benchmarkName}] ⏳ Waiting for services to be ready...`);
-    await new Promise((resolve) => setTimeout(resolve, 10000));
-
     // Step 6: Query Docker to get the actual mapped host port
     console.log(`[${benchmarkName}] 🔍 Querying Docker for actual port mapping...`);
     const portQueryResult = await sandbox.process.executeCommand(
@@ -693,6 +768,12 @@ export async function runBenchmarkWithDaytona(
 
     // const preview = await sandbox.getPreviewLink(actualHostPort);
     // console.log(`[${benchmarkName}] Preview URL: ${preview.url}`);
+
+    // Step 7.5: Wait for service to be ready before starting the agent
+    const serviceReady = await waitForServiceReady(sandbox, targetUrl, benchmarkName);
+    if (!serviceReady) {
+      console.log(`[${benchmarkName}] ⚠️ Service may not be fully ready, proceeding anyway...`);
+    }
 
     // Step 8: Create local session with benchmark guidance and scope constraints
     const sessionPrefix = prefix ? `${prefix}-${benchmarkName}` : `benchmark-${benchmarkName}`;
