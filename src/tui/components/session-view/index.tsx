@@ -8,6 +8,7 @@ import SwarmDashboard, {
   type Subagent,
 } from "../swarm-dashboard";
 import DriverDashboard from "../driver-dashboard";
+import OperatorDashboard from "../operator-dashboard";
 import { Session } from "../../../core/session";
 import {
   loadSessionState,
@@ -113,8 +114,13 @@ export default function SessionView({
   }, [sessionId, isResume]);
 
   // Start pentest once session is loaded (only if not resuming)
+  // Skip auto-start for operator/driver modes - they have their own start logic
   useEffect(() => {
     if (session && !hasStarted && !loading && !isResume) {
+      const mode = session.config?.mode;
+      if (mode === 'operator' || mode === 'driver') {
+        return; // These modes wait for user to initiate
+      }
       setHasStarted(true);
       startPentest(session);
     }
@@ -538,6 +544,11 @@ export default function SessionView({
   // Driver mode - render DriverDashboard for manual agent orchestration
   if (session.config?.mode === 'driver') {
     return <DriverDashboard session={session} />;
+  }
+
+  // Operator mode - render OperatorDashboard for interactive pentesting
+  if (session.config?.mode === 'operator') {
+    return <OperatorDashboard session={session} isResume={isResume} />;
   }
 
   // Auto mode - Render SwarmDashboard with streamlined pentest

@@ -1,6 +1,7 @@
 import z from "zod";
 import path from "path";
 import os from "os";
+import { existsSync, readFileSync, writeFileSync } from "fs";
 import { Identifier } from "../id/id";
 import { Installation } from "../installation";
 import { Storage } from "../storage";
@@ -56,15 +57,24 @@ export namespace Session {
 
     export type OffensiveHeadersConfig = z.infer<typeof OffensiveHeadersConfigObject>;
 
+    const OperatorSettingsObject = z.object({
+        initialMode: z.enum(["plan", "manual", "auto"]).default("manual"),
+        autoApproveTier: z.number().min(1).max(5).default(2),
+        enableSuggestions: z.boolean().default(true),
+    });
+
+    export type OperatorSettings = z.infer<typeof OperatorSettingsObject>;
+
     const SessionConfigObject = z.object({
         offensiveHeaders: OffensiveHeadersConfigObject.optional(),
         sessionType: z.enum(['web-app']).optional(),
-        mode: z.enum(['auto', 'driver']).optional(),
+        mode: z.enum(['auto', 'driver', 'operator']).optional(),
         outcomeGuidance: z.string().optional(),
         scopeConstraints: ScopeConstraintsObject.optional(),
         authCredentials: AuthCredentialsObject.optional(),
         authenticationInstructions: z.string().optional(),
         requestsPerSecond: z.number().optional(),
+        operatorSettings: OperatorSettingsObject.optional(),
         /** Enable CVSS 4.0 scoring for findings (defaults to true if not specified) */
         enableCvssScoring: z.boolean().optional(),
         /** Model to use for CVSS scorer subagent (default: claude-4-5-haiku) */
@@ -412,6 +422,81 @@ Testing in progress...
     export const removeMessage = async (input: z.output<typeof RemoveMsgInput>) => {
         await Storage.remove(["message", input.sessionId, input.messageId]);
         return input.messageId;
+    }
+
+    // ============================================================================
+    // Operator Session State - For resume functionality
+    // ============================================================================
+
+    /**
+     * Persisted operator dashboard state for session resumption
+     */
+    export interface OperatorSessionState {
+        /** Operator mode: plan, manual, auto */
+        mode: string;
+        /** Auto-approve tier level */
+        autoApproveTier: number;
+        /** Current stage: setup, recon, foothold, etc. */
+        currentStage: string;
+        /** Chat messages history */
+        messages: any[];
+        /** Discovered attack surface endpoints */
+        attackSurface: any[];
+        /** Found credentials */
+        credentials: any[];
+        /** Verified vulnerabilities */
+        verifiedVulns: any[];
+        /** Target state (host, phase, objective) */
+        targetState: any;
+        /** Tracked hypotheses */
+        hypotheses: any[];
+        /** Collected evidence */
+        evidence: any[];
+        /** Action approval history */
+        actionHistory: any[];
+        /** When the session was paused */
+        pausedAt: string;
+        /** Last run ID for log correlation */
+        lastRunId: string;
+    }
+
+    /**
+     * Save operator dashboard state for later resumption
+     */
+    export async function saveOperatorState(
+        sessionId: string,
+        state: OperatorSessionState
+    ): Promise<void> {
+        const session = await get(sessionId);
+        const statePath = path.join(session.rootPath, "operator-state.json");
+        writeFileSync(statePath, JSON.stringify(state, null, 2));
+        console.info("saved operator state for session", sessionId);
+    }
+
+    /**
+     * Load operator dashboard state for session resumption
+     */
+    export async function loadOperatorState(
+        sessionId: string
+    ): Promise<OperatorSessionState | null> {
+        try {
+            const session = await get(sessionId);
+            const statePath = path.join(session.rootPath, "operator-state.json");
+            if (!existsSync(statePath)) return null;
+            const data = readFileSync(statePath, "utf-8");
+            return JSON.parse(data) as OperatorSessionState;
+        } catch (error) {
+            console.error("Error loading operator state:", error);
+            return null;
+        }
+    }
+
+    /**
+     * Check if a session has saved operator state
+     */
+    export function hasOperatorState(session: SessionInfo): boolean {
+        const statePath = path.join(session.rootPath, "operator-state.json");
+        return existsSync(statePath);
     }
 
 }

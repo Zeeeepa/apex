@@ -10,11 +10,13 @@ import { CommandProvider } from "./command-provider";
 import { AgentProvider } from "./agentProvider";
 import HelpDialog from "./components/commands/help-dialog";
 import WebWizard from "./components/commands/web-wizard";
+import OperatorWizard from "./components/commands/operator-wizard";
 import SessionView from "./components/session-view";
 import SessionsDisplay from "./components/commands/sessions-display";
 import ConfigDialog from "./components/commands/config-dialog";
 import ModelsDisplay from "./components/commands/models-display";
 import ProviderManager from "./components/commands/provider-manager";
+import ResumeWizard from "./components/commands/resume-wizard";
 // import CreateSessionDialog from "./components/commands/create-session-dialog";
 import type { Config } from "../core/config/config";
 import { config } from "../core/config";
@@ -183,12 +185,13 @@ function AppContent({
     }
 
     // Escape - Return to home from any non-home route
-    // Exclude "web" and "session" routes - they handle their own ESC behavior
+    // Exclude "web", "operator" and "session" routes - they handle their own ESC behavior
     if (key.name === "escape") {
       const isHome = route.data.type === "base" && route.data.path === "home";
       const isWeb = route.data.type === "base" && route.data.path === "web";
+      const isOperator = route.data.type === "base" && route.data.path === "operator";
       const isSession = route.data.type === "session";
-      if (!isHome && !isWeb && !isSession) {
+      if (!isHome && !isWeb && !isOperator && !isSession) {
         route.navigate({
           type: "base",
           path: "home"
@@ -361,6 +364,12 @@ function CommandDisplay({
               autoMode={route.data.options?.auto}
             />
           </RouteSwitch.Case>
+          <RouteSwitch.Case when="operator">
+            <OperatorWizard
+              initialTarget={(route.data.options as any)?.target}
+              initialMode={(route.data.options as any)?.mode}
+            />
+          </RouteSwitch.Case>
           <RouteSwitch.Case when="config">
             <ConfigDialog />
           </RouteSwitch.Case>
@@ -369,6 +378,9 @@ function CommandDisplay({
           </RouteSwitch.Case>
           <RouteSwitch.Case when="providers">
             <ProviderManager />
+          </RouteSwitch.Case>
+          <RouteSwitch.Case when="resume">
+            <ResumeWizard />
           </RouteSwitch.Case>
           <RouteSwitch.Default>
             <CommandInput focused={focusIndex === 0} inputKey={inputKey}/>

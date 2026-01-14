@@ -7,11 +7,13 @@ export type RoutePath =
     | "pentest"
     | "thorough"
     | "web"
+    | "operator"
     | "dns"
     | "config"
     | "models"
     | "providers"
-    | "disclosure";
+    | "disclosure"
+    | "resume";
 
 export interface WebCommandOptions {
     auto?: boolean;

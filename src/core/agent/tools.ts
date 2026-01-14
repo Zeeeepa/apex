@@ -17,6 +17,9 @@ import { getProviderModel } from "../ai/utils";
 import { generateText } from "ai";
 import pLimit from "p-limit";
 
+// Cache for Nuclei API results
+import { getKnowledgeCache, CacheKeys } from "../knowledge/cache";
+
 const execAsync = promisify(exec);
 
 // Schemas for AI-generated structured outputs
@@ -40,7 +43,7 @@ const AnalysisSchema = z.object({
  * Contains expert knowledge about attack types, techniques, and detection
  * indicators to guide AI in generating contextual tests.
  */
-const ATTACK_KNOWLEDGE = {
+export const ATTACK_KNOWLEDGE = {
   graphql_injection: {
     name: "GraphQL Injection",
     description:
@@ -1735,18 +1738,16 @@ recommendations for further testing based on the technology stack.`,
             toolCallDescription: `Running feroxagent on ${url}`,
           });
         } else {
-          // Direct execution (local mode)
-          const { execSync } = await import("child_process");
+          // Direct execution (local mode) - use async to avoid blocking event loop
           try {
-            const output = execSync(cmd, {
+            const { stdout, stderr } = await execAsync(cmd, {
               timeout: (timeout + 30) * 1000,
-              encoding: "utf-8",
               maxBuffer: 10 * 1024 * 1024, // 10MB buffer
             });
             result = {
               success: true,
-              stdout: output,
-              stderr: "",
+              stdout,
+              stderr,
               command: cmd,
               error: "",
             };
@@ -1887,11 +1888,29 @@ const CVELookupInput = z.object({
     .describe(
       "Search query - can be a CVE ID (e.g., 'CVE-2023-1234'), software name (e.g., 'nginx'), software with version (e.g., 'openssh 8.0'), or vulnerability type (e.g., 'rce wordpress')"
     ),
+  techFilter: z
+    .string()
+    .optional()
+    .describe(
+      "Filter results by technology tag (e.g., 'wordpress', 'express', 'graphql', 'django'). Adds 'tags:{tech}' to query."
+    ),
+  templateType: z
+    .enum(["cve", "technique", "all"])
+    .optional()
+    .default("all")
+    .describe(
+      "Type of templates to return: 'cve' for CVE-specific, 'technique' for attack techniques, 'all' for both"
+    ),
   limit: z
     .number()
     .optional()
     .default(5)
     .describe("Maximum number of results to return (default: 5)"),
+  useCache: z
+    .boolean()
+    .optional()
+    .default(true)
+    .describe("Whether to use cached results if available (default: true)"),
   toolCallDescription: z
     .string()
     .describe(
@@ -1906,13 +1925,25 @@ export interface CVETemplate {
   description?: string;
   tags?: string[];
   template_content?: string; // Raw YAML template with exploit patterns
+  /** Extracted techniques from template (for tech_lookup) */
+  techniques?: Array<{
+    name: string;
+    description: string;
+    payloads?: string[];
+  }>;
 }
 
 export interface CVELookupResult {
   success: boolean;
   query: string;
+  techFilter?: string;
+  templateType?: string;
   total_found: number;
   templates: CVETemplate[];
+  /** Technologies detected in results (from tags) */
+  detectedTechs?: string[];
+  /** Whether result was from cache */
+  fromCache?: boolean;
   error?: string;
 }
 
@@ -1921,19 +1952,22 @@ export interface CVELookupResult {
  *
  * Uses the ProjectDiscovery API to search Nuclei templates for known CVEs.
  * Returns raw templates with exploit patterns that can be used to test vulnerabilities.
+ * Supports technology filtering and disk caching (24h TTL).
  *
  * Requires DISCOVERY_API_KEY environment variable to be set.
  */
 export function createCVELookupTool() {
+  const cache = getKnowledgeCache();
+
   return tool({
     name: "cve_lookup",
-    description: `Search for known CVEs and get exploit templates from the Nuclei template database.
+    description: `Search for known CVEs and exploit templates from the Nuclei template database.
 
 USE THIS TOOL WHEN:
 - You identify a software version in headers, responses, or fingerprints
 - You want to check if detected software has known vulnerabilities
 - You need ready-to-use exploit patterns for a specific CVE
-- You're testing a target and want to check for CVEs affecting its tech stack
+- You want technology-specific attack techniques (use techFilter)
 
 SEARCH EXAMPLES:
 - CVE ID: "CVE-2023-22515" or "CVE-2022-1388"
@@ -1941,6 +1975,14 @@ SEARCH EXAMPLES:
 - Software + version: "nginx 1.18", "php 7.4"
 - Vulnerability type + software: "rce confluence", "ssrf spring"
 - CWE: "CWE-89" (SQL injection)
+- Technology-specific: query="injection" techFilter="wordpress"
+
+TECH FILTER:
+Add techFilter to get technology-specific templates:
+- techFilter="wordpress" → WordPress-specific vulnerabilities
+- techFilter="express" → Express.js vulnerabilities
+- techFilter="graphql" → GraphQL-specific attacks
+- techFilter="django" → Django vulnerabilities
 
 OUTPUT:
 Returns Nuclei templates containing:
@@ -1948,19 +1990,36 @@ Returns Nuclei templates containing:
 - Raw YAML template with full exploit pattern
 - HTTP request details (method, path, headers, body)
 - Matchers to validate successful exploitation
+- detectedTechs: technologies found in result tags
 
-Parse the template_content field to extract actionable exploit payloads.`,
+Results are cached to disk (24h TTL) for faster subsequent lookups.`,
     inputSchema: CVELookupInput,
     execute: async ({
       query,
+      techFilter,
+      templateType = "all",
       limit = 5,
+      useCache = true,
     }): Promise<CVELookupResult> => {
+      // Generate cache key
+      const cacheKey = CacheKeys.cveTemplates(`${query}_${techFilter || ''}_${templateType}`);
+
+      // Check cache first
+      if (useCache) {
+        const cached = cache.get<CVELookupResult>(cacheKey);
+        if (cached) {
+          return { ...cached, fromCache: true };
+        }
+      }
+
       const apiKey = process.env.DISCOVERY_API_KEY;
 
       if (!apiKey) {
         return {
           success: false,
           query,
+          techFilter,
+          templateType,
           total_found: 0,
           templates: [],
           error:
@@ -1969,7 +2028,6 @@ Parse the template_content field to extract actionable exploit payloads.`,
       }
 
       try {
-        // Step 1: Search for templates matching the query
         // Smart query construction based on input pattern
         let searchQuery = query.trim();
 
@@ -1981,7 +2039,19 @@ Parse the template_content field to extract actionable exploit payloads.`,
         else if (/^CWE-\d+$/i.test(searchQuery)) {
           searchQuery = `tags:${searchQuery.toLowerCase()}`;
         }
-        // General search (software names, versions, vulnerability types) - use as-is
+
+        // Add technology filter if specified
+        if (techFilter) {
+          searchQuery = `${searchQuery} tags:${techFilter.toLowerCase()}`;
+        }
+
+        // Add template type filter
+        if (templateType === "cve") {
+          searchQuery = `${searchQuery} tags:cve`;
+        } else if (templateType === "technique") {
+          // Exclude CVE-specific templates, focus on general techniques
+          searchQuery = `${searchQuery} -tags:cve`;
+        }
 
         const searchUrl = new URL(
           "https://api.projectdiscovery.io/v2/template/search"
@@ -2003,6 +2073,8 @@ Parse the template_content field to extract actionable exploit payloads.`,
           return {
             success: false,
             query,
+            techFilter,
+            templateType,
             total_found: 0,
             templates: [],
             error: `Search API error (${searchResponse.status}): ${errorText}`,
@@ -2013,16 +2085,25 @@ Parse the template_content field to extract actionable exploit payloads.`,
         const searchResults = (searchData.results || searchData.data || searchData.templates || []) as any[];
 
         if (searchResults.length === 0) {
-          return {
+          const result: CVELookupResult = {
             success: true,
             query,
+            techFilter,
+            templateType,
             total_found: 0,
             templates: [],
+            fromCache: false,
           };
+          // Cache empty results too (to avoid repeated API calls)
+          if (useCache) {
+            cache.set(cacheKey, result, { source: 'nuclei-api' });
+          }
+          return result;
         }
 
         // Build template objects from search results
         const templates: CVETemplate[] = [];
+        const detectedTechsSet = new Set<string>();
         const GITHUB_RAW_BASE = "https://raw.githubusercontent.com/projectdiscovery/nuclei-templates/main";
 
         for (const result of searchResults.slice(0, limit)) {
@@ -2033,6 +2114,17 @@ Parse the template_content field to extract actionable exploit payloads.`,
             description: result.description,
             tags: result.tags,
           };
+
+          // Extract technology tags
+          if (result.tags && Array.isArray(result.tags)) {
+            const techTags = ['wordpress', 'express', 'django', 'graphql', 'jwt', 'nginx', 'apache',
+              'tomcat', 'spring', 'laravel', 'rails', 'flask', 'nodejs', 'php', 'java', 'python'];
+            for (const tag of result.tags) {
+              if (techTags.includes(tag.toLowerCase())) {
+                detectedTechsSet.add(tag.toLowerCase());
+              }
+            }
+          }
 
           // Use raw content if available, otherwise fetch from GitHub
           if (result.raw) {
@@ -2055,16 +2147,29 @@ Parse the template_content field to extract actionable exploit payloads.`,
           templates.push(templateObj);
         }
 
-        return {
+        const result: CVELookupResult = {
           success: true,
           query,
+          techFilter,
+          templateType,
           total_found: searchData.total || templates.length,
           templates,
+          detectedTechs: Array.from(detectedTechsSet),
+          fromCache: false,
         };
+
+        // Cache the result
+        if (useCache) {
+          cache.set(cacheKey, result, { source: 'nuclei-api' });
+        }
+
+        return result;
       } catch (error: any) {
         return {
           success: false,
           query,
+          techFilter,
+          templateType,
           total_found: 0,
           templates: [],
           error: `CVE lookup failed: ${error.message}`,
@@ -2072,6 +2177,22 @@ Parse the template_content field to extract actionable exploit payloads.`,
       }
     },
   });
+}
+
+/**
+ * Derive vulnerability type from finding title
+ */
+function deriveVulnTypeFromTitle(title: string): string {
+  const lower = title.toLowerCase();
+  if (lower.includes('sql') || lower.includes('injection')) return 'sqli';
+  if (lower.includes('xss') || lower.includes('cross-site scripting')) return 'xss';
+  if (lower.includes('idor') || lower.includes('insecure direct')) return 'idor';
+  if (lower.includes('command') || lower.includes('rce')) return 'rce';
+  if (lower.includes('ssrf')) return 'ssrf';
+  if (lower.includes('lfi') || lower.includes('path traversal') || lower.includes('local file')) return 'lfi';
+  if (lower.includes('auth') || lower.includes('bypass')) return 'auth_bypass';
+  if (lower.includes('ssti') || lower.includes('template')) return 'ssti';
+  return 'vuln';
 }
 
 /**
@@ -2185,7 +2306,11 @@ ${finding.references ? `## References\n\n${finding.references}` : ""}
 
         return {
           success: true,
-          finding: findingWithMeta,
+          finding: {
+            ...findingWithMeta,
+            type: deriveVulnTypeFromTitle(finding.title), // Derive type for sidebar display
+            endpoint: findingWithMeta.target || '', // Ensure endpoint exists for sidebar
+          },
           filepath,
           message: `Finding documented: [${finding.severity}] ${finding.title}`,
         };
@@ -4151,7 +4276,12 @@ IMPORTANT: Always analyze results and adjust your approach based on findings.`,
           ? wrapCommandWithHeaders(command, offensiveHeaders)
           : command;
 
-        const { stdout, stderr } = await execAsync(finalCommand, {
+        // Use login shell to ensure user's PATH is available (e.g., ~/go/bin for katana)
+        const shellCommand = process.platform === 'win32'
+          ? finalCommand
+          : `bash -lc ${JSON.stringify(finalCommand)}`;
+
+        const { stdout, stderr } = await execAsync(shellCommand, {
           timeout,
           maxBuffer: 10 * 1024 * 1024, // 10MB buffer
         });
@@ -4338,6 +4468,141 @@ COMMON TESTING PATTERNS:
     },
   });
 
+  // Sidebar-updating tools for operator mode
+  const updateAttackSurface = tool({
+    name: "update_attack_surface",
+    description: `Record discovered endpoints to the attack surface panel in the operator sidebar.
+
+Call this when you discover new endpoints through:
+- Crawling the application
+- API enumeration
+- Manual inspection
+- Directory brute-forcing
+
+This helps the operator visualize the attack surface as testing progresses.`,
+    inputSchema: z.object({
+      endpoints: z.array(z.object({
+        path: z.string().describe("The endpoint path (e.g., /api/users)"),
+        method: z.string().describe("HTTP method (GET, POST, PUT, DELETE, etc.)"),
+        category: z.string().optional().describe("Category: auth, api, admin, static, etc."),
+        params: z.array(z.string()).optional().describe("Parameter names found at this endpoint"),
+      })).describe("Array of discovered endpoints"),
+      toolCallDescription: z.string().optional(),
+    }),
+    execute: async ({ endpoints }) => {
+      const discoveredEndpoints = endpoints.map((ep, idx) => ({
+        id: `ep_${Date.now()}_${idx}`,
+        path: ep.path,
+        method: ep.method,
+        category: ep.category,
+        params: ep.params,
+        status: "untested" as const,
+      }));
+      return {
+        success: true,
+        endpoints: discoveredEndpoints,
+        message: `Added ${discoveredEndpoints.length} endpoints to attack surface`,
+      };
+    },
+  });
+
+  const recordCredential = tool({
+    name: "record_credential",
+    description: `Record a discovered credential to the credentials panel in the operator sidebar.
+
+Call this when you find:
+- Hardcoded credentials in source/config files
+- Credentials in form responses
+- JWT tokens or API keys
+- Session cookies worth tracking`,
+    inputSchema: z.object({
+      username: z.string().describe("Username or identifier"),
+      secret: z.string().describe("The credential value (will be partially redacted in display)"),
+      type: z.enum(["password", "cookie", "jwt", "ssh_key", "api_key"]).describe("Type of credential"),
+      source: z.string().describe("Where this was found (e.g., 'wp-config.php', 'login response')"),
+      scope: z.string().describe("Where this credential works (e.g., 'HTTP basic auth', 'MySQL', 'SSH')"),
+      toolCallDescription: z.string().optional(),
+    }),
+    execute: async ({ username, secret, type, source, scope }) => {
+      const credential = {
+        id: `cred_${Date.now()}`,
+        username,
+        secret,
+        type,
+        source,
+        scope,
+        isActive: false,
+      };
+      return {
+        success: true,
+        credential,
+        message: `Recorded ${type} credential for ${username}`,
+      };
+    },
+  });
+
+  const updateEndpointStatus = tool({
+    name: "update_endpoint_status",
+    description: `Update the status of a previously discovered endpoint after testing.
+
+Status markers:
+- untested: Not yet tested (default)
+- suspicious: Shows anomalous behavior, needs more investigation
+- confirmed: Confirmed vulnerable
+- clean: Tested and appears secure
+- blocked: Testing blocked by WAF/protection`,
+    inputSchema: z.object({
+      endpointId: z.string().describe("The endpoint ID to update"),
+      status: z.enum(["untested", "suspicious", "confirmed", "clean", "blocked"]),
+      vulnType: z.string().optional().describe("If confirmed, the vulnerability type (e.g., SQLi, XSS, IDOR)"),
+      toolCallDescription: z.string().optional(),
+    }),
+    execute: async ({ endpointId, status, vulnType }) => {
+      return {
+        success: true,
+        endpointId,
+        status,
+        vulnType,
+        message: `Updated endpoint ${endpointId} status to ${status}${vulnType ? ` (${vulnType})` : ''}`,
+      };
+    },
+  });
+
+  const recordVerifiedFinding = tool({
+    name: "record_verified_finding",
+    description: `Record a verified vulnerability finding to the sidebar panel.
+
+Use this after you have:
+1. Confirmed the vulnerability exists
+2. Created a proof of concept
+3. Determined severity
+
+This is separate from document_finding - this updates the live sidebar display.`,
+    inputSchema: z.object({
+      type: z.string().describe("Vulnerability type (e.g., sqli, idor, xss, rce, auth_bypass)"),
+      endpoint: z.string().describe("Affected endpoint"),
+      severity: z.enum(["critical", "high", "medium", "low", "info"]),
+      summary: z.string().describe("Brief description of the finding"),
+      pocPath: z.string().optional().describe("Path to POC file if created"),
+      toolCallDescription: z.string().optional(),
+    }),
+    execute: async ({ type, endpoint, severity, summary, pocPath }) => {
+      const finding = {
+        id: `vuln_${Date.now()}`,
+        type,
+        endpoint,
+        severity,
+        summary,
+        pocPath,
+      };
+      return {
+        success: true,
+        finding,
+        message: `Recorded ${severity} ${type} vulnerability at ${endpoint}`,
+      };
+    },
+  });
+
   return {
     fuzz_endpoint: fuzzEndpoint,
     execute_command: executeCommand,
@@ -4359,5 +4624,10 @@ COMMON TESTING PATTERNS:
     scratchpad: createScratchpadTool(session),
     generate_report: createGenerateReportTool(session),
     get_attack_surface: getAttackSurfaceAgent(),
+    // Sidebar-updating tools for operator mode
+    update_attack_surface: updateAttackSurface,
+    record_credential: recordCredential,
+    update_endpoint_status: updateEndpointStatus,
+    record_verified_finding: recordVerifiedFinding,
   };
 }
