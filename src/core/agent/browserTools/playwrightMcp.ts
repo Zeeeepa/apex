@@ -342,14 +342,61 @@ Use this to check for:
 - Network request failures revealing API patterns`,
 };
 
-export type BrowserToolMode = "pentest" | "operator";
+export type BrowserToolMode = "pentest" | "operator" | "auth";
+
+// Auth mode descriptions - focused on authentication flows
+const AUTH_DESCRIPTIONS = {
+  navigate: `Navigate the browser to a login page or auth endpoint.
+
+Use this to load login forms, OAuth authorization pages, or SPA apps that require browser rendering.
+The page will be fully loaded and JavaScript executed before returning.`,
+
+  screenshot: `Take a screenshot of the current page for evidence of authentication state.
+
+Use this to document:
+- Successful login confirmation
+- Error messages or failed auth attempts
+- Multi-factor authentication prompts`,
+
+  click: `Click on an element in the page by describing it.
+
+Use this to:
+- Submit login forms
+- Click "Sign in" or "Login" buttons
+- Navigate through OAuth consent flows
+- Click "Remember me" checkboxes`,
+
+  fill: `Fill a form field with a value.
+
+Use this to:
+- Enter username/email in login forms
+- Enter password in password fields
+- Fill OTP/verification codes (if provided)`,
+
+  evaluate: `Execute JavaScript in the browser context to extract auth tokens.
+
+CRITICAL for SPA authentication - use this to extract:
+- localStorage tokens: localStorage.getItem('token')
+- sessionStorage tokens: sessionStorage.getItem('access_token')
+- Cookies: document.cookie
+- Application state: window.__INITIAL_STATE__?.auth
+
+Returns the result of the JavaScript execution.`,
+
+  console: `Get console messages from the browser.
+
+Use this to check for:
+- Authentication errors logged to console
+- Token validation messages
+- API response logging`,
+};
 
 /**
  * Create browser automation tools
  *
  * @param targetUrl - Base target URL for context in descriptions
  * @param evidenceDir - Directory to save screenshots
- * @param mode - "pentest" for automated pentesting, "operator" for user-driven reconnaissance
+ * @param mode - "pentest" for automated pentesting, "operator" for user-driven reconnaissance, "auth" for authentication flows
  * @param logger - Optional logger for error reporting
  * @param abortSignal - Optional abort signal for cleanup
  */
@@ -370,7 +417,11 @@ export function createBrowserTools(
     mkdirSync(evidenceDir, { recursive: true });
   }
 
-  const descriptions = mode === "pentest" ? PENTEST_DESCRIPTIONS : OPERATOR_DESCRIPTIONS;
+  const descriptions = mode === "pentest"
+    ? PENTEST_DESCRIPTIONS
+    : mode === "auth"
+    ? AUTH_DESCRIPTIONS
+    : OPERATOR_DESCRIPTIONS;
 
   const browser_navigate = tool({
     description: `${descriptions.navigate}\n\nTarget base URL: ${targetUrl}`,
