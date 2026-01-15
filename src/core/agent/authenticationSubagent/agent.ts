@@ -162,7 +162,18 @@ export async function runAuthenticationSubagent(
     enableBrowserTools = true,
   } = opts;
 
-  const { target, session, credentials, authFlowHints, strategy = "provided" } = input;
+  const { target, session, credentials, authFlowHints } = input;
+
+  // Automatically determine strategy based on what's provided
+  const hasTokens = credentials?.tokens && (
+    credentials.tokens.bearerToken ||
+    credentials.tokens.cookies ||
+    credentials.tokens.sessionToken ||
+    (credentials.tokens.customHeaders && Object.keys(credentials.tokens.customHeaders).length > 0)
+  );
+
+  // Use verification strategy if tokens are provided, otherwise use the specified strategy or default to "provided"
+  const strategy = hasTokens ? "verification" : (input.strategy || "provided");
 
   const targetHost = extractHostFromTarget(target);
 
@@ -569,6 +580,7 @@ Call this when you have analyzed the endpoint and determined:
   const tools: Record<string, unknown> = {
     detect_auth_scheme: authTools.detect_auth_scheme,
     load_auth_flow: authTools.load_auth_flow,
+    probe_auth_endpoints: authTools.probe_auth_endpoints,
     complete_auth_discovery,
   };
 

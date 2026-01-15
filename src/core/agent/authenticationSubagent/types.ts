@@ -93,7 +93,7 @@ export interface AuthEndpoint {
 export interface AuthState {
   id: string;
   targetHost: string;
-  strategy: "provided" | "registration" | "extraction";
+  strategy: "provided" | "registration" | "extraction" | "verification";
   status: AuthStatus;
   tokens: AuthToken[];
   authEndpoint?: AuthEndpoint;
@@ -200,6 +200,21 @@ export interface AuthCredentials {
   apiKey?: string;
   loginUrl?: string;
   additionalFields?: Record<string, string>;
+
+  /**
+   * Pre-existing tokens to verify/use directly (bypasses login flow)
+   * If provided, the agent will first try to verify these grant access
+   */
+  tokens?: {
+    /** Bearer/JWT token to use in Authorization header */
+    bearerToken?: string;
+    /** Session cookie(s) to use directly */
+    cookies?: string;
+    /** Session ID or token value */
+    sessionToken?: string;
+    /** Custom headers to include with requests (e.g., X-API-Key, X-Auth-Token) */
+    customHeaders?: Record<string, string>;
+  };
 }
 
 /**
@@ -215,11 +230,17 @@ export interface AuthFlowHints {
 
 /**
  * Input for running the authentication subagent
+ *
+ * Strategies:
+ * - provided: Use provided username/password to authenticate
+ * - registration: Create new account and authenticate
+ * - extraction: Extract tokens from existing authenticated session
+ * - verification: Verify provided tokens grant access (no login flow)
  */
 export interface AuthenticationSubagentInput {
   target: string;
   session: Session.SessionInfo;
-  strategy?: "provided" | "registration" | "extraction";
+  strategy?: "provided" | "registration" | "extraction" | "verification";
   credentials?: AuthCredentials;
   authFlowHints?: AuthFlowHints;
 }
@@ -230,7 +251,7 @@ export interface AuthenticationSubagentInput {
 export interface AuthenticationSubagentResult {
   success: boolean;
   authState: AuthState;
-  strategy: "provided" | "registration" | "extraction";
+  strategy: "provided" | "registration" | "extraction" | "verification";
   exportedHeaders?: Record<string, string>;
   exportedCookies?: string;
   discoveredEndpoints?: {
@@ -305,6 +326,13 @@ export const ValidateSessionInputSchema = z.object({
     .describe("Expected HTTP status code for valid session"),
   toolCallDescription: z.string()
     .describe("Why you are validating the session"),
+  // Optional: provide tokens directly to test (instead of using stored auth state)
+  providedTokens: z.object({
+    bearerToken: z.string().optional().describe("Bearer/JWT token to test"),
+    cookies: z.string().optional().describe("Cookie string to test"),
+    customHeaders: z.record(z.string(), z.string()).optional()
+      .describe("Custom headers to include (e.g., X-API-Key, X-Auth-Token)"),
+  }).optional().describe("Pre-existing tokens to validate. If provided, these will be tested and stored on success."),
 });
 
 export type ValidateSessionInput = z.infer<typeof ValidateSessionInputSchema>;
@@ -417,6 +445,16 @@ export const DocumentAuthFlowInputSchema = z.object({
 
 export type DocumentAuthFlowInput = z.infer<typeof DocumentAuthFlowInputSchema>;
 
+/**
+ * Schema for probe_auth_endpoints tool input
+ */
+export const ProbeAuthEndpointsInputSchema = z.object({
+  baseUrl: z.string().describe("Base URL of the target (e.g., http://localhost:3002)"),
+  toolCallDescription: z.string().describe("Why you are probing for auth endpoints"),
+});
+
+export type ProbeAuthEndpointsInput = z.infer<typeof ProbeAuthEndpointsInputSchema>;
+
 // =============================================================================
 // Tool Result Types
 // =============================================================================
@@ -514,6 +552,22 @@ export interface DocumentAuthFlowResult {
   flowPath: string;
   message: string;
   error?: string;
+}
+
+/**
+ * Result from probe_auth_endpoints tool
+ */
+export interface ProbeAuthEndpointsResult {
+  success: boolean;
+  endpoints: {
+    path: string;
+    methods: string[];
+    authIndicators: string[];
+    likelyPurpose: "login" | "token" | "refresh" | "user" | "unknown";
+  }[];
+  recommendedLoginEndpoint?: string;
+  recommendedMethod?: string;
+  message: string;
 }
 
 // =============================================================================

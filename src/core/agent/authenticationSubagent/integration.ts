@@ -82,12 +82,20 @@ export async function ensureAuthenticated(
     };
   }
 
+  // Check if we have tokens to verify
+  const hasTokensToVerify = credentials?.tokens && (
+    credentials.tokens.bearerToken ||
+    credentials.tokens.cookies ||
+    credentials.tokens.sessionToken ||
+    (credentials.tokens.customHeaders && Object.keys(credentials.tokens.customHeaders).length > 0)
+  );
+
   // No valid auth or forcing refresh - run auth subagent
-  if (!credentials?.username && !credentials?.apiKey) {
-    // No credentials provided, can't authenticate
+  if (!credentials?.username && !credentials?.apiKey && !hasTokensToVerify) {
+    // No credentials or tokens provided, can't authenticate
     return {
       success: false,
-      error: "No credentials provided for authentication",
+      error: "No credentials or tokens provided for authentication",
     };
   }
 

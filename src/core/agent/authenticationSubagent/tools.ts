@@ -19,6 +19,7 @@ import {
   ExportAuthForAgentInputSchema,
   LoadAuthFlowInputSchema,
   DocumentAuthFlowInputSchema,
+  ProbeAuthEndpointsInputSchema,
   type DetectAuthSchemeResult,
   type AuthenticateResult,
   type ValidateSessionResult,
@@ -27,6 +28,7 @@ import {
   type ExportAuthForAgentResult,
   type LoadAuthFlowResult,
   type DocumentAuthFlowResult,
+  type ProbeAuthEndpointsResult,
   type AuthToken,
   type AuthBarrier,
 } from "./types";
@@ -704,21 +706,40 @@ Makes a request to a protected endpoint and checks response:
 - 401/403: Session expired or invalid
 - 3xx redirect to login: Session expired
 
+You can optionally provide tokens directly to test (bearerToken, cookies, customHeaders).
+If provided tokens are valid, they will be stored in the auth state.
+
 Updates session validity status in auth state.`,
     inputSchema: ValidateSessionInputSchema,
-    execute: async ({ testEndpoint, expectedStatus, toolCallDescription }): Promise<ValidateSessionResult> => {
-      logger?.info(`validate_session: ${testEndpoint} expectedStatus=${expectedStatus}`);
+    execute: async ({ testEndpoint, expectedStatus, toolCallDescription, providedTokens }): Promise<ValidateSessionResult> => {
+      logger?.info(`validate_session: ${testEndpoint} expectedStatus=${expectedStatus} hasProvidedTokens=${!!providedTokens}`);
 
       if (abortSignal?.aborted) {
         return { success: false, valid: false, message: "Request aborted", error: "Aborted" };
       }
 
       try {
-        const headers = authStateManager.getAuthHeaders();
-        const cookies = authStateManager.getCookieString();
+        // Build headers - use provided tokens if available, otherwise use stored auth state
+        const headers: Record<string, string> = {};
 
-        if (cookies) {
-          headers["Cookie"] = cookies;
+        if (providedTokens) {
+          // Use provided tokens directly
+          if (providedTokens.bearerToken) {
+            headers["Authorization"] = `Bearer ${providedTokens.bearerToken}`;
+          }
+          if (providedTokens.cookies) {
+            headers["Cookie"] = providedTokens.cookies;
+          }
+          if (providedTokens.customHeaders) {
+            Object.assign(headers, providedTokens.customHeaders);
+          }
+        } else {
+          // Use stored auth state
+          Object.assign(headers, authStateManager.getAuthHeaders());
+          const cookies = authStateManager.getCookieString();
+          if (cookies) {
+            headers["Cookie"] = cookies;
+          }
         }
 
         const response = await makeRequest({
@@ -748,7 +769,9 @@ Updates session validity status in auth state.`,
               locationStr.includes("signin") ||
               locationStr.includes("auth")
             ) {
-              authStateManager.setStatus("expired");
+              if (!providedTokens) {
+                authStateManager.setStatus("expired");
+              }
               return {
                 success: true,
                 valid: false,
@@ -761,7 +784,9 @@ Updates session validity status in auth state.`,
 
         // Check status code
         if (response.status === 401 || response.status === 403) {
-          authStateManager.setStatus("expired");
+          if (!providedTokens) {
+            authStateManager.setStatus("expired");
+          }
           return {
             success: true,
             valid: false,
@@ -771,12 +796,52 @@ Updates session validity status in auth state.`,
         }
 
         if (response.status >= 200 && response.status < 300) {
+          // Tokens are valid - store them if they were provided
+          if (providedTokens) {
+            // Store the provided tokens in auth state
+            if (providedTokens.bearerToken) {
+              const expiration = getJWTExpiration(providedTokens.bearerToken);
+              authStateManager.addToken({
+                type: "bearer",
+                name: "Authorization",
+                value: providedTokens.bearerToken,
+                expiresAt: expiration || undefined,
+              });
+            }
+            if (providedTokens.cookies) {
+              // Parse and store cookies
+              const cookieParts = providedTokens.cookies.split(";").map(c => c.trim());
+              for (const cookie of cookieParts) {
+                const [name, ...valueParts] = cookie.split("=");
+                if (name && valueParts.length > 0) {
+                  authStateManager.addToken({
+                    type: "cookie",
+                    name: name.trim(),
+                    value: valueParts.join("=").trim(),
+                  });
+                }
+              }
+            }
+            if (providedTokens.customHeaders) {
+              // Store custom headers as tokens
+              for (const [headerName, headerValue] of Object.entries(providedTokens.customHeaders)) {
+                authStateManager.addToken({
+                  type: "api_key",
+                  name: headerName,
+                  value: headerValue,
+                });
+              }
+            }
+          }
+
           authStateManager.markValidated();
           return {
             success: true,
             valid: true,
             statusCode: response.status,
-            message: `Session valid - received ${response.status} ${response.statusText}`,
+            message: providedTokens
+              ? `Provided tokens are valid - received ${response.status} ${response.statusText}. Tokens stored for use.`
+              : `Session valid - received ${response.status} ${response.statusText}`,
           };
         }
 
@@ -1004,6 +1069,178 @@ This allows other agents (vulnerability testers) to make authenticated requests.
   });
 
   // ===========================================================================
+  // Tool: probe_auth_endpoints
+  // ===========================================================================
+
+  // Common auth endpoint patterns to probe
+  const AUTH_ENDPOINT_PATTERNS = {
+    login: [
+      "/api/login", "/api/auth/login", "/api/v1/login", "/api/v1/auth/login",
+      "/api/signin", "/api/auth/signin", "/api/authenticate",
+      "/auth/login", "/auth/signin", "/login", "/signin",
+    ],
+    token: [
+      "/api/token", "/api/auth/token", "/api/oauth/token", "/oauth/token",
+      "/token", "/api/session",
+    ],
+    user: [
+      "/api/me", "/api/user", "/api/profile", "/api/users/me", "/me", "/user",
+      "/api/account", "/account",
+    ],
+    refresh: [
+      "/api/refresh", "/api/auth/refresh", "/api/token/refresh", "/refresh",
+    ],
+    // Protected resources that may reveal auth requirements (401/403)
+    protected: [
+      "/api/data", "/api/protected", "/api/private", "/api/secure",
+      "/data", "/protected", "/private", "/secure",
+      "/api/v1/data", "/api/v1/protected",
+      "/admin", "/api/admin", "/dashboard", "/api/dashboard",
+    ],
+  };
+
+  const probe_auth_endpoints = tool({
+    description: `Probe common authentication endpoint patterns to discover where to authenticate.
+
+Use this when:
+- Target endpoint returns 404 or no clear auth scheme detected
+- Need to find login/token endpoints for JSON APIs
+- detect_auth_scheme didn't find form or auth headers
+
+Probes ~40 common paths with both GET and POST methods:
+- Login endpoints: /api/login, /api/auth/login, /login, etc.
+- Token endpoints: /api/token, /oauth/token, etc.
+- User endpoints: /api/me, /api/user, etc.
+- Protected resources: /api/data, /api/protected, /admin, etc.
+
+Also detects HTTP Basic Auth via WWW-Authenticate header.
+Returns discovered endpoints and recommended login approach.`,
+    inputSchema: ProbeAuthEndpointsInputSchema,
+    execute: async ({ baseUrl, toolCallDescription }): Promise<ProbeAuthEndpointsResult> => {
+      logger?.info(`probe_auth_endpoints: ${baseUrl}`);
+
+      if (abortSignal?.aborted) {
+        return { success: false, endpoints: [], message: "Request aborted" };
+      }
+
+      const discoveredEndpoints: ProbeAuthEndpointsResult["endpoints"] = [];
+      const allPatterns = [
+        ...AUTH_ENDPOINT_PATTERNS.login.map((p) => ({ path: p, purpose: "login" as const })),
+        ...AUTH_ENDPOINT_PATTERNS.token.map((p) => ({ path: p, purpose: "token" as const })),
+        ...AUTH_ENDPOINT_PATTERNS.user.map((p) => ({ path: p, purpose: "user" as const })),
+        ...AUTH_ENDPOINT_PATTERNS.refresh.map((p) => ({ path: p, purpose: "refresh" as const })),
+        ...AUTH_ENDPOINT_PATTERNS.protected.map((p) => ({ path: p, purpose: "unknown" as const })),
+      ];
+
+      for (const { path, purpose } of allPatterns) {
+        if (abortSignal?.aborted) break;
+
+        const url = baseUrl.replace(/\/$/, "") + path;
+        const methods: string[] = [];
+        const authIndicators: string[] = [];
+
+        // Try GET
+        try {
+          const getResult = await makeRequest({ url, method: "GET", timeout: 5000 });
+          if (getResult.status !== 404 && getResult.status !== 0) {
+            methods.push("GET");
+            if (getResult.status === 401) authIndicators.push("requires auth (401)");
+            if (getResult.status === 200) authIndicators.push("accessible (200)");
+            if (getResult.status === 403) authIndicators.push("forbidden (403)");
+
+            // Check WWW-Authenticate header for Basic/Bearer auth
+            const wwwAuth = getResult.headers["www-authenticate"] || getResult.headers["WWW-Authenticate"];
+            if (wwwAuth) {
+              const authHeader = Array.isArray(wwwAuth) ? wwwAuth[0] : wwwAuth;
+              if (authHeader.toLowerCase().includes("basic")) {
+                authIndicators.push("HTTP Basic Auth");
+              } else if (authHeader.toLowerCase().includes("bearer")) {
+                authIndicators.push("Bearer token required");
+              }
+            }
+          }
+        } catch {
+          // Ignore errors for individual endpoints
+        }
+
+        // Try POST with empty JSON body
+        try {
+          const postResult = await makeRequest({
+            url,
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: "{}",
+            timeout: 5000,
+          });
+          if (postResult.status !== 404 && postResult.status !== 0) {
+            methods.push("POST");
+            if (postResult.status === 400) authIndicators.push("expects body (400)");
+            if (postResult.status === 401) authIndicators.push("invalid credentials (401)");
+            if (postResult.status === 200) authIndicators.push("POST accessible (200)");
+            // Check for JSON response with auth-related fields
+            if (postResult.body.includes("username") || postResult.body.includes("password")) {
+              authIndicators.push("expects credentials");
+            }
+            if (postResult.body.includes("token") || postResult.body.includes("jwt")) {
+              authIndicators.push("returns tokens");
+            }
+          }
+        } catch {
+          // Ignore errors for individual endpoints
+        }
+
+        if (methods.length > 0) {
+          discoveredEndpoints.push({
+            path,
+            methods,
+            authIndicators,
+            likelyPurpose: purpose,
+          });
+        }
+      }
+
+      // Check for HTTP Basic Auth endpoints
+      const basicAuthEndpoint = discoveredEndpoints.find(
+        (e) => e.authIndicators.includes("HTTP Basic Auth")
+      );
+
+      // Find recommended login endpoint - prefer POST endpoints with auth indicators
+      const loginEndpoint = discoveredEndpoints.find(
+        (e) =>
+          e.likelyPurpose === "login" &&
+          e.methods.includes("POST") &&
+          (e.authIndicators.includes("expects body (400)") ||
+            e.authIndicators.includes("invalid credentials (401)") ||
+            e.authIndicators.includes("expects credentials"))
+      ) || discoveredEndpoints.find(
+        (e) => e.likelyPurpose === "login" && e.methods.includes("POST")
+      );
+
+      logger?.info(`probe_auth_endpoints: found ${discoveredEndpoints.length} endpoints`);
+
+      // Build result message
+      let message = "";
+      if (discoveredEndpoints.length === 0) {
+        message = "No auth endpoints found at common paths";
+      } else if (basicAuthEndpoint) {
+        message = `Found HTTP Basic Auth protected endpoint: ${basicAuthEndpoint.path}. Use Authorization: Basic base64(username:password) header.`;
+      } else if (loginEndpoint) {
+        message = `Found ${discoveredEndpoints.length} potential auth endpoints. Recommended: POST ${loginEndpoint.path}`;
+      } else {
+        message = `Found ${discoveredEndpoints.length} potential auth endpoints`;
+      }
+
+      return {
+        success: true,
+        endpoints: discoveredEndpoints,
+        recommendedLoginEndpoint: basicAuthEndpoint?.path || loginEndpoint?.path,
+        recommendedMethod: basicAuthEndpoint ? "GET (with Basic Auth header)" : loginEndpoint ? "POST" : undefined,
+        message,
+      };
+    },
+  });
+
+  // ===========================================================================
   // Return All Tools
   // ===========================================================================
 
@@ -1016,6 +1253,7 @@ This allows other agents (vulnerability testers) to make authenticated requests.
     refresh_session,
     get_auth_state,
     export_auth_for_agent,
+    probe_auth_endpoints,
   };
 }
 

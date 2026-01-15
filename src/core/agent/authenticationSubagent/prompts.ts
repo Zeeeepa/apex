@@ -46,7 +46,17 @@ AUTH_VALIDATION:
 
 # Strategy Flow
 
-## Phase 1: Context Recovery (ALWAYS FIRST)
+## Phase 0: Pre-existing Token Verification (if tokens provided)
+If the user provides pre-existing tokens (bearerToken, cookies, sessionToken, customHeaders):
+1. Skip login flow entirely - tokens should be tested directly
+2. Call \`validate_session\` with the target endpoint to verify access
+3. If valid: Store tokens via \`get_auth_state\` and proceed to export
+4. If invalid: Report failure - the provided tokens don't grant access
+5. Do NOT attempt to authenticate with username/password if tokens were provided but invalid
+
+This phase is for VERIFYING that provided tokens work, not for acquiring new tokens.
+
+## Phase 1: Context Recovery (if no pre-existing tokens)
 1. Call \`load_auth_flow\` to check for documented auth flow
 2. If flow exists: Skip detection, proceed directly to Phase 3
 3. If no flow: Proceed to Phase 2
@@ -56,7 +66,7 @@ AUTH_VALIDATION:
 2. Identify: method (form/json/basic), login URL, field names, CSRF requirements
 3. Detect barriers: CAPTCHA, MFA, OAuth consent
 
-## Phase 3: Authentication
+## Phase 3: Authentication (using credentials)
 Based on detected scheme:
 
 ### HTTP-based (form_post, json_post, basic_auth, bearer, api_key):
@@ -150,6 +160,12 @@ export function buildAuthUserPrompt(input: {
     password?: string;
     apiKey?: string;
     loginUrl?: string;
+    tokens?: {
+      bearerToken?: string;
+      cookies?: string;
+      sessionToken?: string;
+      customHeaders?: Record<string, string>;
+    };
   };
   authFlowHints?: {
     loginEndpoints?: string[];
@@ -158,6 +174,13 @@ export function buildAuthUserPrompt(input: {
     captchaDetected?: boolean;
   };
 }): string {
+  const hasTokens = input.credentials?.tokens && (
+    input.credentials.tokens.bearerToken ||
+    input.credentials.tokens.cookies ||
+    input.credentials.tokens.sessionToken ||
+    (input.credentials.tokens.customHeaders && Object.keys(input.credentials.tokens.customHeaders).length > 0)
+  );
+
   let prompt = `# Authentication Task
 
 ## Target
@@ -165,7 +188,47 @@ ${input.target}
 
 `;
 
-  if (input.credentials) {
+  // If pre-existing tokens are provided, prioritize them
+  if (hasTokens) {
+    prompt += `## Pre-existing Tokens (VERIFY THESE FIRST)
+**Mode: Token Verification** - Your goal is to verify these tokens grant access.
+
+`;
+    const tokens = input.credentials!.tokens!;
+    if (tokens.bearerToken) {
+      prompt += `- Bearer Token: [PROVIDED - ${tokens.bearerToken.length} characters]
+  Use as: Authorization: Bearer <token>
+`;
+    }
+    if (tokens.cookies) {
+      prompt += `- Cookies: [PROVIDED - ${tokens.cookies.length} characters]
+  Use as: Cookie header value
+`;
+    }
+    if (tokens.sessionToken) {
+      prompt += `- Session Token: [PROVIDED - ${tokens.sessionToken.length} characters]
+`;
+    }
+    if (tokens.customHeaders && Object.keys(tokens.customHeaders).length > 0) {
+      prompt += `- Custom Headers:
+`;
+      for (const [key, value] of Object.entries(tokens.customHeaders)) {
+        prompt += `  - ${key}: [${value.length} characters]
+`;
+      }
+    }
+    prompt += `
+**Instructions for Token Verification:**
+1. Use \`validate_session\` with the provided tokens to test if they grant access
+2. If valid: Report success and export the tokens for use
+3. If invalid: Report failure - do NOT fall back to username/password auth
+4. The goal is to verify IF these tokens work, not to acquire new ones
+
+`;
+  }
+
+  // Regular credentials (only show if no tokens, or as fallback info)
+  if (input.credentials && !hasTokens) {
     prompt += `## Provided Credentials
 `;
     if (input.credentials.username) {
@@ -211,7 +274,19 @@ ${input.target}
 `;
   }
 
-  prompt += `## Instructions
+  // Different instructions based on whether tokens are provided
+  if (hasTokens) {
+    prompt += `## Instructions (Token Verification Mode)
+
+1. Use \`validate_session\` to test if the provided tokens grant authenticated access
+2. If the tokens work, store them and call \`export_auth_for_agent\`
+3. Report success or failure via \`complete_authentication\`
+4. Do NOT attempt to log in with username/password - only verify the provided tokens
+
+Begin token verification now.
+`;
+  } else {
+    prompt += `## Instructions
 
 1. First, call \`load_auth_flow\` to check for a documented auth flow for this target
 2. If flow exists, skip detection and authenticate using the documented flow
@@ -221,6 +296,7 @@ ${input.target}
 
 Begin authentication process now.
 `;
+  }
 
   return prompt;
 }
@@ -302,14 +378,28 @@ Look for these authentication indicators:
 | X-API-Key required | Error message | API Key |
 | OAuth redirect | Authorization URL | OAuth |
 
-## Step 3: Deep Analysis (if needed)
-If initial probe is inconclusive:
-1. Check common login endpoints (/login, /signin, /auth)
-2. Analyze JavaScript for auth patterns (if SPA)
-3. Check for CSRF tokens in forms
-4. Look for auth-related cookies
+## Step 3: Endpoint Discovery (CRITICAL for 404 responses)
+If the target returns 404 or detect_auth_scheme finds no clear auth scheme:
+1. **Use \`probe_auth_endpoints\`** to discover authentication endpoints
+2. This tool probes ~25 common paths (like /api/login, /api/token, /api/me)
+3. It tests both GET and POST methods for each path
+4. Look for endpoints with:
+   - POST method + 400/401 response = likely login endpoint
+   - GET method + 401 response = protected resource
+5. Use the recommended endpoint from the tool results
 
-## Step 4: Document Reasoning
+Common JSON API patterns discovered by this tool:
+- POST /api/login - Accepts {"username": "...", "password": "..."}
+- POST /api/token - OAuth-style token endpoint
+- GET /api/me - User info (requires Authorization header)
+
+## Step 4: Deep Analysis (if needed)
+If endpoint probing is inconclusive:
+1. Analyze JavaScript for auth patterns (if SPA)
+2. Check for CSRF tokens in forms
+3. Look for auth-related cookies
+
+## Step 5: Document Reasoning
 Provide clear reasoning:
 - What evidence led to your conclusion
 - Confidence level and why
@@ -319,7 +409,7 @@ Provide clear reasoning:
 # Tools Available
 
 - \`detect_auth_scheme\` - Analyze endpoint for auth requirements
-- \`http_request\` - Make HTTP requests to probe endpoints (via execute_command with curl)
+- \`probe_auth_endpoints\` - **Use this when 404 is returned** - probes common auth paths with GET/POST
 - \`browser_navigate\` - Load pages that require JavaScript
 - \`browser_evaluate\` - Extract auth patterns from SPAs
 
