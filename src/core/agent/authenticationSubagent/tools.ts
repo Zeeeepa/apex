@@ -20,6 +20,8 @@ import {
   LoadAuthFlowInputSchema,
   DocumentAuthFlowInputSchema,
   ProbeAuthEndpointsInputSchema,
+  ProbeRegistrationInputSchema,
+  AttemptRegistrationInputSchema,
   type DetectAuthSchemeResult,
   type AuthenticateResult,
   type ValidateSessionResult,
@@ -29,8 +31,11 @@ import {
   type LoadAuthFlowResult,
   type DocumentAuthFlowResult,
   type ProbeAuthEndpointsResult,
+  type ProbeRegistrationResult,
+  type AttemptRegistrationResult,
   type AuthToken,
   type AuthBarrier,
+  type RegistrationBarrier,
 } from "./types";
 
 // =============================================================================
@@ -1241,6 +1246,353 @@ Returns discovered endpoints and recommended login approach.`,
   });
 
   // ===========================================================================
+  // Tool: probe_registration
+  // ===========================================================================
+
+  // Common registration endpoint patterns to probe
+  const REGISTRATION_ENDPOINT_PATTERNS = [
+    "/register", "/signup", "/sign-up", "/create-account", "/join",
+    "/api/register", "/api/signup", "/api/sign-up", "/api/users/register",
+    "/api/v1/register", "/api/v1/signup", "/api/v1/users",
+    "/auth/register", "/auth/signup", "/api/auth/register", "/api/auth/signup",
+    "/account/register", "/account/signup", "/account/create",
+    "/users/new", "/user/create", "/membership/register",
+  ];
+
+  const probe_registration = tool({
+    description: `Probe for registration/signup functionality.
+
+Use when:
+- No credentials provided and need to determine if self-registration is possible
+- Discovering available registration endpoints
+
+Checks for:
+- Registration endpoints (/register, /signup, /create-account, etc.)
+- Open vs. invite-only registration
+- Required fields (email, phone verification, captcha)
+- Admin approval requirements
+
+Returns whether registration is possible and what barriers exist.`,
+    inputSchema: ProbeRegistrationInputSchema,
+    execute: async ({ baseUrl, toolCallDescription }): Promise<ProbeRegistrationResult> => {
+      logger?.info(`probe_registration: ${baseUrl}`);
+
+      if (abortSignal?.aborted) {
+        return {
+          success: false,
+          canRegister: false,
+          barriers: [],
+          requiredFields: [],
+          message: "Request aborted",
+          error: "Aborted",
+        };
+      }
+
+      let registrationUrl: string | undefined;
+      const barriers: RegistrationBarrier[] = [];
+      const requiredFields: string[] = [];
+      const optionalFields: string[] = [];
+      let notes = "";
+
+      // Probe each registration endpoint
+      for (const path of REGISTRATION_ENDPOINT_PATTERNS) {
+        if (abortSignal?.aborted) break;
+
+        const url = baseUrl.replace(/\/$/, "") + path;
+
+        try {
+          // Try GET first to see if it's a registration page/form
+          const getResult = await makeRequest({ url, method: "GET", timeout: 5000 });
+
+          if (getResult.status === 200) {
+            registrationUrl = url;
+            const bodyLower = getResult.body.toLowerCase();
+
+            // Detect barriers
+            if (bodyLower.includes("invite") || bodyLower.includes("invitation")) {
+              barriers.push("invite_code");
+              notes += "Requires invitation code. ";
+            }
+            if (bodyLower.includes("admin approval") || bodyLower.includes("pending approval")) {
+              barriers.push("admin_approval");
+              notes += "Requires admin approval after registration. ";
+            }
+            if (bodyLower.includes("captcha") || bodyLower.includes("recaptcha") || bodyLower.includes("hcaptcha")) {
+              barriers.push("captcha");
+              notes += "CAPTCHA required. ";
+            }
+            if (bodyLower.includes("verify your email") || bodyLower.includes("email verification")) {
+              barriers.push("email_verification");
+              notes += "Email verification required. ";
+            }
+            if (bodyLower.includes("phone verification") || bodyLower.includes("sms verification")) {
+              barriers.push("phone_verification");
+              notes += "Phone verification required. ";
+            }
+
+            // Detect required fields from form
+            if (bodyLower.includes('name="email"') || bodyLower.includes('name="user_email"') || bodyLower.includes('"email"')) {
+              requiredFields.push("email");
+            }
+            if (bodyLower.includes('name="username"') || bodyLower.includes('name="user"') || bodyLower.includes('"username"')) {
+              requiredFields.push("username");
+            }
+            if (bodyLower.includes('name="password"') || bodyLower.includes('"password"')) {
+              requiredFields.push("password");
+            }
+            if (bodyLower.includes('name="password_confirmation"') || bodyLower.includes('name="confirm_password"') || bodyLower.includes('"confirmPassword"')) {
+              requiredFields.push("password_confirmation");
+            }
+            if (bodyLower.includes('name="name"') || bodyLower.includes('name="full_name"') || bodyLower.includes('"name"')) {
+              optionalFields.push("name");
+            }
+            if (bodyLower.includes('name="phone"') || bodyLower.includes('"phone"')) {
+              optionalFields.push("phone");
+            }
+
+            // If we found a registration page, stop probing
+            break;
+          }
+
+          // Try POST to see if it's a JSON API registration endpoint
+          const postResult = await makeRequest({
+            url,
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: "{}",
+            timeout: 5000,
+          });
+
+          // 400 or 422 often means the endpoint exists but needs proper data
+          if (postResult.status === 400 || postResult.status === 422) {
+            registrationUrl = url;
+            const bodyLower = postResult.body.toLowerCase();
+
+            // Try to detect required fields from error message
+            if (bodyLower.includes("email") || bodyLower.includes('"email"')) {
+              requiredFields.push("email");
+            }
+            if (bodyLower.includes("username") || bodyLower.includes('"username"')) {
+              requiredFields.push("username");
+            }
+            if (bodyLower.includes("password") || bodyLower.includes('"password"')) {
+              requiredFields.push("password");
+            }
+
+            notes = "JSON API registration endpoint. ";
+            break;
+          }
+        } catch {
+          // Ignore errors for individual endpoints
+        }
+      }
+
+      // Determine if registration is possible
+      const canRegister = !!registrationUrl && !barriers.includes("closed");
+
+      // Ensure basic fields if nothing detected
+      if (registrationUrl && requiredFields.length === 0) {
+        requiredFields.push("email", "password");
+      }
+
+      const message = registrationUrl
+        ? canRegister
+          ? `Registration available at ${registrationUrl}. Required fields: ${requiredFields.join(", ")}${barriers.length > 0 ? `. Barriers: ${barriers.join(", ")}` : ""}`
+          : `Registration endpoint found at ${registrationUrl} but blocked by: ${barriers.join(", ")}`
+        : "No registration endpoint found at common paths";
+
+      logger?.info(`probe_registration: canRegister=${canRegister}, url=${registrationUrl}, barriers=${barriers.join(",")}`);
+
+      return {
+        success: true,
+        canRegister,
+        registrationUrl,
+        barriers,
+        requiredFields,
+        optionalFields: optionalFields.length > 0 ? optionalFields : undefined,
+        notes: notes || undefined,
+        message,
+      };
+    },
+  });
+
+  // ===========================================================================
+  // Tool: attempt_registration
+  // ===========================================================================
+
+  const attempt_registration = tool({
+    description: `Attempt to create a test account via self-registration.
+
+Only use when:
+- probe_registration showed open registration
+- No credentials were provided by the user
+
+Creates account with provided field values.
+Generate realistic test credentials before calling:
+- email: Use a test email like test-{timestamp}@example.com
+- username: Use something like testuser-{timestamp}
+- password: Use a strong password like Test123!@#
+
+Returns the credentials if successful, or barriers if blocked.`,
+    inputSchema: AttemptRegistrationInputSchema,
+    execute: async ({ registrationUrl, requiredFields, toolCallDescription }): Promise<AttemptRegistrationResult> => {
+      logger?.info(`attempt_registration: ${registrationUrl} fields=${Object.keys(requiredFields).join(",")}`);
+
+      if (abortSignal?.aborted) {
+        return {
+          success: false,
+          message: "Request aborted",
+          error: "Aborted",
+        };
+      }
+
+      try {
+        // Determine if it's a JSON API or form-based registration
+        const getResult = await makeRequest({ url: registrationUrl, method: "GET", timeout: 5000 });
+        const isJsonApi = getResult.status === 405 || getResult.status === 404 || !getResult.body.includes("<html");
+
+        let response: HttpRequestResult;
+
+        if (isJsonApi) {
+          // JSON API registration
+          response = await makeRequest({
+            url: registrationUrl,
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(requiredFields),
+            timeout: 30000,
+          });
+        } else {
+          // Form-based registration
+          const params = new URLSearchParams();
+          for (const [key, value] of Object.entries(requiredFields)) {
+            params.set(key, value);
+          }
+
+          response = await makeRequest({
+            url: registrationUrl,
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: params.toString(),
+            followRedirects: true,
+            timeout: 30000,
+          });
+        }
+
+        if (!response.success) {
+          return {
+            success: false,
+            message: `Registration request failed: ${response.error}`,
+            error: response.error,
+          };
+        }
+
+        const bodyLower = response.body.toLowerCase();
+        const barriers: RegistrationBarrier[] = [];
+
+        // Check for barriers in response
+        if (bodyLower.includes("captcha") || bodyLower.includes("recaptcha")) {
+          barriers.push("captcha");
+        }
+        if (bodyLower.includes("invite") || bodyLower.includes("invitation code")) {
+          barriers.push("invite_code");
+        }
+        if (bodyLower.includes("admin approval") || bodyLower.includes("pending approval")) {
+          barriers.push("admin_approval");
+        }
+        if (bodyLower.includes("verify your email") || bodyLower.includes("check your email")) {
+          barriers.push("email_verification");
+        }
+
+        // Check for success indicators
+        const isSuccess =
+          response.status === 200 ||
+          response.status === 201 ||
+          response.status === 302 ||
+          bodyLower.includes("success") ||
+          bodyLower.includes("account created") ||
+          bodyLower.includes("welcome") ||
+          bodyLower.includes("registration complete") ||
+          bodyLower.includes("thank you for registering");
+
+        // Check for failure indicators
+        const isFailure =
+          response.status === 400 ||
+          response.status === 422 ||
+          response.status === 409 ||
+          bodyLower.includes("already exists") ||
+          bodyLower.includes("already taken") ||
+          bodyLower.includes("error") ||
+          bodyLower.includes("invalid");
+
+        if (isSuccess && barriers.length === 0) {
+          // Extract credentials from the fields provided
+          const credentials = {
+            username: requiredFields.username || requiredFields.email || "",
+            password: requiredFields.password || "",
+            email: requiredFields.email,
+          };
+
+          logger?.info(`attempt_registration: SUCCESS - created account ${credentials.username}`);
+
+          return {
+            success: true,
+            credentials,
+            statusCode: response.status,
+            message: `Registration successful! Account created with username: ${credentials.username}`,
+          };
+        }
+
+        if (barriers.length > 0) {
+          logger?.info(`attempt_registration: BLOCKED by ${barriers.join(", ")}`);
+          return {
+            success: false,
+            barriers,
+            statusCode: response.status,
+            message: `Registration blocked by: ${barriers.join(", ")}`,
+          };
+        }
+
+        if (isFailure) {
+          // Try to extract error message
+          let errorMsg = "Registration failed";
+          try {
+            const jsonBody = JSON.parse(response.body);
+            if (jsonBody.error) errorMsg = jsonBody.error;
+            if (jsonBody.message) errorMsg = jsonBody.message;
+            if (jsonBody.errors) errorMsg = JSON.stringify(jsonBody.errors);
+          } catch {
+            // Not JSON, try to find error in HTML
+            const errorMatch = response.body.match(/<div[^>]*class="[^"]*error[^"]*"[^>]*>([^<]+)<\/div>/i);
+            if (errorMatch) errorMsg = errorMatch[1];
+          }
+
+          logger?.info(`attempt_registration: FAILED - ${errorMsg}`);
+          return {
+            success: false,
+            statusCode: response.status,
+            message: errorMsg,
+            error: errorMsg,
+          };
+        }
+
+        // Unclear result
+        return {
+          success: false,
+          statusCode: response.status,
+          message: `Registration result unclear. Status: ${response.status}. Manual verification may be needed.`,
+        };
+      } catch (error) {
+        return {
+          success: false,
+          message: `Registration error: ${error instanceof Error ? error.message : String(error)}`,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    },
+  });
+
+  // ===========================================================================
   // Return All Tools
   // ===========================================================================
 
@@ -1254,6 +1606,8 @@ Returns discovered endpoints and recommended login approach.`,
     get_auth_state,
     export_auth_for_agent,
     probe_auth_endpoints,
+    probe_registration,
+    attempt_registration,
   };
 }
 

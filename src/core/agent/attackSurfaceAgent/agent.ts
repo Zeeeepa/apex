@@ -23,6 +23,7 @@ import {
   createBrowserTools,
   disconnectMcpClient,
 } from "../browserTools/playwrightMcp";
+import { runAuthenticationSubagent } from "../authenticationSubagent";
 
 export interface RunAgentProps {
   target: string;
@@ -366,6 +367,107 @@ Use this to:
           success: false,
           authenticated: false,
           message: `Authentication error: ${error.message}`,
+        };
+      }
+    },
+  });
+
+  // Tool: delegate_to_auth_subagent
+  const delegate_to_auth_subagent = tool({
+    name: "delegate_to_auth_subagent",
+    description: `Delegate authentication to the specialized auth subagent.
+
+Use when:
+- Complex auth flow detected (OAuth, SAML, CSRF tokens)
+- Browser-based login required (SPA, JavaScript forms)
+- Built-in authenticate_and_maintain_session tool failed
+- MFA or CAPTCHA barrier detected
+
+The auth subagent will:
+1. Handle the authentication flow
+2. Document the process for re-auth
+3. Return cookies/headers for authenticated requests
+
+When to use delegate_to_auth_subagent vs authenticate_and_maintain_session:
+- Simple form POST without CSRF → use authenticate_and_maintain_session
+- JSON API with username/password → use authenticate_and_maintain_session
+- Complex flow (OAuth, CSRF, SPA, browser required) → delegate_to_auth_subagent
+- If authenticate_and_maintain_session fails → delegate_to_auth_subagent`,
+    inputSchema: z.object({
+      target: z.string().describe("Target URL requiring authentication"),
+      loginUrl: z.string().optional().describe("Discovered login URL if known"),
+      username: z.string().optional().describe("Username if available"),
+      password: z.string().optional().describe("Password if available"),
+      authHints: z.object({
+        authScheme: z.string().optional().describe("Detected auth scheme (form, json, oauth, etc.)"),
+        csrfRequired: z.boolean().optional().describe("Whether CSRF protection was detected"),
+        browserRequired: z.boolean().optional().describe("Whether browser automation is needed"),
+      }).optional().describe("Hints about the auth flow from discovery"),
+      reason: z.string().describe("Why you are delegating to auth subagent"),
+      toolCallDescription: z.string().describe("A concise description of what this tool call is doing"),
+    }),
+    execute: async ({ target, loginUrl, username, password, authHints, reason }) => {
+      try {
+        console.log(`\n🔐 Delegating to authentication subagent...`);
+        console.log(`   Target: ${target}`);
+        console.log(`   Reason: ${reason}`);
+        if (authHints) {
+          console.log(`   Auth Scheme: ${authHints.authScheme || "unknown"}`);
+          console.log(`   CSRF Required: ${authHints.csrfRequired || false}`);
+          console.log(`   Browser Required: ${authHints.browserRequired || false}`);
+        }
+
+        const result = await runAuthenticationSubagent({
+          input: {
+            target,
+            session,
+            credentials: username || password ? {
+              username,
+              password,
+              loginUrl,
+            } : undefined,
+            authFlowHints: authHints ? {
+              loginEndpoints: loginUrl ? [loginUrl] : undefined,
+              authScheme: authHints.authScheme as any,
+              csrfRequired: authHints.csrfRequired,
+            } : undefined,
+          },
+          model,
+          enableBrowserTools: authHints?.browserRequired !== false,
+        });
+
+        if (result.success) {
+          // Save session info for other tools to use
+          const sessionInfoPath = join(session.rootPath, "session-info.json");
+          const sessionInfo = {
+            authenticated: true,
+            username: username || "via_subagent",
+            sessionCookie: result.exportedCookies || "",
+            headers: result.exportedHeaders || {},
+            loginUrl: target,
+            timestamp: new Date().toISOString(),
+            delegatedToSubagent: true,
+          };
+          writeFileSync(sessionInfoPath, JSON.stringify(sessionInfo, null, 2));
+        }
+
+        return {
+          success: result.success,
+          authenticated: result.success,
+          strategy: result.strategy,
+          sessionCookie: result.exportedCookies || "",
+          headers: result.exportedHeaders || {},
+          authBarrier: result.authBarrier,
+          summary: result.summary,
+          message: result.success
+            ? `Authentication subagent succeeded. Strategy: ${result.strategy}. ${result.summary}`
+            : `Authentication subagent failed. ${result.summary}${result.authBarrier ? ` Barrier: ${result.authBarrier.type} - ${result.authBarrier.details}` : ""}`,
+        };
+      } catch (error: any) {
+        return {
+          success: false,
+          authenticated: false,
+          message: `Auth subagent delegation failed: ${error.message}`,
         };
       }
     },
@@ -855,6 +957,7 @@ You MUST provide the final report using create_attack_surface_report tool.
       execute_command,
       http_request,
       authenticate_and_maintain_session,
+      delegate_to_auth_subagent,
       extract_javascript_endpoints,
       crawl_authenticated_area,
       test_endpoint_variations,

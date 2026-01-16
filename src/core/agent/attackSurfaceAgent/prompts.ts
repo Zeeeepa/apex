@@ -284,11 +284,32 @@ Many web applications hide functionality behind authentication. **AUTHENTICATION
    - Credentials or auth details (if available)
    - Session maintenance approach (cookies, tokens, headers)
 
-2. **Use authenticate_and_maintain_session** to obtain a session cookie
-3. **Use crawl_authenticated_area** to discover authenticated pages
-4. **Use extract_javascript_endpoints** on discovered pages to find JavaScript-based endpoints
-5. **Use test_endpoint_variations** to test different variations of discovered endpoints
-6. **Use validate_discovery_completeness** to check coverage before final report
+2. **Choose the right authentication tool:**
+
+   **Use authenticate_and_maintain_session** when:
+   - Simple form POST without CSRF protection
+   - JSON API with username/password
+   - HTTP Basic Authentication
+   - Simple cookie-based sessions
+
+   **Use delegate_to_auth_subagent** when:
+   - Complex auth flow detected (OAuth, SAML, CSRF tokens)
+   - Browser-based login required (SPA, JavaScript forms)
+   - authenticate_and_maintain_session failed
+   - MFA or CAPTCHA barrier detected
+   - The login page uses JavaScript to validate/submit forms
+
+   The auth subagent will:
+   - Handle complex authentication flows automatically
+   - Document the authentication process for re-authentication
+   - Return cookies/headers for authenticated requests
+   - Handle browser-based logins using Playwright
+
+3. **After obtaining authentication:**
+   - **Use crawl_authenticated_area** to discover authenticated pages
+   - **Use extract_javascript_endpoints** on discovered pages to find JavaScript-based endpoints
+   - **Use test_endpoint_variations** to test different variations of discovered endpoints
+   - **Use validate_discovery_completeness** to check coverage before final report
 
 **Browser Tools for Auth Portals (Recommended for Modern Apps):**
 
@@ -1374,6 +1395,21 @@ Organize your discovered assets by category:
 - Authenticate with credentials to obtain a session cookie
 - Returns sessionCookie for use with other tools
 - Saves session information for later reference
+- Best for simple form POST, JSON API, or Basic Auth
+
+### delegate_to_auth_subagent
+- Delegate authentication to the specialized auth subagent
+- Use when authenticate_and_maintain_session fails or for complex flows
+- Handles: OAuth, SAML, CSRF tokens, SPA logins, browser-based forms
+- Returns: sessionCookie, headers, and documented auth flow
+- The auth subagent can also probe for registration if no credentials provided
+
+**When to use which auth tool:**
+- Simple form/JSON POST without CSRF → authenticate_and_maintain_session
+- HTTP Basic Auth → authenticate_and_maintain_session
+- Complex flow (OAuth, CSRF, SPA) → delegate_to_auth_subagent
+- authenticate_and_maintain_session failed → delegate_to_auth_subagent
+- MFA or CAPTCHA detected → delegate_to_auth_subagent
 
 ### extract_javascript_endpoints
 - Extracts endpoint URLs from JavaScript using pattern matching

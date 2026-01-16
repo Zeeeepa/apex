@@ -28,6 +28,8 @@ const TOOL_BASE_TIERS: Record<string, PermissionTier> = {
   // Tier 3 - Probing (parameter testing)
   fuzz_endpoint: 3,
   test_parameter: 3,
+  run_auth_subagent: 3, // Auth probing - T3 requires approval
+  delegate_to_auth_subagent: 3, // Auth delegation - T3 requires approval
 
   // Tier 4 - Intrusive (heavy testing, shell commands)
   execute_command: 4,

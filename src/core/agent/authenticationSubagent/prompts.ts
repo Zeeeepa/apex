@@ -29,7 +29,7 @@ You MUST follow this reasoning pattern for every authentication action:
 ### Before EVERY auth action:
 \`\`\`
 AUTH_HYPOTHESIS:
-- Strategy: [provided|browser_flow]
+- Strategy: [provided|browser_flow|registration]
 - Method: [form|json|basic|bearer|api_key|oauth]
 - Confidence: [0-100%]
 - Expected: if SUCCESS → [what tokens will be obtained], if FAIL → [fallback action]
@@ -65,6 +65,30 @@ This phase is for VERIFYING that provided tokens work, not for acquiring new tok
 1. Call \`detect_auth_scheme\` on the target endpoint
 2. Identify: method (form/json/basic), login URL, field names, CSRF requirements
 3. Detect barriers: CAPTCHA, MFA, OAuth consent
+
+## Phase 2.5: No Credentials Flow (if no credentials provided)
+When NO credentials are provided, attempt to acquire them:
+
+1. **Probe for Registration**:
+   - Call \`probe_registration\` to check if self-registration is available
+   - This discovers registration endpoints and required fields
+
+2. **If Registration is Open** (canRegister: true):
+   - Generate test credentials:
+     - email: test-{timestamp}@example.com
+     - username: testuser-{timestamp}
+     - password: TestPassword123!@#
+   - Call \`attempt_registration\` with the generated credentials
+   - If successful, proceed to Phase 3 with the new credentials
+
+3. **If Registration is Blocked** (barriers detected):
+   - Document the registration process in \`document_auth_flow\`
+   - Include barriers (invite_code, admin_approval, captcha, email_verification)
+   - Return partial result indicating what's needed for manual setup
+
+4. **If No Registration Endpoint Found**:
+   - Document that credentials are required
+   - Return failure with instructions on what credentials to provide
 
 ## Phase 3: Authentication (using credentials)
 Based on detected scheme:
@@ -124,13 +148,23 @@ For each token type, know where to look:
 
 # Tool Usage Order
 
-Typical successful flow:
+Typical successful flow (with credentials):
 1. \`load_auth_flow\` → Check for documented flow
 2. \`detect_auth_scheme\` → (if no documented flow) Identify auth method
 3. \`authenticate\` or browser tools → Submit credentials
 4. \`document_auth_flow\` → Save flow for future runs
 5. \`validate_session\` → Confirm access works
 6. \`export_auth_for_agent\` → Prepare for other agents
+
+No credentials flow:
+1. \`load_auth_flow\` → Check for documented flow
+2. \`detect_auth_scheme\` → Identify auth method
+3. \`probe_registration\` → Check if signup is available
+4. \`attempt_registration\` → (if open) Create test account
+5. \`authenticate\` → Login with new credentials
+6. \`document_auth_flow\` → Document flow AND registration info
+7. \`validate_session\` → Confirm access works
+8. \`export_auth_for_agent\` → Prepare for other agents
 
 # Important Rules
 
@@ -274,7 +308,14 @@ ${input.target}
 `;
   }
 
-  // Different instructions based on whether tokens are provided
+  // Check if we have any credentials at all
+  const hasCredentials = input.credentials && (
+    input.credentials.username ||
+    input.credentials.password ||
+    input.credentials.apiKey
+  );
+
+  // Different instructions based on what is provided
   if (hasTokens) {
     prompt += `## Instructions (Token Verification Mode)
 
@@ -285,7 +326,7 @@ ${input.target}
 
 Begin token verification now.
 `;
-  } else {
+  } else if (hasCredentials) {
     prompt += `## Instructions
 
 1. First, call \`load_auth_flow\` to check for a documented auth flow for this target
@@ -295,6 +336,27 @@ Begin token verification now.
 5. Validate and export the authentication for other agents
 
 Begin authentication process now.
+`;
+  } else {
+    prompt += `## Instructions (No Credentials Mode)
+
+No credentials were provided. Follow this flow:
+
+1. First, call \`load_auth_flow\` to check for a documented auth flow
+2. Call \`detect_auth_scheme\` to understand the auth requirements
+3. Call \`probe_registration\` to check if self-registration is available
+4. If registration is OPEN (canRegister: true):
+   - Generate test credentials (timestamp-based email/username, strong password)
+   - Call \`attempt_registration\` to create a test account
+   - Authenticate with the new credentials
+   - Document both the auth flow AND registration info
+5. If registration is BLOCKED (barriers detected):
+   - Document the registration barriers found
+   - Return partial result explaining what's needed for manual registration
+6. If NO registration endpoint found:
+   - Return failure with details about required credentials
+
+Begin discovery and registration probing now.
 `;
   }
 
@@ -410,6 +472,7 @@ Provide clear reasoning:
 
 - \`detect_auth_scheme\` - Analyze endpoint for auth requirements
 - \`probe_auth_endpoints\` - **Use this when 404 is returned** - probes common auth paths with GET/POST
+- \`probe_registration\` - Discover registration endpoints and requirements
 - \`browser_navigate\` - Load pages that require JavaScript
 - \`browser_evaluate\` - Extract auth patterns from SPAs
 

@@ -49,7 +49,20 @@ export const AUTH_BARRIER_TYPES = [
   "mfa",
   "oauth_consent",
   "rate_limit",
+  "invite_code",
+  "admin_approval",
+  "email_verification",
+  "phone_verification",
   "unknown",
+] as const;
+
+export const REGISTRATION_BARRIERS = [
+  "invite_code",
+  "admin_approval",
+  "captcha",
+  "email_verification",
+  "phone_verification",
+  "closed",
 ] as const;
 
 // =============================================================================
@@ -61,6 +74,7 @@ export type TokenType = (typeof TOKEN_TYPES)[number];
 export type AuthStatus = (typeof AUTH_STATUSES)[number];
 export type RoleLevel = (typeof ROLE_LEVELS)[number];
 export type AuthBarrierType = (typeof AUTH_BARRIER_TYPES)[number];
+export type RegistrationBarrier = (typeof REGISTRATION_BARRIERS)[number];
 
 /**
  * Authentication token stored in session
@@ -151,6 +165,24 @@ export interface BrowserFlowConfig {
 }
 
 /**
+ * Registration/signup information
+ */
+export interface RegistrationInfo {
+  /** Registration endpoint URL */
+  url: string;
+  /** Whether registration is open to anyone */
+  isOpen: boolean;
+  /** Barriers preventing registration */
+  barriers: RegistrationBarrier[];
+  /** Fields required to register */
+  requiredFields: string[];
+  /** Optional fields for registration */
+  optionalFields?: string[];
+  /** Notes for manual registration */
+  notes?: string;
+}
+
+/**
  * Documented auth flow for context recovery
  * Persisted to auth/auth-flow.json
  */
@@ -183,6 +215,9 @@ export interface AuthFlowDocumentation {
   };
 
   browserFlow?: BrowserFlowConfig;
+
+  /** Registration information if discovered */
+  registration?: RegistrationInfo;
 
   notes?: string[];
 }
@@ -455,6 +490,27 @@ export const ProbeAuthEndpointsInputSchema = z.object({
 
 export type ProbeAuthEndpointsInput = z.infer<typeof ProbeAuthEndpointsInputSchema>;
 
+/**
+ * Schema for probe_registration tool input
+ */
+export const ProbeRegistrationInputSchema = z.object({
+  baseUrl: z.string().describe("Base URL of the target (e.g., http://localhost:3002)"),
+  toolCallDescription: z.string().describe("Why you are probing for registration functionality"),
+});
+
+export type ProbeRegistrationInput = z.infer<typeof ProbeRegistrationInputSchema>;
+
+/**
+ * Schema for attempt_registration tool input
+ */
+export const AttemptRegistrationInputSchema = z.object({
+  registrationUrl: z.string().describe("Registration endpoint URL discovered from probe_registration"),
+  requiredFields: z.record(z.string(), z.string()).describe("Required field values (e.g., { email: 'test@example.com', username: 'testuser', password: 'Test123!' })"),
+  toolCallDescription: z.string().describe("Why you are attempting registration"),
+});
+
+export type AttemptRegistrationInput = z.infer<typeof AttemptRegistrationInputSchema>;
+
 // =============================================================================
 // Tool Result Types
 // =============================================================================
@@ -568,6 +624,46 @@ export interface ProbeAuthEndpointsResult {
   recommendedLoginEndpoint?: string;
   recommendedMethod?: string;
   message: string;
+}
+
+/**
+ * Result from probe_registration tool
+ */
+export interface ProbeRegistrationResult {
+  success: boolean;
+  /** Whether self-registration appears possible */
+  canRegister: boolean;
+  /** Discovered registration URL */
+  registrationUrl?: string;
+  /** Barriers that may prevent registration */
+  barriers: RegistrationBarrier[];
+  /** Fields required for registration */
+  requiredFields: string[];
+  /** Optional fields available for registration */
+  optionalFields?: string[];
+  /** Notes about the registration process */
+  notes?: string;
+  message: string;
+  error?: string;
+}
+
+/**
+ * Result from attempt_registration tool
+ */
+export interface AttemptRegistrationResult {
+  success: boolean;
+  /** Generated credentials if registration succeeded */
+  credentials?: {
+    username: string;
+    password: string;
+    email?: string;
+  };
+  /** Barriers encountered during registration */
+  barriers?: RegistrationBarrier[];
+  /** Response status code */
+  statusCode?: number;
+  message: string;
+  error?: string;
 }
 
 // =============================================================================

@@ -224,4 +224,7 @@ export type OperatorEvent =
   | { type: "hypothesis-recorded"; hypothesis: SidebarHypothesis }
   | { type: "evidence-captured"; evidence: SidebarEvidence }
   | { type: "phase-transition-suggested"; phase: string }
-  | { type: "objective-proposed"; objective: string };
+  | { type: "objective-proposed"; objective: string }
+  // Auth subagent events
+  | { type: "auth-subagent-started"; target: string }
+  | { type: "auth-subagent-completed"; success: boolean; cookies?: string; headers?: Record<string, string> };
