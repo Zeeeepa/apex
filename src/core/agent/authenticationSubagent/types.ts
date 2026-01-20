@@ -256,10 +256,17 @@ export interface AuthCredentials {
  * Hints about auth flow from attack surface analysis
  */
 export interface AuthFlowHints {
+  /** Login endpoints discovered during recon */
   loginEndpoints?: string[];
+  /** Protected endpoints that require auth (for token verification) */
+  protectedEndpoints?: string[];
+  /** Detected auth scheme */
   authScheme?: AuthMethod;
+  /** Registration endpoint if discovered */
   registrationEndpoint?: string;
+  /** Whether CSRF protection was detected */
   csrfRequired?: boolean;
+  /** Whether CAPTCHA was detected */
   captchaDetected?: boolean;
 }
 

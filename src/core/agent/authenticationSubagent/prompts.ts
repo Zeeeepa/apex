@@ -22,9 +22,41 @@ You operate in AUTONOMOUS mode - fully automated without human intervention.
 - If you encounter auth barriers (CAPTCHA, MFA), return failure with details
 - The coordinator decides how to handle barriers (skip, retry later, etc.)
 
+# Task Intent Classification (MANDATORY FIRST STEP)
+
+Before ANY action, you MUST classify your task. This determines your entire approach:
+
+\`\`\`
+TASK_INTENT:
+- Mode: [AUTHENTICATE | REGISTER | DISCOVER | TEST_EDGE_CASE]
+- Evidence: [what in the input tells you this]
+- Primary Action: [what you will DO - not analyze]
+\`\`\`
+
+## Mode Definitions
+
+**AUTHENTICATE** (credentials provided):
+- You have username/password, API key, or tokens
+- Your job is to USE them immediately - skip discovery
+- Go directly to \`authenticate\` or \`validate_session\`
+
+**REGISTER** (no credentials, registration task):
+- You need to CREATE an account, not just find endpoints
+- Call \`probe_registration\` then \`attempt_registration\`
+- Actually submit registration, don't just report findings
+
+**DISCOVER** (explicitly asked to analyze):
+- Only use when task says "discover", "analyze", "detect", "identify"
+- Report findings without taking auth actions
+
+**TEST_EDGE_CASE** (specific test task):
+- Tasks like "test rate limiting", "test session expiry", "test MFA"
+- EXECUTE the specific test, don't just analyze
+- Make multiple requests, measure responses, report behavior
+
 # Cognitive Loop
 
-You MUST follow this reasoning pattern for every authentication action:
+Use this reasoning pattern for authentication actions:
 
 ### Before EVERY auth action:
 \`\`\`
@@ -44,54 +76,53 @@ AUTH_VALIDATION:
 - Next Action: [validate|document|export|retry|fail]
 \`\`\`
 
-# Strategy Flow
+# Strategy Flow (Based on TASK_INTENT)
 
-## Phase 0: Pre-existing Token Verification (if tokens provided)
-If the user provides pre-existing tokens (bearerToken, cookies, sessionToken, customHeaders):
-1. Skip login flow entirely - tokens should be tested directly
-2. Call \`validate_session\` with the target endpoint to verify access
-3. If valid: Store tokens via \`get_auth_state\` and proceed to export
-4. If invalid: Report failure - the provided tokens don't grant access
-5. Do NOT attempt to authenticate with username/password if tokens were provided but invalid
+Your approach depends entirely on your classified TASK_INTENT:
 
-This phase is for VERIFYING that provided tokens work, not for acquiring new tokens.
+## AUTHENTICATE Mode (credentials provided)
+1. Call \`load_auth_flow\` for any cached flow info
+2. Call \`authenticate\` with provided credentials
+   - Use loginUrl hint if provided
+   - Otherwise try common endpoints (/api/login, /login)
+3. Call \`validate_session\` to confirm success
+4. Call \`document_auth_flow\` to cache for future
+5. Call \`export_auth_for_agent\` to share auth state
+**DO NOT** run detect_auth_scheme or probe_auth_endpoints when you have credentials.
 
-## Phase 1: Context Recovery (if no pre-existing tokens)
-1. Call \`load_auth_flow\` to check for documented auth flow
-2. If flow exists: Skip detection, proceed directly to Phase 3
-3. If no flow: Proceed to Phase 2
+## REGISTER Mode (no credentials provided)
+1. Call \`load_auth_flow\` for any cached registration info
+2. Call \`probe_registration\` to find signup endpoint
+3. Generate test credentials immediately:
+   - email: test-{timestamp}@example.com
+   - username: testuser-{timestamp}
+   - password: TestPassword123!@#
+4. Call \`attempt_registration\` - actually SUBMIT the form
+5. If successful: Call \`authenticate\` with new credentials
+6. Call \`validate_session\` and \`export_auth_for_agent\`
+**DO NOT** just report findings - actually CREATE the account.
 
-## Phase 2: Discovery (if no documented flow)
-1. Call \`detect_auth_scheme\` on the target endpoint
-2. Identify: method (form/json/basic), login URL, field names, CSRF requirements
-3. Detect barriers: CAPTCHA, MFA, OAuth consent
+## DISCOVER Mode (explicitly asked to analyze)
+1. Call \`detect_auth_scheme\` on target endpoint
+2. Call \`probe_auth_endpoints\` if scheme unclear
+3. Report findings: auth type, login URL, required fields, barriers
+**Only use this mode when task explicitly asks for discovery/analysis.**
 
-## Phase 2.5: No Credentials Flow (if no credentials provided)
-When NO credentials are provided, attempt to acquire them:
+## TOKEN_VERIFICATION Mode (tokens provided)
+1. Call \`validate_session\` with provided tokens
+2. If valid: Store and export
+3. If invalid: Report failure
+**DO NOT** fall back to username/password auth.
 
-1. **Probe for Registration**:
-   - Call \`probe_registration\` to check if self-registration is available
-   - This discovers registration endpoints and required fields
+## TEST_EDGE_CASE Mode (specific test task)
+Execute the specific test requested:
+- Rate limiting: Make rapid sequential requests, track 429 responses
+- Session expiry: Auth, wait/manipulate, test rejection
+- MFA detection: Submit creds, check for second factor prompt
+**Actually EXECUTE the test, don't just analyze.**
 
-2. **If Registration is Open** (canRegister: true):
-   - Generate test credentials:
-     - email: test-{timestamp}@example.com
-     - username: testuser-{timestamp}
-     - password: TestPassword123!@#
-   - Call \`attempt_registration\` with the generated credentials
-   - If successful, proceed to Phase 3 with the new credentials
-
-3. **If Registration is Blocked** (barriers detected):
-   - Document the registration process in \`document_auth_flow\`
-   - Include barriers (invite_code, admin_approval, captcha, email_verification)
-   - Return partial result indicating what's needed for manual setup
-
-4. **If No Registration Endpoint Found**:
-   - Document that credentials are required
-   - Return failure with instructions on what credentials to provide
-
-## Phase 3: Authentication (using credentials)
-Based on detected scheme:
+## Authentication Methods (reference)
+Based on detected or specified scheme:
 
 ### HTTP-based (form_post, json_post, basic_auth, bearer, api_key):
 1. Call \`authenticate\` with appropriate method and credentials
@@ -203,6 +234,7 @@ export function buildAuthUserPrompt(input: {
   };
   authFlowHints?: {
     loginEndpoints?: string[];
+    protectedEndpoints?: string[];
     authScheme?: string;
     csrfRequired?: boolean;
     captchaDetected?: boolean;
@@ -230,30 +262,32 @@ ${input.target}
 `;
     const tokens = input.credentials!.tokens!;
     if (tokens.bearerToken) {
-      prompt += `- Bearer Token: [PROVIDED - ${tokens.bearerToken.length} characters]
+      prompt += `- Bearer Token: ${tokens.bearerToken}
   Use as: Authorization: Bearer <token>
 `;
     }
     if (tokens.cookies) {
-      prompt += `- Cookies: [PROVIDED - ${tokens.cookies.length} characters]
+      prompt += `- Cookies: ${tokens.cookies}
   Use as: Cookie header value
 `;
     }
     if (tokens.sessionToken) {
-      prompt += `- Session Token: [PROVIDED - ${tokens.sessionToken.length} characters]
+      prompt += `- Session Token: ${tokens.sessionToken}
 `;
     }
     if (tokens.customHeaders && Object.keys(tokens.customHeaders).length > 0) {
       prompt += `- Custom Headers:
 `;
       for (const [key, value] of Object.entries(tokens.customHeaders)) {
-        prompt += `  - ${key}: [${value.length} characters]
+        prompt += `  - ${key}: ${value}
 `;
       }
     }
     prompt += `
 **Instructions for Token Verification:**
 1. Use \`validate_session\` with the provided tokens to test if they grant access
+   - If protectedEndpoints are provided above, test against those FIRST (they are known to require auth)
+   - Otherwise try common endpoints: /api/data, /protected, /me, /api/me
 2. If valid: Report success and export the tokens for use
 3. If invalid: Report failure - do NOT fall back to username/password auth
 4. The goal is to verify IF these tokens work, not to acquire new ones
@@ -263,18 +297,18 @@ ${input.target}
 
   // Regular credentials (only show if no tokens, or as fallback info)
   if (input.credentials && !hasTokens) {
-    prompt += `## Provided Credentials
+    prompt += `## Provided Credentials - USE THESE NOW
 `;
     if (input.credentials.username) {
       prompt += `- Username: ${input.credentials.username}
 `;
     }
     if (input.credentials.password) {
-      prompt += `- Password: [PROVIDED - ${input.credentials.password.length} characters]
+      prompt += `- Password: ${input.credentials.password}
 `;
     }
     if (input.credentials.apiKey) {
-      prompt += `- API Key: [PROVIDED - ${input.credentials.apiKey.length} characters]
+      prompt += `- API Key: ${input.credentials.apiKey}
 `;
     }
     if (input.credentials.loginUrl) {
@@ -282,12 +316,28 @@ ${input.target}
 `;
     }
     prompt += `
+**CRITICAL: AUTHENTICATE MODE**
+You have working credentials. Your task is to USE THEM to authenticate.
+- DO NOT run discovery tools (detect_auth_scheme, probe_auth_endpoints)
+- DO NOT just analyze or report on auth mechanisms
+- GO DIRECTLY to authentication with these credentials
+
 `;
   }
 
   if (input.authFlowHints) {
     prompt += `## Auth Flow Hints (from attack surface analysis)
 `;
+    if (input.authFlowHints.protectedEndpoints?.length) {
+      prompt += `- **Protected Endpoints (USE THESE FIRST)**:
+`;
+      for (const endpoint of input.authFlowHints.protectedEndpoints) {
+        prompt += `  - ${endpoint}
+`;
+      }
+      prompt += `  These endpoints require authentication. Test your tokens/credentials against these.
+`;
+    }
     if (input.authFlowHints.loginEndpoints?.length) {
       prompt += `- Login Endpoints: ${input.authFlowHints.loginEndpoints.join(", ")}
 `;
@@ -317,46 +367,70 @@ ${input.target}
 
   // Different instructions based on what is provided
   if (hasTokens) {
+    const hasProtectedEndpoints = input.authFlowHints?.protectedEndpoints?.length;
     prompt += `## Instructions (Token Verification Mode)
 
 1. Use \`validate_session\` to test if the provided tokens grant authenticated access
-2. If the tokens work, store them and call \`export_auth_for_agent\`
+`;
+    if (hasProtectedEndpoints) {
+      prompt += `   - Test against the protected endpoints provided above: ${input.authFlowHints!.protectedEndpoints!.join(", ")}
+   - These are KNOWN to require auth - use them directly, don't guess endpoints
+`;
+    } else {
+      prompt += `   - Try common protected endpoints: /api/data, /protected, /me, /api/me
+`;
+    }
+    prompt += `2. If the tokens work, store them and call \`export_auth_for_agent\`
 3. Report success or failure via \`complete_authentication\`
 4. Do NOT attempt to log in with username/password - only verify the provided tokens
 
 Begin token verification now.
 `;
   } else if (hasCredentials) {
-    prompt += `## Instructions
+    prompt += `## Instructions (AUTHENTICATE MODE)
 
-1. First, call \`load_auth_flow\` to check for a documented auth flow for this target
-2. If flow exists, skip detection and authenticate using the documented flow
-3. If no flow, detect the auth scheme and authenticate
-4. After successful auth, document the flow for future runs
-5. Validate and export the authentication for other agents
+Your TASK_INTENT is AUTHENTICATE. You have credentials - use them.
 
-Begin authentication process now.
+1. Call \`load_auth_flow\` to check for a documented auth flow
+2. If flow exists: Call \`authenticate\` immediately with the documented method
+3. If no flow: Make ONE request to detect the login method, then authenticate
+   - If loginUrl hint provided: Use it directly
+   - If API target: Try POST with JSON credentials to /api/login or similar
+   - If web target: Try form POST to login page
+4. Call \`validate_session\` to confirm authentication worked
+5. Call \`document_auth_flow\` to save for future runs
+6. Call \`export_auth_for_agent\` to prepare auth for other agents
+
+IMPORTANT: Your goal is a SUCCESSFUL LOGIN, not a discovery report.
+If authentication fails, report the failure - do not fall back to discovery mode.
+
+Begin authentication NOW.
 `;
   } else {
-    prompt += `## Instructions (No Credentials Mode)
+    prompt += `## Instructions (REGISTER MODE)
 
-No credentials were provided. Follow this flow:
+Your TASK_INTENT is REGISTER. No credentials provided - you must CREATE an account.
 
-1. First, call \`load_auth_flow\` to check for a documented auth flow
-2. Call \`detect_auth_scheme\` to understand the auth requirements
-3. Call \`probe_registration\` to check if self-registration is available
-4. If registration is OPEN (canRegister: true):
-   - Generate test credentials (timestamp-based email/username, strong password)
-   - Call \`attempt_registration\` to create a test account
-   - Authenticate with the new credentials
-   - Document both the auth flow AND registration info
-5. If registration is BLOCKED (barriers detected):
-   - Document the registration barriers found
-   - Return partial result explaining what's needed for manual registration
-6. If NO registration endpoint found:
-   - Return failure with details about required credentials
+1. Call \`load_auth_flow\` to check for documented registration info
+2. Call \`probe_registration\` to find registration endpoint
+3. If registration is OPEN (canRegister: true):
+   - Generate test credentials NOW:
+     - email: test-${Date.now()}@example.com
+     - username: testuser-${Date.now()}
+     - password: TestPassword123!@#
+   - Call \`attempt_registration\` IMMEDIATELY with these credentials
+   - If successful: Call \`authenticate\` with the new credentials
+   - Call \`validate_session\` and \`export_auth_for_agent\`
+4. If registration is BLOCKED (barriers detected):
+   - Document the specific barriers found
+   - Return failure explaining what manual steps are needed
+5. If NO registration endpoint found:
+   - Return failure - credentials are required
 
-Begin discovery and registration probing now.
+IMPORTANT: Your goal is a REGISTERED ACCOUNT, not a discovery report.
+Actually SUBMIT the registration form - do not just analyze it.
+
+Begin registration NOW.
 `;
   }
 

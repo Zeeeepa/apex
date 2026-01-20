@@ -402,6 +402,7 @@ When to use delegate_to_auth_subagent vs authenticate_and_maintain_session:
         authScheme: z.string().optional().describe("Detected auth scheme (form, json, oauth, etc.)"),
         csrfRequired: z.boolean().optional().describe("Whether CSRF protection was detected"),
         browserRequired: z.boolean().optional().describe("Whether browser automation is needed"),
+        protectedEndpoints: z.array(z.string()).optional().describe("Protected endpoints discovered during recon that require auth (for token verification)"),
       }).optional().describe("Hints about the auth flow from discovery"),
       reason: z.string().describe("Why you are delegating to auth subagent"),
       toolCallDescription: z.string().describe("A concise description of what this tool call is doing"),
@@ -415,6 +416,9 @@ When to use delegate_to_auth_subagent vs authenticate_and_maintain_session:
           console.log(`   Auth Scheme: ${authHints.authScheme || "unknown"}`);
           console.log(`   CSRF Required: ${authHints.csrfRequired || false}`);
           console.log(`   Browser Required: ${authHints.browserRequired || false}`);
+          if (authHints.protectedEndpoints?.length) {
+            console.log(`   Protected Endpoints: ${authHints.protectedEndpoints.join(", ")}`);
+          }
         }
 
         const result = await runAuthenticationSubagent({
@@ -428,6 +432,7 @@ When to use delegate_to_auth_subagent vs authenticate_and_maintain_session:
             } : undefined,
             authFlowHints: authHints ? {
               loginEndpoints: loginUrl ? [loginUrl] : undefined,
+              protectedEndpoints: authHints.protectedEndpoints,
               authScheme: authHints.authScheme as any,
               csrfRequired: authHints.csrfRequired,
             } : undefined,

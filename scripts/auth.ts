@@ -38,6 +38,8 @@ interface AuthOptions {
   apiKey?: string;
   bearer?: string;
   cookies?: string;
+  headers?: Record<string, string>;
+  protectedEndpoints?: string[];
   noBrowser?: boolean;
   discoverOnly?: boolean;
 }
@@ -51,6 +53,8 @@ async function runAuth(options: AuthOptions): Promise<void> {
     apiKey,
     bearer,
     cookies,
+    headers,
+    protectedEndpoints,
     noBrowser = false,
     discoverOnly = false,
   } = options;
@@ -68,6 +72,8 @@ async function runAuth(options: AuthOptions): Promise<void> {
   if (apiKey) console.log(`API Key: [PROVIDED - ${apiKey.length} chars]`);
   if (bearer) console.log(`Bearer Token: [PROVIDED - ${bearer.length} chars]`);
   if (cookies) console.log(`Cookies: [PROVIDED - ${cookies.length} chars]`);
+  if (headers) console.log(`Custom Headers: ${Object.keys(headers).join(", ")}`);
+  if (protectedEndpoints?.length) console.log(`Protected Endpoints: ${protectedEndpoints.join(", ")}`);
   console.log();
 
   try {
@@ -205,14 +211,15 @@ async function runAuth(options: AuthOptions): Promise<void> {
     if (apiKey) credentials.apiKey = apiKey;
 
     // Handle pre-existing tokens
-    if (bearer || cookies) {
+    if (bearer || cookies || headers) {
       credentials.tokens = {};
       if (bearer) credentials.tokens.bearerToken = bearer;
       if (cookies) credentials.tokens.cookies = cookies;
+      if (headers) credentials.tokens.customHeaders = headers;
     }
 
     // Check if we have any credentials at all
-    const hasCredentials = username || apiKey || bearer || cookies;
+    const hasCredentials = username || apiKey || bearer || cookies || headers;
 
     if (!hasCredentials) {
       console.log("No credentials provided. Will discover auth requirements and probe for registration.");
@@ -224,6 +231,7 @@ async function runAuth(options: AuthOptions): Promise<void> {
         target,
         session,
         credentials: hasCredentials ? credentials : undefined,
+        authFlowHints: protectedEndpoints?.length ? { protectedEndpoints } : undefined,
       },
       model: model as AIModel,
       enableBrowserTools: !noBrowser,
@@ -368,10 +376,12 @@ async function main() {
     console.error("  --api-key <key>          API key");
     console.error("  --bearer <token>         Bearer token to verify");
     console.error("  --cookies <string>       Cookies to verify");
+    console.error("  --headers <json>         Custom headers as JSON (e.g., '{\"X-API-Key\":\"abc\"}')");
     console.error();
     console.error("Options:");
     console.error("  --model <model>          AI model (default: claude-sonnet-4-5)");
     console.error("                           Options: claude-sonnet-4-5, claude-opus-4, claude-haiku-4");
+    console.error("  --endpoints <urls>       Comma-separated protected endpoints to test tokens against");
     console.error("  --no-browser             Disable browser tools");
     console.error("  --discover-only          Only discover auth requirements, don't authenticate");
     console.error();
@@ -391,6 +401,12 @@ async function main() {
     console.error("  # No credentials (probes for registration)");
     console.error("  tsx scripts/auth.ts --target https://example.com");
     console.error();
+    console.error("  # With custom headers (API key, etc.)");
+    console.error('  tsx scripts/auth.ts --target https://api.example.com --headers \'{"X-API-Key":"abc123"}\'');
+    console.error();
+    console.error("  # With protected endpoints for token verification");
+    console.error('  tsx scripts/auth.ts --target https://api.example.com --bearer "token" --endpoints "/api/data,/api/users"');
+    console.error();
     process.exit(args.length === 0 ? 1 : 0);
   }
 
@@ -402,6 +418,8 @@ async function main() {
   const apiKeyIndex = args.indexOf("--api-key");
   const bearerIndex = args.indexOf("--bearer");
   const cookiesIndex = args.indexOf("--cookies");
+  const headersIndex = args.indexOf("--headers");
+  const endpointsIndex = args.indexOf("--endpoints");
   const noBrowser = args.includes("--no-browser");
   const discoverOnly = args.includes("--discover-only");
 
@@ -471,6 +489,31 @@ async function main() {
     }
   }
 
+  let headers: Record<string, string> | undefined;
+  if (headersIndex !== -1) {
+    const headersArg = args[headersIndex + 1];
+    if (!headersArg) {
+      console.error("Error: --headers must be followed by a JSON object");
+      process.exit(1);
+    }
+    try {
+      headers = JSON.parse(headersArg);
+    } catch {
+      console.error("Error: --headers must be valid JSON (e.g., '{\"X-API-Key\":\"abc123\"}')");
+      process.exit(1);
+    }
+  }
+
+  let protectedEndpoints: string[] | undefined;
+  if (endpointsIndex !== -1) {
+    const endpointsArg = args[endpointsIndex + 1];
+    if (!endpointsArg) {
+      console.error("Error: --endpoints must be followed by comma-separated URLs");
+      process.exit(1);
+    }
+    protectedEndpoints = endpointsArg.split(",").map((e) => e.trim()).filter(Boolean);
+  }
+
   try {
     await runAuth({
       target,
@@ -480,6 +523,8 @@ async function main() {
       ...(apiKey && { apiKey }),
       ...(bearer && { bearer }),
       ...(cookies && { cookies }),
+      ...(headers && { headers }),
+      ...(protectedEndpoints && { protectedEndpoints }),
       noBrowser,
       discoverOnly,
     });
