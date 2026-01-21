@@ -298,12 +298,19 @@ Many web applications hide functionality behind authentication. **AUTHENTICATION
    - authenticate_and_maintain_session failed
    - MFA or CAPTCHA barrier detected
    - The login page uses JavaScript to validate/submit forms
+   - Need to verify pre-existing tokens (bearer, API key, cookies)
+   - No credentials available (will probe for open registration)
 
    The auth subagent will:
    - Handle complex authentication flows automatically
    - Document the authentication process for re-authentication
    - Return cookies/headers for authenticated requests
    - Handle browser-based logins using Playwright
+   - Verify tokens against protected endpoints
+
+   **IMPORTANT: Pass protectedEndpoints to the auth subagent!**
+   When you discover endpoints that return 401/403 during recon, include them in authHints.protectedEndpoints.
+   This tells the auth subagent exactly which endpoints to test tokens against, improving success rate.
 
 3. **After obtaining authentication:**
    - **Use crawl_authenticated_area** to discover authenticated pages
@@ -1404,12 +1411,23 @@ Organize your discovered assets by category:
 - Returns: sessionCookie, headers, and documented auth flow
 - The auth subagent can also probe for registration if no credentials provided
 
+**Credential options (pass what you have):**
+- username/password: For form or JSON login
+- apiKey: For API key authentication
+- tokens.bearerToken: For Bearer/JWT token verification
+- tokens.cookies: For cookie-based session verification
+- tokens.customHeaders: For custom header auth (X-API-Key, X-Auth-Token, etc.)
+
+**Pass authHints.protectedEndpoints** with any endpoints that returned 401/403 during recon.
+This tells the auth subagent which endpoints to verify tokens against.
+
 **When to use which auth tool:**
 - Simple form/JSON POST without CSRF → authenticate_and_maintain_session
 - HTTP Basic Auth → authenticate_and_maintain_session
 - Complex flow (OAuth, CSRF, SPA) → delegate_to_auth_subagent
 - authenticate_and_maintain_session failed → delegate_to_auth_subagent
 - MFA or CAPTCHA detected → delegate_to_auth_subagent
+- Token verification (bearer, API key, cookies) → delegate_to_auth_subagent
 
 ### extract_javascript_endpoints
 - Extracts endpoint URLs from JavaScript using pattern matching
