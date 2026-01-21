@@ -2,6 +2,7 @@
 node_modules
 
 tmp
+temp
 
 # lockfiles (using bun, not npm)
 package-lock.json

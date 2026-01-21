@@ -32,6 +32,9 @@ import { createPocTool } from "../metaTestingAgent/pocTools";
 import { Logger } from "../logger";
 import { inferVulnerabilityClasses } from "../orchestrator/prompts";
 import type { DisplayMessage } from "../../../tui/components/agent-display";
+import { runAuthenticationSubagent } from "../authenticationSubagent";
+import { tool } from "ai";
+import { z } from "zod";
 
 /**
  * Cognitive testing loop for offensive stages (test/validate)
@@ -675,8 +678,90 @@ Document significant findings using the document_finding tool.`;
       pocTools = { create_poc };
     }
 
+    // Add authentication subagent tool - define schema first for type inference
+    const RunAuthSubagentInput = z.object({
+      target: z.string().describe("Target URL to authenticate against"),
+      username: z.string().optional().describe("Username if available"),
+      password: z.string().optional().describe("Password if available"),
+      reason: z.string().describe("Why you need to run authentication"),
+      toolCallDescription: z.string().describe("A concise description of what this tool call is doing"),
+    });
+
+    const run_auth_subagent = tool({
+      description: `Run the authentication subagent to obtain an authenticated session.
+
+Call this when:
+- You need to access authenticated endpoints
+- Current session is expired or invalid
+- User requested authentication
+- Complex auth flow detected (OAuth, SAML, CSRF tokens, SPA logins)
+
+Credentials are optional - if not provided, will discover auth requirements
+and probe for self-registration if available.
+
+This tool requires user approval (T3 tier - Probing).`,
+      inputSchema: RunAuthSubagentInput,
+      execute: async ({ target, username, password, reason }: z.infer<typeof RunAuthSubagentInput>) => {
+        // Emit event for UI to show auth in progress
+        this.emit("operator-event", { type: "auth-subagent-started", target });
+        this.log("auth_subagent_started", { target, reason, hasCredentials: !!(username || password) });
+
+        try {
+          const result = await runAuthenticationSubagent({
+            input: {
+              target,
+              session,
+              credentials: username || password ? { username, password } : undefined,
+            },
+            model: this.config.model,
+            enableBrowserTools: true,
+          });
+
+          // Emit result
+          this.emit("operator-event", {
+            type: "auth-subagent-completed",
+            success: result.success,
+            cookies: result.exportedCookies,
+            headers: result.exportedHeaders,
+          });
+
+          this.log("auth_subagent_completed", {
+            success: result.success,
+            strategy: result.strategy,
+            summary: result.summary,
+          });
+
+          return {
+            success: result.success,
+            authenticated: result.success,
+            strategy: result.strategy,
+            sessionCookie: result.exportedCookies || "",
+            headers: result.exportedHeaders || {},
+            authBarrier: result.authBarrier,
+            summary: result.summary,
+            message: result.success
+              ? `Authentication successful. Strategy: ${result.strategy}. ${result.summary}`
+              : `Authentication failed. ${result.summary}${result.authBarrier ? ` Barrier: ${result.authBarrier.type}` : ""}`,
+          };
+        } catch (error: any) {
+          this.emit("operator-event", {
+            type: "auth-subagent-completed",
+            success: false,
+          });
+          this.log("auth_subagent_error", { error: error.message });
+          return {
+            success: false,
+            authenticated: false,
+            message: `Auth subagent error: ${error.message}`,
+          };
+        }
+      },
+    });
+
+    const authTools = { run_auth_subagent };
+
     // Merge all tools and wrap with approval checking
-    const allTools = { ...baseTools, ...browserTools, ...pocTools };
+    const allTools = { ...baseTools, ...browserTools, ...pocTools, ...authTools };
     const wrappedTools = this.wrapToolsWithApproval(allTools);
 
     let findingsCount = 0;

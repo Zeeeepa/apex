@@ -126,6 +126,14 @@ function getStageSpecificSuggestions(
     case "enumerate":
       return [
         {
+          id: "authenticate-to-target",
+          label: "Authenticate to application",
+          description: "Run auth subagent to obtain authenticated session",
+          directive: "Authenticate to the target application using the auth subagent",
+          stage,
+          priority: "high",
+        },
+        {
           id: "map-params",
           label: "Map parameters",
           description: "Find all input parameters",
@@ -190,6 +198,14 @@ function getStageSpecificSuggestions(
           label: "Test authorization",
           description: "Check privilege escalation",
           directive: "Test authorization boundaries - can lower-privileged users access admin functions?",
+          stage,
+          priority: "medium",
+        },
+        {
+          id: "refresh-authentication",
+          label: "Refresh authentication",
+          description: "Re-authenticate if session expired",
+          directive: "Refresh authentication session using the auth subagent",
           stage,
           priority: "medium",
         },

@@ -73,13 +73,19 @@ const BrowserScreenshotInput = z.object({
 
 const BrowserClickInput = z.object({
   element: z.string().describe("Description of element to click, e.g., 'Submit button' or 'Login link'"),
+  ref: z.string().optional().describe("Element reference from browser_snapshot (e.g., 'e5'). If provided, uses exact element reference for precise clicking."),
   toolCallDescription: z.string().describe("Why you are clicking this element"),
 });
 
 const BrowserFillInput = z.object({
   element: z.string().describe("Description of form field, e.g., 'Username field' or 'Search input'"),
+  ref: z.string().optional().describe("Element reference from browser_snapshot (e.g., 'e3'). If provided, uses exact element reference for precise filling."),
   value: z.string().describe("Value to fill into the field"),
   toolCallDescription: z.string().describe("Why you are filling this field with this value"),
+});
+
+const BrowserSnapshotInput = z.object({
+  toolCallDescription: z.string().describe("Why you need to get the page snapshot"),
 });
 
 const BrowserEvaluateInput = z.object({
@@ -91,11 +97,26 @@ const BrowserConsoleInput = z.object({
   toolCallDescription: z.string().describe("Why you need to check console messages"),
 });
 
+const BrowserGetCookiesInput = z.object({
+  urls: z.array(z.string()).optional().describe("Optional list of URLs to get cookies for. If not provided, gets all cookies."),
+  toolCallDescription: z.string().describe("Why you need to extract cookies from the browser"),
+});
+
 // MCP Client singleton management
 let mcpClient: Client | null = null;
 let mcpTransport: StdioClientTransport | null = null;
 let isConnecting = false;
 let connectionPromise: Promise<Client> | null = null;
+let configuredHeadless = true;
+
+/**
+ * Configure headless mode for the next browser session.
+ * Call this BEFORE any browser tools are used.
+ * Default is headless=true for normal operation.
+ */
+export function setHeadlessMode(headless: boolean): void {
+  configuredHeadless = headless;
+}
 
 /**
  * Initialize or return existing MCP client connection
@@ -116,9 +137,14 @@ export async function initializeMcpClient(): Promise<Client> {
   isConnecting = true;
   connectionPromise = (async () => {
     try {
+      const args = ["@playwright/mcp@latest"];
+      if (configuredHeadless) {
+        args.push("--headless");
+      }
+
       const transport = new StdioClientTransport({
         command: "npx",
-        args: ["@playwright/mcp@latest", "--headless"],
+        args,
         stderr: "pipe",
       });
 
@@ -342,14 +368,61 @@ Use this to check for:
 - Network request failures revealing API patterns`,
 };
 
-export type BrowserToolMode = "pentest" | "operator";
+export type BrowserToolMode = "pentest" | "operator" | "auth";
+
+// Auth mode descriptions - focused on authentication flows
+const AUTH_DESCRIPTIONS = {
+  navigate: `Navigate the browser to a login page or auth endpoint.
+
+Use this to load login forms, OAuth authorization pages, or SPA apps that require browser rendering.
+The page will be fully loaded and JavaScript executed before returning.`,
+
+  screenshot: `Take a screenshot of the current page for evidence of authentication state.
+
+Use this to document:
+- Successful login confirmation
+- Error messages or failed auth attempts
+- Multi-factor authentication prompts`,
+
+  click: `Click on an element in the page by describing it.
+
+Use this to:
+- Submit login forms
+- Click "Sign in" or "Login" buttons
+- Navigate through OAuth consent flows
+- Click "Remember me" checkboxes`,
+
+  fill: `Fill a form field with a value.
+
+Use this to:
+- Enter username/email in login forms
+- Enter password in password fields
+- Fill OTP/verification codes (if provided)`,
+
+  evaluate: `Execute JavaScript in the browser context to extract auth tokens.
+
+CRITICAL for SPA authentication - use this to extract:
+- localStorage tokens: localStorage.getItem('token')
+- sessionStorage tokens: sessionStorage.getItem('access_token')
+- Cookies: document.cookie
+- Application state: window.__INITIAL_STATE__?.auth
+
+Returns the result of the JavaScript execution.`,
+
+  console: `Get console messages from the browser.
+
+Use this to check for:
+- Authentication errors logged to console
+- Token validation messages
+- API response logging`,
+};
 
 /**
  * Create browser automation tools
  *
  * @param targetUrl - Base target URL for context in descriptions
  * @param evidenceDir - Directory to save screenshots
- * @param mode - "pentest" for automated pentesting, "operator" for user-driven reconnaissance
+ * @param mode - "pentest" for automated pentesting, "operator" for user-driven reconnaissance, "auth" for authentication flows
  * @param logger - Optional logger for error reporting
  * @param abortSignal - Optional abort signal for cleanup
  */
@@ -370,7 +443,11 @@ export function createBrowserTools(
     mkdirSync(evidenceDir, { recursive: true });
   }
 
-  const descriptions = mode === "pentest" ? PENTEST_DESCRIPTIONS : OPERATOR_DESCRIPTIONS;
+  const descriptions = mode === "pentest"
+    ? PENTEST_DESCRIPTIONS
+    : mode === "auth"
+    ? AUTH_DESCRIPTIONS
+    : OPERATOR_DESCRIPTIONS;
 
   const browser_navigate = tool({
     description: `${descriptions.navigate}\n\nTarget base URL: ${targetUrl}`,
@@ -420,12 +497,40 @@ export function createBrowserTools(
     },
   });
 
-  const browser_click = tool({
-    description: descriptions.click,
-    inputSchema: BrowserClickInput,
-    execute: async ({ element, toolCallDescription }): Promise<BrowserClickResult> => {
+  const browser_snapshot = tool({
+    description: `Get the accessibility snapshot of the current page.
+
+IMPORTANT: Call this BEFORE using browser_click or browser_fill to get element references (refs).
+The snapshot returns an accessibility tree with elements marked like [ref=e5].
+Use these refs in browser_click and browser_fill for precise element targeting.
+
+Example workflow:
+1. Call browser_snapshot to get the page structure
+2. Find the element you need (e.g., "textbox 'Email'" with [ref=e3])
+3. Call browser_fill with ref="e3" to fill that specific element`,
+    inputSchema: BrowserSnapshotInput,
+    execute: async ({ toolCallDescription }): Promise<{ success: boolean; snapshot?: string; error?: string }> => {
       try {
-        const result = await callMcpTool("browser_click", { element });
+        const result = await callMcpTool("browser_snapshot", {});
+        return { success: true, snapshot: typeof result === 'string' ? result : JSON.stringify(result, null, 2) };
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : String(error);
+        logger?.error(`browser_snapshot failed: ${message}`);
+        return { success: false, error: message };
+      }
+    },
+  });
+
+  const browser_click = tool({
+    description: descriptions.click + `\n\nIMPORTANT: For reliable clicking, first call browser_snapshot to get element refs, then pass the ref parameter.`,
+    inputSchema: BrowserClickInput,
+    execute: async ({ element, ref, toolCallDescription }): Promise<BrowserClickResult> => {
+      try {
+        const args: Record<string, unknown> = { element };
+        if (ref) {
+          args.ref = ref;
+        }
+        const result = await callMcpTool("browser_click", args);
         return { success: true, element, result };
       } catch (error: unknown) {
         const message = error instanceof Error ? error.message : String(error);
@@ -436,12 +541,16 @@ export function createBrowserTools(
   });
 
   const browser_fill = tool({
-    description: descriptions.fill,
+    description: descriptions.fill + `\n\nIMPORTANT: For reliable form filling, first call browser_snapshot to get element refs, then pass the ref parameter.`,
     inputSchema: BrowserFillInput,
-    execute: async ({ element, value, toolCallDescription }): Promise<BrowserFillResult> => {
+    execute: async ({ element, ref, value, toolCallDescription }): Promise<BrowserFillResult> => {
       try {
         // Note: Playwright MCP uses "browser_type" for filling fields
-        const result = await callMcpTool("browser_type", { element, text: value });
+        const args: Record<string, unknown> = { element, text: value };
+        if (ref) {
+          args.ref = ref;
+        }
+        const result = await callMcpTool("browser_type", args);
         return { success: true, element, result };
       } catch (error: unknown) {
         const message = error instanceof Error ? error.message : String(error);
@@ -494,12 +603,64 @@ export function createBrowserTools(
     },
   });
 
+  const browser_get_cookies = tool({
+    description: `Extract cookies from the browser context, including httpOnly cookies.
+
+CRITICAL: Use this after successful browser authentication to get session cookies that can be used in HTTP requests.
+
+Returns all cookies including:
+- Session cookies (often httpOnly, not accessible via document.cookie)
+- Authentication tokens
+- CSRF tokens
+
+The returned cookies can be formatted as a Cookie header for use with http_request tool.`,
+    inputSchema: BrowserGetCookiesInput,
+    execute: async ({ urls, toolCallDescription }): Promise<{ success: boolean; cookies?: Array<{ name: string; value: string; domain: string; path: string; httpOnly: boolean; secure: boolean }>; cookieHeader?: string; error?: string }> => {
+      try {
+        const args: Record<string, unknown> = {};
+        if (urls && urls.length > 0) {
+          args.urls = urls;
+        }
+        const result = await callMcpTool("browser_get_cookies", args);
+
+        // Parse cookies from result
+        let cookies: Array<{ name: string; value: string; domain: string; path: string; httpOnly: boolean; secure: boolean }> = [];
+        if (Array.isArray(result)) {
+          cookies = result as typeof cookies;
+        } else if (typeof result === "string") {
+          try {
+            cookies = JSON.parse(result);
+          } catch {
+            // Result might be in a different format
+          }
+        } else if (result && typeof result === "object" && "cookies" in result) {
+          cookies = (result as { cookies: typeof cookies }).cookies;
+        }
+
+        // Build Cookie header string
+        const cookieHeader = cookies.map(c => `${c.name}=${c.value}`).join("; ");
+
+        return {
+          success: true,
+          cookies,
+          cookieHeader,
+        };
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : String(error);
+        logger?.error(`browser_get_cookies failed: ${message}`);
+        return { success: false, error: message };
+      }
+    },
+  });
+
   return {
     browser_navigate,
+    browser_snapshot,
     browser_screenshot,
     browser_click,
     browser_fill,
     browser_evaluate,
     browser_console,
+    browser_get_cookies,
   };
 }

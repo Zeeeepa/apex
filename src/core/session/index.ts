@@ -34,10 +34,20 @@ export namespace Session {
 
 
     const AuthCredentialsObject = z.object({
-        username: z.string(),
-        password: z.string(),
+        // Username/password auth
+        username: z.string().optional(),
+        password: z.string().optional(),
         loginUrl: z.string().optional(),
-        additionalFields: z.record(z.string(), z.string()).optional()
+        additionalFields: z.record(z.string(), z.string()).optional(),
+        // API key auth
+        apiKey: z.string().optional(),
+        // Pre-existing tokens for verification
+        tokens: z.object({
+            bearerToken: z.string().optional(),
+            cookies: z.string().optional(),
+            sessionToken: z.string().optional(),
+            customHeaders: z.record(z.string(), z.string()).optional(),
+        }).optional(),
     });
 
     export type AuthCredentials = z.infer<typeof AuthCredentialsObject>;
