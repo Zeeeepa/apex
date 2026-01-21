@@ -97,6 +97,11 @@ const BrowserConsoleInput = z.object({
   toolCallDescription: z.string().describe("Why you need to check console messages"),
 });
 
+const BrowserGetCookiesInput = z.object({
+  urls: z.array(z.string()).optional().describe("Optional list of URLs to get cookies for. If not provided, gets all cookies."),
+  toolCallDescription: z.string().describe("Why you need to extract cookies from the browser"),
+});
+
 // MCP Client singleton management
 let mcpClient: Client | null = null;
 let mcpTransport: StdioClientTransport | null = null;
@@ -598,6 +603,56 @@ Example workflow:
     },
   });
 
+  const browser_get_cookies = tool({
+    description: `Extract cookies from the browser context, including httpOnly cookies.
+
+CRITICAL: Use this after successful browser authentication to get session cookies that can be used in HTTP requests.
+
+Returns all cookies including:
+- Session cookies (often httpOnly, not accessible via document.cookie)
+- Authentication tokens
+- CSRF tokens
+
+The returned cookies can be formatted as a Cookie header for use with http_request tool.`,
+    inputSchema: BrowserGetCookiesInput,
+    execute: async ({ urls, toolCallDescription }): Promise<{ success: boolean; cookies?: Array<{ name: string; value: string; domain: string; path: string; httpOnly: boolean; secure: boolean }>; cookieHeader?: string; error?: string }> => {
+      try {
+        const args: Record<string, unknown> = {};
+        if (urls && urls.length > 0) {
+          args.urls = urls;
+        }
+        const result = await callMcpTool("browser_get_cookies", args);
+
+        // Parse cookies from result
+        let cookies: Array<{ name: string; value: string; domain: string; path: string; httpOnly: boolean; secure: boolean }> = [];
+        if (Array.isArray(result)) {
+          cookies = result as typeof cookies;
+        } else if (typeof result === "string") {
+          try {
+            cookies = JSON.parse(result);
+          } catch {
+            // Result might be in a different format
+          }
+        } else if (result && typeof result === "object" && "cookies" in result) {
+          cookies = (result as { cookies: typeof cookies }).cookies;
+        }
+
+        // Build Cookie header string
+        const cookieHeader = cookies.map(c => `${c.name}=${c.value}`).join("; ");
+
+        return {
+          success: true,
+          cookies,
+          cookieHeader,
+        };
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : String(error);
+        logger?.error(`browser_get_cookies failed: ${message}`);
+        return { success: false, error: message };
+      }
+    },
+  });
+
   return {
     browser_navigate,
     browser_snapshot,
@@ -606,5 +661,6 @@ Example workflow:
     browser_fill,
     browser_evaluate,
     browser_console,
+    browser_get_cookies,
   };
 }

@@ -318,6 +318,13 @@ Many web applications hide functionality behind authentication. **AUTHENTICATION
    - **Use test_endpoint_variations** to test different variations of discovered endpoints
    - **Use validate_discovery_completeness** to check coverage before final report
 
+4. **Session expiry detection:**
+   - If you start receiving 401/403 on endpoints that previously returned 200 → session likely expired
+   - Call delegate_to_auth_subagent again to re-authenticate
+   - The auth subagent will use the documented flow for fast re-authentication
+   - Resume authenticated discovery with fresh session tokens
+   - **Avoiding infinite loops:** If you re-authenticate but STILL get 401/403 on the same endpoint immediately after, it's a permissions issue (role lacks access) - document and move on. However, if the fresh session works and later expires again, re-authenticate as needed
+
 **Browser Tools for Auth Portals (Recommended for Modern Apps):**
 
 When you encounter a login page, use browser tools instead of HTTP requests:

@@ -619,18 +619,24 @@ CRITICAL: Always call browser_snapshot BEFORE browser_fill or browser_click to g
 7. **Fill Password**: \`browser_fill\` with element="Password field" AND ref="eY" (from snapshot)
 8. **Click Login**: \`browser_click\` with element="Sign in" AND ref="eZ" (from snapshot)
 9. **Verify Result**: \`browser_screenshot\` to capture final state
-10. **Extract Tokens**: \`browser_evaluate\` with script:
+10. **Extract Session Cookies**: \`browser_get_cookies\` to get httpOnly session cookies
+    - This returns cookies including httpOnly ones that document.cookie can't access
+11. **Extract Bearer Tokens**: \`browser_evaluate\` with script to get tokens from storage:
    \`\`\`javascript
-   JSON.stringify({
-     localStorage: Object.fromEntries(
-       Object.keys(localStorage).map(k => [k, localStorage.getItem(k)])
-     ),
-     sessionStorage: Object.fromEntries(
-       Object.keys(sessionStorage).map(k => [k, sessionStorage.getItem(k)])
-     ),
-     cookies: document.cookie
-   })
+   (() => {
+     const tokens = {};
+     // Common token keys in localStorage
+     ['token', 'access_token', 'accessToken', 'auth_token', 'authToken', 'jwt', 'id_token', 'idToken'].forEach(key => {
+       const val = localStorage.getItem(key) || sessionStorage.getItem(key);
+       if (val) tokens[key] = val;
+     });
+     return JSON.stringify(tokens);
+   })()
    \`\`\`
+12. **Store All Credentials**: \`store_browser_cookies\` with:
+    - \`cookies\`: array from browser_get_cookies
+    - \`bearerToken\`: the JWT/access token from localStorage (if found)
+    - This makes both Cookie header AND Authorization header available for HTTP requests
 
 ### Key Rules:
 - The \`ref\` parameter is REQUIRED for browser_fill and browser_click to work reliably

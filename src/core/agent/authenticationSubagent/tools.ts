@@ -7,6 +7,7 @@
  */
 
 import { tool } from "ai";
+import { z } from "zod";
 import type { Session } from "../../session";
 import type { Logger } from "../logger";
 import { AuthStateManager, extractCookiesFromHeaders, getJWTExpiration } from "./authStateManager";
@@ -1010,6 +1011,103 @@ Use this to check authentication status before making requests.`,
   });
 
   // ===========================================================================
+  // Tool: store_browser_cookies
+  // ===========================================================================
+
+  const store_browser_cookies = tool({
+    description: `Store cookies and tokens extracted from browser into the auth state.
+
+CRITICAL: Call this AFTER browser_get_cookies and browser_evaluate to save auth credentials.
+
+This tool stores:
+- Cookies from browser_get_cookies (for Cookie header)
+- Bearer token from localStorage/sessionStorage (for Authorization header)
+
+The stored credentials will be available via exportedCookies and exportedHeaders for HTTP requests.`,
+    inputSchema: z.object({
+      cookies: z.array(z.object({
+        name: z.string(),
+        value: z.string(),
+        domain: z.string().optional(),
+        path: z.string().optional(),
+        httpOnly: z.boolean().optional(),
+        secure: z.boolean().optional(),
+      })).optional().describe("Cookies array from browser_get_cookies"),
+      bearerToken: z.string().optional().describe("Bearer/JWT token from localStorage or sessionStorage (e.g., from browser_evaluate extracting localStorage.getItem('token'))"),
+      accessToken: z.string().optional().describe("Access token if different from bearer token"),
+      toolCallDescription: z.string().describe("Why you are storing these credentials"),
+    }),
+    execute: async ({ cookies, bearerToken, accessToken, toolCallDescription }): Promise<{ success: boolean; message: string; tokenCount: number; cookieHeader?: string; authHeader?: string }> => {
+      logger?.info(`store_browser_cookies: Storing ${cookies?.length || 0} cookies, bearer: ${!!bearerToken}`);
+
+      try {
+        let storedCount = 0;
+
+        // Store cookies
+        if (cookies && cookies.length > 0) {
+          for (const cookie of cookies) {
+            authStateManager.addToken({
+              type: "cookie",
+              name: cookie.name,
+              value: cookie.value,
+              source: "browser",
+              expiresAt: undefined,
+            });
+            storedCount++;
+          }
+        }
+
+        // Store bearer token
+        if (bearerToken) {
+          authStateManager.addToken({
+            type: "bearer",
+            name: "Authorization",
+            value: bearerToken,
+            source: "browser",
+            expiresAt: undefined,
+          });
+          storedCount++;
+        }
+
+        // Store access token (if different)
+        if (accessToken && accessToken !== bearerToken) {
+          authStateManager.addToken({
+            type: "bearer",
+            name: "access_token",
+            value: accessToken,
+            source: "browser",
+            expiresAt: undefined,
+          });
+          storedCount++;
+        }
+
+        // Mark auth as active
+        authStateManager.setStatus("active");
+        authStateManager.updateState({ authenticatedAt: Date.now() });
+
+        // Build response with ready-to-use headers
+        const cookieHeader = cookies?.map(c => `${c.name}=${c.value}`).join("; ") || "";
+        const authHeader = bearerToken ? `Bearer ${bearerToken}` : undefined;
+
+        return {
+          success: true,
+          message: `Stored ${storedCount} credential(s). Auth state is now active.${authHeader ? ' Bearer token available.' : ''}${cookieHeader ? ' Cookies available.' : ''}`,
+          tokenCount: storedCount,
+          cookieHeader: cookieHeader || undefined,
+          authHeader,
+        };
+      } catch (error) {
+        const errorMsg = error instanceof Error ? error.message : String(error);
+        return {
+          success: false,
+          message: `Failed to store credentials: ${errorMsg}`,
+          tokenCount: 0,
+        };
+      }
+    },
+  });
+
+  // ===========================================================================
   // Tool: export_auth_for_agent
   // ===========================================================================
 
@@ -1604,6 +1702,7 @@ Returns the credentials if successful, or barriers if blocked.`,
     validate_session,
     refresh_session,
     get_auth_state,
+    store_browser_cookies,
     export_auth_for_agent,
     probe_auth_endpoints,
     probe_registration,
