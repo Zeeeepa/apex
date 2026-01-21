@@ -222,6 +222,7 @@ export async function runAuthenticationSubagent(
   // Result tracking
   let authSummary = "";
   let detectedBarrier: AuthBarrier | undefined;
+  let agentReportedSuccess: boolean | undefined;
 
   // Completion tool to signal end of authentication
   const complete_authentication = tool({
@@ -247,6 +248,7 @@ Provide a clear summary of the authentication outcome.`,
     }),
     execute: async (result) => {
       authSummary = result.summary;
+      agentReportedSuccess = result.success;
       if (result.authBarrier) {
         detectedBarrier = result.authBarrier;
       }
@@ -353,14 +355,18 @@ Provide a clear summary of the authentication outcome.`,
 
       // Build result
       const finalState = authStateManager.getState();
-      const success = finalState.status === "active" && finalState.tokens.length > 0;
+      // Success is determined by either:
+      // 1. AuthStateManager has active tokens (HTTP-based auth)
+      // 2. Agent explicitly reported success (browser-based auth where cookies are httpOnly)
+      const hasActiveTokens = finalState.status === "active" && finalState.tokens.length > 0;
+      const success = hasActiveTokens || (agentReportedSuccess === true && !detectedBarrier);
 
       const result: AuthenticationSubagentResult = {
         success,
         authState: finalState,
         strategy,
-        exportedHeaders: success ? authStateManager.getAuthHeaders() : undefined,
-        exportedCookies: success ? authStateManager.getCookieString() || undefined : undefined,
+        exportedHeaders: hasActiveTokens ? authStateManager.getAuthHeaders() : undefined,
+        exportedCookies: hasActiveTokens ? authStateManager.getCookieString() || undefined : undefined,
         authBarrier: detectedBarrier,
         summary: authSummary || buildDefaultSummary(finalState, target),
       };

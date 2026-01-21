@@ -73,13 +73,19 @@ const BrowserScreenshotInput = z.object({
 
 const BrowserClickInput = z.object({
   element: z.string().describe("Description of element to click, e.g., 'Submit button' or 'Login link'"),
+  ref: z.string().optional().describe("Element reference from browser_snapshot (e.g., 'e5'). If provided, uses exact element reference for precise clicking."),
   toolCallDescription: z.string().describe("Why you are clicking this element"),
 });
 
 const BrowserFillInput = z.object({
   element: z.string().describe("Description of form field, e.g., 'Username field' or 'Search input'"),
+  ref: z.string().optional().describe("Element reference from browser_snapshot (e.g., 'e3'). If provided, uses exact element reference for precise filling."),
   value: z.string().describe("Value to fill into the field"),
   toolCallDescription: z.string().describe("Why you are filling this field with this value"),
+});
+
+const BrowserSnapshotInput = z.object({
+  toolCallDescription: z.string().describe("Why you need to get the page snapshot"),
 });
 
 const BrowserEvaluateInput = z.object({
@@ -96,6 +102,16 @@ let mcpClient: Client | null = null;
 let mcpTransport: StdioClientTransport | null = null;
 let isConnecting = false;
 let connectionPromise: Promise<Client> | null = null;
+let configuredHeadless = true;
+
+/**
+ * Configure headless mode for the next browser session.
+ * Call this BEFORE any browser tools are used.
+ * Default is headless=true for normal operation.
+ */
+export function setHeadlessMode(headless: boolean): void {
+  configuredHeadless = headless;
+}
 
 /**
  * Initialize or return existing MCP client connection
@@ -116,9 +132,14 @@ export async function initializeMcpClient(): Promise<Client> {
   isConnecting = true;
   connectionPromise = (async () => {
     try {
+      const args = ["@playwright/mcp@latest"];
+      if (configuredHeadless) {
+        args.push("--headless");
+      }
+
       const transport = new StdioClientTransport({
         command: "npx",
-        args: ["@playwright/mcp@latest", "--headless"],
+        args,
         stderr: "pipe",
       });
 
@@ -471,12 +492,40 @@ export function createBrowserTools(
     },
   });
 
-  const browser_click = tool({
-    description: descriptions.click,
-    inputSchema: BrowserClickInput,
-    execute: async ({ element, toolCallDescription }): Promise<BrowserClickResult> => {
+  const browser_snapshot = tool({
+    description: `Get the accessibility snapshot of the current page.
+
+IMPORTANT: Call this BEFORE using browser_click or browser_fill to get element references (refs).
+The snapshot returns an accessibility tree with elements marked like [ref=e5].
+Use these refs in browser_click and browser_fill for precise element targeting.
+
+Example workflow:
+1. Call browser_snapshot to get the page structure
+2. Find the element you need (e.g., "textbox 'Email'" with [ref=e3])
+3. Call browser_fill with ref="e3" to fill that specific element`,
+    inputSchema: BrowserSnapshotInput,
+    execute: async ({ toolCallDescription }): Promise<{ success: boolean; snapshot?: string; error?: string }> => {
       try {
-        const result = await callMcpTool("browser_click", { element });
+        const result = await callMcpTool("browser_snapshot", {});
+        return { success: true, snapshot: typeof result === 'string' ? result : JSON.stringify(result, null, 2) };
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : String(error);
+        logger?.error(`browser_snapshot failed: ${message}`);
+        return { success: false, error: message };
+      }
+    },
+  });
+
+  const browser_click = tool({
+    description: descriptions.click + `\n\nIMPORTANT: For reliable clicking, first call browser_snapshot to get element refs, then pass the ref parameter.`,
+    inputSchema: BrowserClickInput,
+    execute: async ({ element, ref, toolCallDescription }): Promise<BrowserClickResult> => {
+      try {
+        const args: Record<string, unknown> = { element };
+        if (ref) {
+          args.ref = ref;
+        }
+        const result = await callMcpTool("browser_click", args);
         return { success: true, element, result };
       } catch (error: unknown) {
         const message = error instanceof Error ? error.message : String(error);
@@ -487,12 +536,16 @@ export function createBrowserTools(
   });
 
   const browser_fill = tool({
-    description: descriptions.fill,
+    description: descriptions.fill + `\n\nIMPORTANT: For reliable form filling, first call browser_snapshot to get element refs, then pass the ref parameter.`,
     inputSchema: BrowserFillInput,
-    execute: async ({ element, value, toolCallDescription }): Promise<BrowserFillResult> => {
+    execute: async ({ element, ref, value, toolCallDescription }): Promise<BrowserFillResult> => {
       try {
         // Note: Playwright MCP uses "browser_type" for filling fields
-        const result = await callMcpTool("browser_type", { element, text: value });
+        const args: Record<string, unknown> = { element, text: value };
+        if (ref) {
+          args.ref = ref;
+        }
+        const result = await callMcpTool("browser_type", args);
         return { success: true, element, result };
       } catch (error: unknown) {
         const message = error instanceof Error ? error.message : String(error);
@@ -547,6 +600,7 @@ export function createBrowserTools(
 
   return {
     browser_navigate,
+    browser_snapshot,
     browser_screenshot,
     browser_click,
     browser_fill,

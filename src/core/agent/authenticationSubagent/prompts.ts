@@ -606,12 +606,20 @@ export const BROWSER_FLOW_GUIDANCE = `
 
 When browser authentication is required (SPA, OAuth, JS-rendered forms):
 
+CRITICAL: Always call browser_snapshot BEFORE browser_fill or browser_click to get element refs!
+
+### Step-by-step workflow:
+
 1. **Navigate**: \`browser_navigate\` to the login URL
-2. **Fill Username**: \`browser_fill\` element="Username field" or "Email field"
-3. **Fill Password**: \`browser_fill\` element="Password field"
-4. **Submit**: \`browser_click\` element="Login button" or "Sign in button"
-5. **Wait/Verify**: \`browser_screenshot\` to capture result
-6. **Extract Tokens**: \`browser_evaluate\` with script:
+2. **Get Snapshot**: \`browser_snapshot\` - returns accessibility tree with element refs like [ref=e3]
+3. **Fill Email/Username**: \`browser_fill\` with element="Email field" AND ref="e3" (from snapshot)
+4. **Get New Snapshot**: \`browser_snapshot\` again (page may have changed after input)
+5. **Click Continue/Next**: \`browser_click\` with element="Continue" AND ref="eX" (from snapshot)
+6. **Get Password Page Snapshot**: \`browser_snapshot\` to find password field on new page
+7. **Fill Password**: \`browser_fill\` with element="Password field" AND ref="eY" (from snapshot)
+8. **Click Login**: \`browser_click\` with element="Sign in" AND ref="eZ" (from snapshot)
+9. **Verify Result**: \`browser_screenshot\` to capture final state
+10. **Extract Tokens**: \`browser_evaluate\` with script:
    \`\`\`javascript
    JSON.stringify({
      localStorage: Object.fromEntries(
@@ -623,6 +631,12 @@ When browser authentication is required (SPA, OAuth, JS-rendered forms):
      cookies: document.cookie
    })
    \`\`\`
+
+### Key Rules:
+- The \`ref\` parameter is REQUIRED for browser_fill and browser_click to work reliably
+- Call browser_snapshot after EVERY page change (navigation, clicking buttons, submitting forms)
+- Element refs change when the DOM updates, so always use fresh refs from the most recent snapshot
+- Parse the snapshot output to find elements like: textbox "Your email address" [ref=e5]
 
 Remember to document browser flow specifics (selectors, indicators) in \`document_auth_flow\`.
 `;
