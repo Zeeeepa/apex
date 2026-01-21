@@ -1050,7 +1050,6 @@ The stored credentials will be available via exportedCookies and exportedHeaders
               type: "cookie",
               name: cookie.name,
               value: cookie.value,
-              source: "browser",
               expiresAt: undefined,
             });
             storedCount++;
@@ -1063,7 +1062,6 @@ The stored credentials will be available via exportedCookies and exportedHeaders
             type: "bearer",
             name: "Authorization",
             value: bearerToken,
-            source: "browser",
             expiresAt: undefined,
           });
           storedCount++;
@@ -1075,7 +1073,6 @@ The stored credentials will be available via exportedCookies and exportedHeaders
             type: "bearer",
             name: "access_token",
             value: accessToken,
-            source: "browser",
             expiresAt: undefined,
           });
           storedCount++;
