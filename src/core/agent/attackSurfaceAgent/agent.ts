@@ -213,7 +213,7 @@ export async function runAgent(opts: RunAgentProps): Promise<{
   }
 
   // Create tools with session context
-  const { analyze_scan, execute_command, http_request, cve_lookup, smart_enumerate } = createPentestTools(
+  const { analyze_scan, execute_command, http_request, cve_lookup } = createPentestTools(
     session,
     model,
     toolOverride,
@@ -1147,7 +1147,15 @@ CRITICAL: When identifying targets for penetration testing, YOU MUST include the
 SCOPE CONSTRAINTS:
 ${scopeDescription}
 
-Begin your attack surface analysis by:
+${
+  enumerationContext
+    ? `<pre_enumeration_results>
+${enumerationContext}
+</pre_enumeration_results>
+
+`
+    : ""
+}Begin your attack surface analysis by:
 1. Understanding the target scope (is it a domain, IP, URL, network range, or organization?)
 2. Performing comprehensive reconnaissance to map the attack surface WITHIN SCOPE
 3. Identifying assets, services, endpoints, and potential entry points
@@ -1203,7 +1211,6 @@ You MUST provide the final report using create_attack_surface_report tool.
       validate_discovery_completeness,
       create_attack_surface_report,
       cve_lookup,
-      smart_enumerate,
       // Browser automation tools for JavaScript-heavy apps and SPAs
       ...browserTools,
     },

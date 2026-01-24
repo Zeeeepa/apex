@@ -1734,7 +1734,7 @@ recommendations for further testing based on the technology stack.`,
     inputSchema: SmartEnumerateInput,
     execute: async ({
       url,
-      depth = 2,
+      depth = 3,
       extensions,
       timeout = 120,
       threads = 20,
@@ -1742,7 +1742,7 @@ recommendations for further testing based on the technology stack.`,
       const startTime = Date.now();
 
       // Build feroxagent command
-      let cmd = `feroxagent -u "${url}" --json -d ${depth} -t ${threads} --timeout ${timeout}`;
+      let cmd = `katana -u ${url} | feroxagent -u "${url}" --json -d ${depth} -t ${threads} --timeout ${timeout}`;
 
       // Add extensions if specified
       if (extensions && extensions.length > 0) {

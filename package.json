@@ -65,6 +65,7 @@
   "dependencies": {
     "@ai-sdk/amazon-bedrock": "^3.0.34",
     "@ai-sdk/anthropic": "^2.0.26",
+    "@ai-sdk/baseten": "^1.0.20",
     "@ai-sdk/openai": "^2.0.48",
     "@daytonaio/sdk": "^0.112.1",
     "@modelcontextprotocol/sdk": "^1.0.0",
