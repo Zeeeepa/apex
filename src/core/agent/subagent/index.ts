@@ -39,6 +39,7 @@ function createSubAgentSession(
   mkdirSync(rootPath, { recursive: true });
   mkdirSync(join(rootPath, "scripts"), { recursive: true });
   mkdirSync(join(rootPath, "findings"), { recursive: true });
+  mkdirSync(join(rootPath, "logs"), { recursive: true });
 
   return {
     id: subagentId,
@@ -49,6 +50,7 @@ function createSubAgentSession(
     verificationPath: join(rootPath, "verification.json"),
     findingsPath: join(rootPath, "findings"),
     scriptsPath: join(rootPath, "scripts"),
+    logsPath: join(rootPath, "logs"),
   };
 }
 

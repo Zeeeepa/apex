@@ -34,7 +34,8 @@ export type AIModelProvider =
   | 'openai'
   | 'openrouter'
   | 'bedrock'
-  | 'local';
+  | 'local'
+  | 'baseten';
 
 // Helper function to wrap a stream with error handling for async errors
 function wrapStreamWithErrorHandler(

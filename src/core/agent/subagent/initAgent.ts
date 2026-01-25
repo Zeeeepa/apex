@@ -2,7 +2,9 @@ import { streamResponse, type AIModel } from "../../ai";
 import { hasToolCall } from "ai";
 import type { SubAgentSession, InitAgentResult, AttackPlan, VerificationCriteria } from "./types";
 import { createInitAgentTools } from "./tools";
-import { existsSync, readFileSync } from "fs";
+import { existsSync, readFileSync, appendFileSync } from "fs";
+import { join } from "path";
+import { Messages } from "../../messages";
 
 const INIT_SYSTEM_PROMPT = `You are a security testing initialization agent. Your job is to:
 
@@ -38,12 +40,24 @@ Define clear success/failure indicators. For example:
 
 Call complete_init when you have created both the plan and verification criteria.`;
 
+function logToFile(logsPath: string, message: string): void {
+  const timestamp = new Date().toISOString();
+  const logEntry = `${timestamp} - ${message}\n`;
+  try {
+    appendFileSync(join(logsPath, "init.log"), logEntry, "utf8");
+  } catch {}
+}
+
 export async function runInitAgent(
   subagentSession: SubAgentSession,
   model: AIModel,
   abortSignal?: AbortSignal
 ): Promise<InitAgentResult> {
-  const { config, planPath, verificationPath } = subagentSession;
+  const { config, planPath, verificationPath, logsPath, rootPath } = subagentSession;
+
+  logToFile(logsPath, `[INFO] Starting init phase for endpoint: ${config.endpoint}`);
+  logToFile(logsPath, `[INFO] Vulnerability class: ${config.vulnerabilityClass}`);
+  logToFile(logsPath, `[INFO] Whitebox mode: ${config.whiteboxMode}`);
 
   const tools = createInitAgentTools(subagentSession);
 
@@ -73,12 +87,30 @@ Use search_code to find relevant handlers, validation logic, and database querie
       stopWhen: hasToolCall("complete_init"),
       abortSignal,
       silent: true,
+      onStepFinish: (step) => {
+        for (const toolCall of step.toolCalls) {
+          logToFile(logsPath, `[INFO] Tool call: ${toolCall.toolName}`);
+        }
+        for (const toolResult of step.toolResults) {
+          logToFile(logsPath, `[INFO] Tool result: ${toolResult.toolName} - completed`);
+        }
+      },
     });
 
     for await (const chunk of streamResult.fullStream) {
       if (chunk.type === "error") {
         throw (chunk as any).error;
       }
+    }
+
+    // Capture and save messages
+    try {
+      const response = await streamResult.response;
+      const messages = response.messages;
+      Messages.saveSubagentPhaseMessages(rootPath, "init", messages);
+      logToFile(logsPath, `[INFO] Saved ${messages.length} messages to init-messages.json`);
+    } catch (msgError: any) {
+      logToFile(logsPath, `[WARN] Failed to save messages: ${msgError.message}`);
     }
 
     let plan: AttackPlan | null = null;
@@ -92,6 +124,7 @@ Use search_code to find relevant handlers, validation logic, and database querie
     }
 
     if (!plan || !verificationCriteria) {
+      logToFile(logsPath, `[ERROR] Init agent did not create required artifacts`);
       return {
         success: false,
         plan: plan || ({} as AttackPlan),
@@ -100,12 +133,15 @@ Use search_code to find relevant handlers, validation logic, and database querie
       };
     }
 
+    logToFile(logsPath, `[INFO] Init phase completed successfully`);
+    logToFile(logsPath, `[INFO] Plan phases: ${plan.phases?.length || 0}`);
     return {
       success: true,
       plan,
       verificationCriteria,
     };
   } catch (error: any) {
+    logToFile(logsPath, `[ERROR] Init phase failed: ${error.message}`);
     return {
       success: false,
       plan: {} as AttackPlan,

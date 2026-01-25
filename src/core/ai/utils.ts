@@ -3,6 +3,7 @@ import { streamResponse, type AIModel, type StreamResponseOpts } from './ai';
 import { createOpenRouter } from '@openrouter/ai-sdk-provider';
 import { createAmazonBedrock } from '@ai-sdk/amazon-bedrock';
 import { createAnthropic } from '@ai-sdk/anthropic';
+import { createBaseten } from '@ai-sdk/baseten';
 import { getModelInfo } from './models';
 import {
   generateText,
@@ -17,6 +18,7 @@ export type AIAuthConfig = {
   openAiAPIKey?: string;
   anthropicAPIKey?: string;
   openRouterAPIKey?: string;
+  basetenAPIKey?: string;
   bedrock?: {
     accessKeyId?: string;
     secretAccessKey?: string;
@@ -39,6 +41,8 @@ export function getProviderModel(
     authConfig?.anthropicAPIKey || process.env.ANTHROPIC_API_KEY;
   const openRouterAPIKey =
     authConfig?.openRouterAPIKey || process.env.OPENROUTER_API_KEY;
+  const basetenAPIKey =
+    authConfig?.basetenAPIKey || process.env.BASETEN_API_KEY;
   const bedrockAccessKeyId =
     authConfig?.bedrock?.accessKeyId || process.env.AWS_ACCESS_KEY_ID;
   const bedrockSecretAccessKey =
@@ -87,6 +91,13 @@ export function getProviderModel(
         baseURL: localBaseURL,
         apiKey: '',
       }).chat(model);
+      break;
+
+    case 'baseten':
+      const baseten = createBaseten({
+        apiKey: basetenAPIKey,
+      });
+      providerModel = baseten(model) as unknown as LanguageModel;
       break;
 
     default:

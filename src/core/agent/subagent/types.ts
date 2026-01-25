@@ -112,6 +112,7 @@ export interface SubAgentSession {
   verificationPath: string;
   findingsPath: string;
   scriptsPath: string;
+  logsPath: string;
 }
 
 export interface InitAgentResult {

@@ -3,8 +3,9 @@ import { hasToolCall } from "ai";
 import type { SubAgentSession, AttackAgentResult, Finding, AttackPlan, VerificationCriteria } from "./types";
 import { createAttackAgentTools } from "./tools";
 import type { Session } from "../../session";
-import { existsSync, readFileSync, readdirSync } from "fs";
+import { existsSync, readFileSync, readdirSync, appendFileSync } from "fs";
 import { join } from "path";
+import { Messages } from "../../messages";
 
 const ATTACK_SYSTEM_PROMPT = `You are a security testing attack agent. Your job is to execute the attack plan and find vulnerabilities.
 
@@ -69,6 +70,14 @@ Before documenting any finding:
 
 Call complete_attack when testing is done.`;
 
+function logToFile(logsPath: string, message: string): void {
+  const timestamp = new Date().toISOString();
+  const logEntry = `${timestamp} - ${message}\n`;
+  try {
+    appendFileSync(join(logsPath, "attack.log"), logEntry, "utf8");
+  } catch {}
+}
+
 export async function runAttackAgent(
   subagentSession: SubAgentSession,
   session: Session.SessionInfo,
@@ -79,7 +88,10 @@ export async function runAttackAgent(
     execute_command?: (opts: any) => Promise<any>;
   }
 ): Promise<AttackAgentResult> {
-  const { config, planPath, verificationPath, findingsPath } = subagentSession;
+  const { config, planPath, verificationPath, findingsPath, logsPath, rootPath } = subagentSession;
+
+  logToFile(logsPath, `[INFO] Starting attack phase for endpoint: ${config.endpoint}`);
+  logToFile(logsPath, `[INFO] Vulnerability class: ${config.vulnerabilityClass}`);
 
   const tools = createAttackAgentTools(subagentSession, session, workspace, toolOverride);
 
@@ -92,9 +104,11 @@ export async function runAttackAgent(
 
   if (existsSync(planPath)) {
     plan = JSON.parse(readFileSync(planPath, "utf-8"));
+    logToFile(logsPath, `[INFO] Loaded attack plan with ${plan?.phases?.length || 0} phases`);
   }
   if (existsSync(verificationPath)) {
     verificationCriteria = JSON.parse(readFileSync(verificationPath, "utf-8"));
+    logToFile(logsPath, `[INFO] Loaded verification criteria`);
   }
 
   let userPrompt = `Execute the attack plan for ${config.endpoint} targeting ${config.vulnerabilityClass}.`;
@@ -123,13 +137,30 @@ Call complete_attack when done.`;
       stopWhen: hasToolCall("complete_attack"),
       abortSignal,
       silent: true,
+      onStepFinish: (step) => {
+        for (const toolCall of step.toolCalls) {
+          logToFile(logsPath, `[INFO] Tool call: ${toolCall.toolName}`);
+        }
+        for (const toolResult of step.toolResults) {
+          logToFile(logsPath, `[INFO] Tool result: ${toolResult.toolName} - completed`);
+        }
+      },
     });
 
-    let summary = "";
     for await (const chunk of streamResult.fullStream) {
       if (chunk.type === "error") {
         throw (chunk as any).error;
       }
+    }
+
+    // Capture and save messages
+    try {
+      const response = await streamResult.response;
+      const messages = response.messages;
+      Messages.saveSubagentPhaseMessages(rootPath, "attack", messages);
+      logToFile(logsPath, `[INFO] Saved ${messages.length} messages to attack-messages.json`);
+    } catch (msgError: any) {
+      logToFile(logsPath, `[WARN] Failed to save messages: ${msgError.message}`);
     }
 
     const findings: Finding[] = [];
@@ -142,6 +173,9 @@ Call complete_attack when done.`;
         } catch {}
       }
     }
+
+    logToFile(logsPath, `[INFO] Attack phase completed successfully`);
+    logToFile(logsPath, `[INFO] Findings count: ${findings.length}`);
 
     return {
       success: true,
@@ -149,6 +183,8 @@ Call complete_attack when done.`;
       summary: `Attack phase complete. Found ${findings.length} vulnerabilities.`,
     };
   } catch (error: any) {
+    logToFile(logsPath, `[ERROR] Attack phase failed: ${error.message}`);
+
     const findings: Finding[] = [];
     if (existsSync(findingsPath)) {
       const files = readdirSync(findingsPath).filter((f) => f.endsWith(".json"));
@@ -159,6 +195,8 @@ Call complete_attack when done.`;
         } catch {}
       }
     }
+
+    logToFile(logsPath, `[INFO] Findings count before error: ${findings.length}`);
 
     return {
       success: false,
