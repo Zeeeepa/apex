@@ -13,6 +13,7 @@ export interface Config {
   anthropicAPIKey?: string | null;
   openRouterAPIKey?: string | null;
   bedrockAPIKey?: string | null;
+  basetenAPIKey?: string | null;
   responsibleUseAccepted: boolean;
   // Remote execution providers
   daytonaAPIKey?: string | null;
@@ -65,6 +66,7 @@ export async function get(): Promise<Config> {
     anthropicAPIKey: process.env.ANTHROPIC_API_KEY,
     openRouterAPIKey: process.env.OPENROUTER_API_KEY,
     bedrockAPIKey: process.env.BEDROCK_API_KEY,
+    basetenAPIKey: process.env.BASETEN_API_KEY,
     daytonaAPIKey: process.env.DAYTONA_API_KEY,
     daytonaOrgId: process.env.DAYTONA_ORG_ID,
     runloopAPIKey: process.env.RUNLOOP_API_KEY,
