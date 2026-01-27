@@ -1,8 +1,7 @@
 import { useState, useEffect, useRef } from "react";
-import { useCommand } from "./command-provider";
+import { useCommand } from "./context/command";
 import { useConfig } from "./context/config";
 import { useInput } from "./context/input";
-import { useFocus } from "./context/focus";
 import { Session } from "../core/session";
 import Autocomplete from "./components/autocomplete";
 import os from "os";
@@ -23,13 +22,11 @@ export default function CommandInput({
   const { executeCommand, autocompleteOptions } = useCommand();
   const config = useConfig();
   const { setInputValue } = useInput();
-  const { commandInputRef } = useFocus();
+  const autocompleteRef = useRef<InputRenderable | null>(null);
 
-  // Callback ref to register input with focus context
+  // Callback ref to register input
   const inputRefCallback = (node: InputRenderable | null) => {
-    if (node) {
-      commandInputRef.current = node;
-    }
+    autocompleteRef.current = node;
   };
 
   // Load recent sessions
@@ -115,7 +112,13 @@ export default function CommandInput({
           <span> for commands</span>
           <span>  •  </span>
           <span fg={creamText}>{`[↓][↑]`}</span>
-          <span> to select command</span>
+          <span> navigate</span>
+          <span>  •  </span>
+          <span fg={creamText}>[tab]</span>
+          <span> complete</span>
+          <span>  •  </span>
+          <span fg={creamText}>[enter]</span>
+          <span> run</span>
         </text>
       </box>
     </box>

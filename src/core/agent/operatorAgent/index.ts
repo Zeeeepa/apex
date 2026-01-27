@@ -26,7 +26,8 @@ import {
   type OperatorEvent,
   OPERATOR_STAGES,
 } from "../../operator";
-import { createPentestTools, ATTACK_KNOWLEDGE } from "../tools";
+import { createPentestTools, ATTACK_KNOWLEDGE, isBackgroundTool } from "../tools";
+import { taskManager } from "../taskManager";
 import { createBrowserTools, disconnectMcpClient } from "../browserTools";
 import { createPocTool } from "../metaTestingAgent/pocTools";
 import { Logger } from "../logger";
@@ -35,6 +36,7 @@ import type { DisplayMessage } from "../../../tui/components/agent-display";
 import { runAuthenticationSubagent } from "../authenticationSubagent";
 import { tool } from "ai";
 import { z } from "zod";
+import { getActiveToolNames } from "../../toolset";
 
 /**
  * Cognitive testing loop for offensive stages (test/validate)
@@ -84,6 +86,8 @@ export interface OperatorAgentConfig {
   previousMessages?: DisplayMessage[];
   /** Attack surface endpoints discovered in previous session (for resume context) */
   previousAttackSurface?: AttackSurfaceEndpoint[];
+  /** Callback for token usage updates (called after each step) */
+  onTokenUsage?: (inputTokens: number, outputTokens: number) => void;
 }
 
 export interface OperatorAgentResult {
@@ -248,6 +252,24 @@ export class OperatorAgent extends EventEmitter {
       result: (message as any).result,
     });
     this.emit("message-updated", { index, message });
+  }
+
+  /**
+   * Add a streaming log to a tool message
+   */
+  private addToolLog(toolCallId: string, log: string): void {
+    const msgIdx = this.toolCallIdToIndex.get(toolCallId);
+    if (msgIdx === undefined) return;
+
+    const existingMsg = this.messages[msgIdx];
+    if (!existingMsg || existingMsg.role !== "tool") return;
+
+    const currentLogs = existingMsg.logs || [];
+    const updatedMsg = {
+      ...existingMsg,
+      logs: [...currentLogs, log],
+    };
+    this.updateMessage(msgIdx, updatedMsg);
   }
 
   /**
@@ -629,6 +651,7 @@ Document significant findings using the document_finding tool.`;
    * Run the main agent loop
    */
   private async runAgentLoop(systemMessage: string, initialUserMessage: string): Promise<OperatorAgentResult> {
+
     const session = this.config.session;
     const messages: Array<{ role: "system" | "user" | "assistant"; content: string }> = [
       { role: "system", content: systemMessage },
@@ -649,7 +672,15 @@ Document significant findings using the document_finding tool.`;
     messages.push({ role: "user", content: initialUserMessage });
 
     // Create tools with approval gate wrapper
-    const baseTools = createPentestTools(session, this.config.model);
+    // Pass operatorMode: true to enable streaming stdout logs
+    const baseTools = createPentestTools(
+      session,
+      this.config.model,
+      undefined, // toolOverride
+      undefined, // onTokenUsage
+      this.abortController?.signal,
+      true // operatorMode - enables streaming stdout
+    );
 
     // Add browser tools for operator mode (HITL) only
     const evidenceDir = join(session.rootPath, "evidence");
@@ -762,7 +793,18 @@ This tool requires user approval (T3 tier - Probing).`,
 
     // Merge all tools and wrap with approval checking
     const allTools = { ...baseTools, ...browserTools, ...pocTools, ...authTools };
-    const wrappedTools = this.wrapToolsWithApproval(allTools);
+
+    // Filter tools based on toolset state
+    const activeToolNames = getActiveToolNames(session.config?.toolsetState);
+    const filteredTools: Record<string, any> = {};
+    for (const [toolName, tool] of Object.entries(allTools)) {
+      if (activeToolNames.includes(toolName)) {
+        filteredTools[toolName] = tool;
+      }
+    }
+
+    // Wrap filtered tools with approval checking
+    const wrappedTools = this.wrapToolsWithApproval(filteredTools);
 
     let findingsCount = 0;
     let pocPaths: string[] = [];
@@ -796,14 +838,102 @@ This tool requires user approval (T3 tier - Probing).`,
           tools: wrappedTools,
           stopWhen: stepCountIs(100), // Allow multi-step tool execution within each iteration
           abortSignal: this.abortController?.signal,
-          onStepFinish: (step) => this.handleStepFinish(step),
+          onStepFinish: (step) => {
+            console.log(step.usage)
+            console.log(this.config.onTokenUsage)
+            if (step.usage && this.config.onTokenUsage) {
+              console.log(step.usage)
+              this.config.onTokenUsage(
+                step.usage.inputTokens ?? 0,
+                step.usage.outputTokens ?? 0
+              );
+            }
+          }
         });
 
-        // Consume stream
+        // Process stream events in order
+        // ensures text appears before tool calls in the UI
         let assistantContent = "";
+        let currentAssistantMsgIndex = -1;
+
         for await (const chunk of streamResult.fullStream) {
-          if (chunk.type === "text-delta") {
-            assistantContent += chunk.text;
+          // Check for user directives - interrupt to process them
+          if (this.userDirectives.length > 0 && this.abortController && !this.abortController.signal.aborted) {
+            this.abortController.abort();
+          }
+
+          switch (chunk.type) {
+            case "text-delta":
+              // Accumulate text and update/create assistant message
+              assistantContent += chunk.text;
+              if (currentAssistantMsgIndex === -1) {
+                // Create new assistant message
+                this.addMessage({
+                  role: "assistant",
+                  content: chunk.text,
+                  createdAt: new Date(),
+                });
+                currentAssistantMsgIndex = this.messages.length - 1;
+              } else {
+                // Update existing assistant message
+                const existingMsg = this.messages[currentAssistantMsgIndex];
+                this.updateMessage(currentAssistantMsgIndex, {
+                  ...existingMsg,
+                  content: (existingMsg.content || "") + chunk.text,
+                });
+              }
+              break;
+
+            case "tool-call":
+              // Add pending tool message (comes after text in stream order)
+              const args = (chunk as any).input || (chunk as any).args || {};
+              const description = args.toolCallDescription || chunk.toolName;
+
+              this.log("tool_call", {
+                toolCallId: chunk.toolCallId,
+                toolName: chunk.toolName,
+                args,
+              });
+
+              this.addMessage({
+                role: "tool",
+                status: "pending",
+                toolCallId: chunk.toolCallId,
+                toolName: chunk.toolName,
+                content: description,
+                args,
+                createdAt: new Date(),
+              });
+              // Reset so next text creates a new assistant message
+              currentAssistantMsgIndex = -1;
+              break;
+
+            case "tool-result":
+              // Update tool message to completed
+              // Note: AI SDK uses 'output' not 'result' for tool-result chunks
+              const msgIdx = this.toolCallIdToIndex.get(chunk.toolCallId) ?? -1;
+              if (msgIdx !== -1) {
+                const existingMsg = this.messages[msgIdx];
+                const toolOutput = (chunk as any).output;
+
+                this.log("tool_result", {
+                  toolCallId: chunk.toolCallId,
+                  toolName: existingMsg.toolName,
+                  result: toolOutput,
+                });
+
+                this.updateMessage(msgIdx, {
+                  ...existingMsg,
+                  status: "completed",
+                  content: `+ ${existingMsg.content}`,
+                  result: toolOutput,
+                });
+
+                // Extract findings and emit sidebar events
+                this.extractFindings(existingMsg.toolName || "", toolOutput);
+                this.emitSidebarEvents(toolOutput);
+              }
+              break;
           }
         }
 
@@ -823,14 +953,6 @@ This tool requires user approval (T3 tier - Probing).`,
           })),
           usage, // token counts
         });
-
-        // Emit token usage for UI tracking
-        if (usage) {
-          this.emit("token-usage", {
-            inputTokens: usage.inputTokens ?? 0,
-            outputTokens: usage.outputTokens ?? 0,
-          });
-        }
 
         // Add assistant message to history
         if (assistantContent) {
@@ -896,8 +1018,28 @@ This tool requires user approval (T3 tier - Probing).`,
   }
 
   /**
-   * Wrap all tools with approval gate checking
+   * Wrap all tools with approval gate checking and progress logging
    */
+  /**
+   * Tools that support streaming stdout (don't show progress animation)
+   */
+  private static STREAMING_TOOLS = new Set(["execute_command"]);
+
+  /**
+   * Cute ASCII animation frames for non-streaming tools
+   * Bouncing dot in a track
+   */
+  private static PROGRESS_FRAMES = [
+    "∙ ● ∙ ∙ ∙",
+    "∙ ∙ ● ∙ ∙",
+    "∙ ∙ ∙ ● ∙",
+    "∙ ∙ ∙ ∙ ●",
+    "∙ ∙ ∙ ● ∙",
+    "∙ ∙ ● ∙ ∙",
+    "∙ ● ∙ ∙ ∙",
+    "● ∙ ∙ ∙ ∙",
+  ];
+
   private wrapToolsWithApproval(tools: Record<string, any>): Record<string, any> {
     const wrapped: Record<string, any> = {};
 
@@ -911,8 +1053,77 @@ This tool requires user approval (T3 tier - Probing).`,
             // Check approval
             await this.approvalGate.check(name, toolCallId, args);
 
-            // Execute original tool
-            return await tool.execute(args, context);
+            // Emit starting log
+            this.addToolLog(toolCallId, this.getToolStartLog(name, args));
+
+            // Inject emitLog callback into extended context for streaming tools
+            const extendedContext = {
+              ...context,
+              toolCallId,
+              emitLog: (line: string) => this.addToolLog(toolCallId, line),
+            };
+
+            // Check if this tool should run in background by default
+            if (isBackgroundTool(name)) {
+              const task = taskManager.createTask(name);
+              this.addToolLog(toolCallId, `→ running in background (task: ${task.id})`);
+
+              // Fire and forget - do NOT await
+              (async () => {
+                taskManager.updateStatus(task.id, "running");
+                try {
+                  const result = await tool.execute(args, extendedContext);
+                  taskManager.setResult(task.id, result);
+                } catch (err: any) {
+                  taskManager.setError(task.id, err.message);
+                }
+              })();
+
+              // Return immediately with task ID
+              return {
+                success: true,
+                background: true,
+                taskId: task.id,
+                message: `${name} started in background. Use check_task_status("${task.id}") to get results.`,
+              };
+            }
+
+            // Only show progress animation for tools that don't support streaming
+            const supportsStreaming = OperatorAgent.STREAMING_TOOLS.has(name);
+            let progressInterval: NodeJS.Timeout | null = null;
+
+            if (!supportsStreaming) {
+              let frameIndex = 0;
+              progressInterval = setInterval(() => {
+                const frame = OperatorAgent.PROGRESS_FRAMES[frameIndex];
+                this.addToolLog(toolCallId, frame);
+                frameIndex = (frameIndex + 1) % OperatorAgent.PROGRESS_FRAMES.length;
+              }, 200);
+            }
+
+            try {
+              // Execute original tool with extended context
+              const result = await tool.execute(args, extendedContext);
+
+              // Clear progress interval if set
+              if (progressInterval) {
+                clearInterval(progressInterval);
+              }
+
+              // Emit result summary log (skip for streaming tools - they log their own output)
+              if (!supportsStreaming) {
+                const resultLog = this.getToolResultLog(name, result);
+                if (resultLog) {
+                  this.addToolLog(toolCallId, resultLog);
+                }
+              }
+
+              return result;
+            } finally {
+              if (progressInterval) {
+                clearInterval(progressInterval);
+              }
+            }
           } catch (error) {
             if (error instanceof ApprovalBlockedError || error instanceof ApprovalDeniedError) {
               // Return a message indicating the action was blocked/denied
@@ -932,120 +1143,165 @@ This tool requires user approval (T3 tier - Probing).`,
   }
 
   /**
-   * Handle step finish callback from AI streaming
+   * Get a starting log message for a tool
    */
-  private handleStepFinish(step: any): void {
-    const { text, toolCalls, toolResults } = step;
+  private getToolStartLog(toolName: string, args: any): string {
+    switch (toolName) {
+      case "execute_command":
+        const cmd = String(args.command || "").slice(0, 50);
+        return `$ ${cmd}${args.command?.length > 50 ? "..." : ""}`;
+      case "http_request":
+        const method = (args.method || "GET").toUpperCase();
+        const url = String(args.url || "").slice(0, 40);
+        return `${method} ${url}${args.url?.length > 40 ? "..." : ""}`;
+      case "browser_navigate":
+        return `navigating to ${String(args.url || "").slice(0, 40)}`;
+      case "Grep":
+      case "grep":
+        return `searching for "${String(args.pattern || "").slice(0, 30)}"`;
+      case "Read":
+      case "read_file":
+        return `reading ${String(args.file_path || args.path || "").slice(0, 40)}`;
+      default:
+        return `executing ${toolName}`;
+    }
+  }
 
-    // Check for user directives - if user typed something, interrupt to process it sooner
-    if (this.userDirectives.length > 0 && this.abortController && !this.abortController.signal.aborted) {
-      // Abort current stream to pick up user input on next iteration
-      this.abortController.abort();
-      // Note: The abort will be caught in runAgentLoop, which will continue and pick up the directive
+  /**
+   * Get a result summary log for a tool
+   */
+  private getToolResultLog(toolName: string, result: any): string | null {
+    if (!result) return null;
+
+    // Error results
+    if (result.success === false && result.error) {
+      return `✗ ${String(result.error).slice(0, 80)}`;
     }
 
-    // Handle text content
-    if (text && text.trim()) {
-      this.log("assistant_text", { text: text.slice(0, 500) }); // Truncate to avoid huge logs
-      const lastMsg = this.messages[this.messages.length - 1];
-      if (lastMsg && lastMsg.role === "assistant") {
-        this.updateMessage(this.messages.length - 1, {
-          ...lastMsg,
-          content: (lastMsg.content || "") + text,
-        });
-      } else {
-        this.addMessage({
-          role: "assistant",
-          content: text,
-          createdAt: new Date(),
-        });
-      }
+    // HTTP request results
+    if (result.status !== undefined && result.statusText !== undefined) {
+      const bodyPreview = result.body
+        ? ` - ${String(result.body).slice(0, 50)}${result.body.length > 50 ? "..." : ""}`
+        : "";
+      return `→ ${result.status} ${result.statusText}${bodyPreview}`;
     }
 
-    // Handle tool calls
-    if (toolCalls && toolCalls.length > 0) {
-      for (const tc of toolCalls) {
-        const args = (tc as any).input || {};
-        const description = args.toolCallDescription || tc.toolName;
-
-        this.log("tool_call", {
-          toolCallId: tc.toolCallId,
-          toolName: tc.toolName,
-          args,
-        });
-
-        this.addMessage({
-          role: "tool",
-          status: "pending",
-          toolCallId: tc.toolCallId,
-          toolName: tc.toolName,
-          content: description,
-          args,
-          createdAt: new Date(),
-        });
-      }
-    }
-
-    // Handle tool results
-    if (toolResults && toolResults.length > 0) {
-      for (const tr of toolResults) {
-        // O(1) lookup using pre-built index map (was O(n) findIndex)
-        const msgIdx = this.toolCallIdToIndex.get(tr.toolCallId) ?? -1;
-        if (msgIdx !== -1) {
-          const existingMsg = this.messages[msgIdx];
-
-          this.log("tool_result", {
-            toolCallId: tr.toolCallId,
-            toolName: existingMsg.toolName,
-            result: (tr as any).output,
-          });
-
-          this.updateMessage(msgIdx, {
-            ...existingMsg,
-            status: "completed",
-            content: `+ ${existingMsg.content}`,
-            result: (tr as any).output,
-          });
-
-          // Extract findings from significant tool results
-          this.extractFindings(existingMsg.toolName || "", (tr as any).output);
-
-          // Emit sidebar events for sidebar-updating tools
-          const output = (tr as any).output;
-          if (output && typeof output === "object") {
-            // Attack surface updates
-            if (output.endpoints && Array.isArray(output.endpoints)) {
-              this.emit("operator-event", {
-                type: "attack-surface-updated",
-                endpoints: output.endpoints,
-              });
-            }
-            // Credential discoveries
-            if (output.credential) {
-              this.emit("operator-event", {
-                type: "credential-found",
-                credential: output.credential,
-              });
-            }
-            // Verified findings
-            if (output.finding) {
-              this.emit("operator-event", {
-                type: "finding-verified",
-                finding: output.finding,
-              });
-            }
-            // Endpoint status changes
-            if (output.endpointId && output.status) {
-              this.emit("operator-event", {
-                type: "endpoint-status-changed",
-                endpointId: output.endpointId,
-                status: output.status,
-                vulnType: output.vulnType,
-              });
-            }
+    // Command results with stdout
+    if (result.stdout !== undefined) {
+      const stdout = String(result.stdout).trim();
+      if (stdout && stdout !== "(no output)") {
+        const lines = stdout.split("\n").filter(Boolean);
+        if (lines.length > 0) {
+          const firstLine = lines[0].slice(0, 70);
+          if (lines.length > 1) {
+            return `→ ${firstLine}${firstLine.length < lines[0].length ? "..." : ""} (+${lines.length - 1} more lines)`;
           }
+          return `→ ${firstLine}`;
         }
       }
+      // Command succeeded but no meaningful output
+      if (result.success) {
+        return "→ done (no output)";
+      }
+    }
+
+    // Background task started
+    if (result.background && result.taskId) {
+      return `→ background task: ${result.taskId}`;
+    }
+
+    // Array results (endpoints, urls, etc)
+    if (Array.isArray(result)) {
+      if (result.length === 0) return "→ found 0 items";
+      const preview = typeof result[0] === "string"
+        ? result[0].slice(0, 40)
+        : JSON.stringify(result[0]).slice(0, 40);
+      return `→ found ${result.length} items (${preview}${result.length > 1 ? ", ..." : ""})`;
+    }
+
+    // Object with endpoints array
+    if (result.endpoints?.length !== undefined) {
+      return `→ found ${result.endpoints.length} endpoints`;
+    }
+
+    // Object with urls array
+    if (result.urls?.length !== undefined) {
+      return `→ found ${result.urls.length} URLs`;
+    }
+
+    // Object with findings
+    if (result.findings?.length !== undefined) {
+      return `→ found ${result.findings.length} findings`;
+    }
+
+    // Generic success with message
+    if (result.success && result.message) {
+      return `→ ${String(result.message).slice(0, 80)}`;
+    }
+
+    // Generic success
+    if (result.success === true) {
+      return "→ done";
+    }
+
+    // Fallback: try to summarize the object
+    if (typeof result === "object") {
+      const keys = Object.keys(result);
+      const importantKeys = keys.filter(k =>
+        !["success", "error", "command", "toolCallDescription"].includes(k)
+      );
+      if (importantKeys.length > 0) {
+        const previews = importantKeys.slice(0, 2).map(k => {
+          const val = result[k];
+          if (Array.isArray(val)) return `${k}: ${val.length} items`;
+          if (typeof val === "string") return `${k}: ${val.slice(0, 20)}${val.length > 20 ? "..." : ""}`;
+          if (typeof val === "number") return `${k}: ${val}`;
+          return null;
+        }).filter(Boolean);
+        if (previews.length > 0) {
+          return `→ ${previews.join(", ")}`;
+        }
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Emit sidebar events for tool results that update UI state
+   */
+  private emitSidebarEvents(output: any): void {
+    if (!output || typeof output !== "object") return;
+
+    // Attack surface updates
+    if (output.endpoints && Array.isArray(output.endpoints)) {
+      this.emit("operator-event", {
+        type: "attack-surface-updated",
+        endpoints: output.endpoints,
+      });
+    }
+    // Credential discoveries
+    if (output.credential) {
+      this.emit("operator-event", {
+        type: "credential-found",
+        credential: output.credential,
+      });
+    }
+    // Verified findings
+    if (output.finding) {
+      this.emit("operator-event", {
+        type: "finding-verified",
+        finding: output.finding,
+      });
+    }
+    // Endpoint status changes
+    if (output.endpointId && output.status) {
+      this.emit("operator-event", {
+        type: "endpoint-status-changed",
+        endpointId: output.endpointId,
+        status: output.status,
+        vulnType: output.vulnType,
+      });
     }
   }
 

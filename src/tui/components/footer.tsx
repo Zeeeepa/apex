@@ -1,5 +1,5 @@
 import os from "os";
-import { useAgent } from "../agentProvider";
+import { useAgent } from "../context/agent";
 import { ProgressBar, SpinnerDots } from "./sprites";
 import { useSession } from "../context/session";
 import { useRoute } from "../context/route";
@@ -83,13 +83,16 @@ export default function Footer({
 export function AgentStatus() {
   const { tokenUsage, hasExecuted, thinking, isExecuting } = useAgent();
 
+  useEffect(() => {
+    console.log(tokenUsage);
+  }, [tokenUsage]);
+
   return (
     <box flexDirection="row" gap={1}>
       {hasExecuted && (
         <>
           <box border={["right"]} borderColor="green" />
           <text fg="white">{`↓${formatTokenCount(tokenUsage.inputTokens)} ↑${formatTokenCount(tokenUsage.outputTokens)} Σ${formatTokenCount(tokenUsage.totalTokens)}`}</text>
-          <ContextProgress width={10} />
         </>
       )}
       {thinking && (

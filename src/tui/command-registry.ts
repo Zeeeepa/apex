@@ -1,5 +1,11 @@
 import type { CommandDefinition } from "./command-router";
 import type { Route } from "./context/route";
+import {
+  parseWebFlags,
+  hasEnoughFlagsToSkipWizard,
+  createOperatorSessionFromFlags,
+  createSwarmSessionFromFlags,
+} from "./utils/command-flags";
 
 /**
  * Define your application's CommandContext type with specific methods
@@ -45,17 +51,17 @@ export const commands: CommandConfig[] = [
       });
     },
   },
-  // {
-  //   name: "config",
-  //   description: "Show config dialog",
-  //   category: "General",
-  //   handler: async (args, ctx) => {
-  //     ctx.navigate({
-  //       type: "base",
-  //       path: "config"
-  //     });
-  //   },
-  // },
+  {
+    name: "config",
+    description: "Show config dialog",
+    category: "General",
+    handler: async (args, ctx) => {
+      ctx.navigate({
+        type: "base",
+        path: "config"
+      });
+    },
+  },
   // {
   //   name: "quicktest",
   //   description: "Show quick pentest agent",
@@ -81,41 +87,65 @@ export const commands: CommandConfig[] = [
   {
     name: "web",
     aliases: ["w"],
-    description: "Start a web app pentest session",
+    description: "Start web pentest session",
     category: "Pentesting",
     options: [
-      { name: "--target", description: "Target URL to test", valueHint: "<url>" },
-      { name: "--auto", description: "Enable auto swarm mode" },
+      { name: "--target", valueHint: "<url>", description: "Target URL to test" },
+      { name: "--name", valueHint: "<name>", description: "Session name" },
+      { name: "--swarm", description: "Use autonomous swarm mode" },
+      { name: "--mode", valueHint: "<plan|manual|auto>", description: "Operator mode" },
+      { name: "--tier", valueHint: "<1-5>", description: "Auto-approve permission tier" },
+      { name: "--auth-url", valueHint: "<url>", description: "Login page URL" },
+      { name: "--auth-user", valueHint: "<user>", description: "Auth username" },
+      { name: "--auth-pass", valueHint: "<pass>", description: "Auth password" },
+      { name: "--auth-instructions", valueHint: "<text>", description: "Auth instructions" },
+      { name: "--hosts", valueHint: "<h1,h2,...>", description: "Allowed hosts" },
+      { name: "--ports", valueHint: "<p1,p2,...>", description: "Allowed ports" },
+      { name: "--strict", description: "Enable strict scope mode" },
+      { name: "--headers", valueHint: "<none|default|custom>", description: "Headers mode" },
+      { name: "--header", valueHint: "<Name:Value>", description: "Custom header (repeatable)" },
+      { name: "--model", valueHint: "<model>", description: "AI model to use" },
     ],
     handler: async (args, ctx) => {
-      const hasAuto = args.includes('--auto');
-      const targetIdx = args.indexOf('--target');
-      const target = targetIdx !== -1 ? args[targetIdx + 1] : undefined;
-      ctx.navigate({
-        type: "base",
-        path: "web",
-        options: { auto: hasAuto, target }
-      });
-    },
-  },
-  {
-    name: "operator",
-    aliases: ["h"],
-    description: "Start interactive pentesting session (Human-in-the-Loop)",
-    category: "Pentesting",
-    options: [
-      { name: "--target", description: "Target URL to test", valueHint: "<url>" },
-      { name: "--mode", description: "Approval mode: plan, manual, or auto", valueHint: "<mode>" },
-    ],
-    handler: async (args, ctx) => {
-      const targetIdx = args.indexOf('--target');
-      const target = targetIdx !== -1 ? args[targetIdx + 1] : undefined;
-      const modeIdx = args.indexOf('--mode');
-      const mode = modeIdx !== -1 ? args[modeIdx + 1] : undefined;
+      const flags = parseWebFlags(args);
+
+      if (flags.swarm) {
+        // Swarm mode path
+        if (flags.target && hasEnoughFlagsToSkipWizard(flags)) {
+          try {
+            const session = await createSwarmSessionFromFlags(flags);
+            ctx.navigate({ type: "session", sessionId: session.id });
+            return;
+          } catch (e) {
+            // Fall through to wizard on error
+            console.error("Failed to create session:", e);
+          }
+        }
+        // Navigate to WebWizard (swarm wizard)
+        ctx.navigate({
+          type: "base",
+          path: "web",
+          options: { auto: true, ...flags }
+        });
+        return;
+      }
+
+      // Operator mode path (default)
+      if (flags.target && hasEnoughFlagsToSkipWizard(flags)) {
+        try {
+          const session = await createOperatorSessionFromFlags(flags);
+          ctx.navigate({ type: "session", sessionId: session.id });
+          return;
+        } catch (e) {
+          // Fall through to wizard on error
+          console.error("Failed to create session:", e);
+        }
+      }
+      // Navigate to operator wizard with pre-filled values
       ctx.navigate({
         type: "base",
         path: "operator",
-        options: { target, mode } as any
+        options: flags as any
       });
     },
   },
@@ -151,6 +181,33 @@ export const commands: CommandConfig[] = [
         type: "base",
         path: "resume"
       });
+    },
+  },
+  {
+    name: "chat",
+    aliases: ["c"],
+    description: "Open the Chat TUI interface",
+    category: "General",
+    handler: async (args, ctx) => {
+      ctx.navigate({
+        type: "base",
+        path: "chat"
+      });
+    },
+  },
+  {
+    name: "tools",
+    aliases: ["t"],
+    description: "View and manage active tools (session only)",
+    category: "Session",
+    handler: async (args, ctx) => {
+      // This command is handled by the session view when in a session
+      // From home, it does nothing - tools panel only works in session context
+      if (ctx.route.type !== "session") {
+        // Not in a session - command is a no-op
+        return;
+      }
+      // The session view will detect this command via route options
     },
   },
 

@@ -7,7 +7,7 @@ import { useSession } from "../../context/session";
 import { useFocus } from "../../context/focus";
 import { Session } from "../../../core/session";
 import { Storage } from "../../../core/storage";
-import { Dialog } from "../dialog";
+import { Dialog } from "../../context/dialog";
 import { Renderable, ScrollBoxRenderable } from "@opentui/core";
 
 interface SessionsDisplayProps {
@@ -15,7 +15,7 @@ interface SessionsDisplayProps {
 }
 
 export default function SessionsDisplay({ onClose }: SessionsDisplayProps) {
-  const { refocusCommandInput } = useFocus();
+  const { refocusPrompt } = useFocus();
   const [sessions, setSessions] = useState<(Session.SessionInfo)[]>([]);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -206,7 +206,7 @@ export default function SessionsDisplay({ onClose }: SessionsDisplayProps) {
   useKeyboard(async (key) => {
     // Escape - Close sessions display
     if (key.name === "escape") {
-      refocusCommandInput();
+      refocusPrompt();
       onClose();
       return;
     }
@@ -221,7 +221,7 @@ export default function SessionsDisplay({ onClose }: SessionsDisplayProps) {
         console.error("Error loading session");
         return;
       }
-      refocusCommandInput();
+      refocusPrompt();
       onClose();
       route.navigate({
         type: "session",
@@ -266,7 +266,7 @@ export default function SessionsDisplay({ onClose }: SessionsDisplayProps) {
 
 
   const handleClose = () => {
-    refocusCommandInput();
+    refocusPrompt();
     onClose();
   };
 

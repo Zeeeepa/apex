@@ -8,6 +8,7 @@ import { Storage } from "../storage";
 import type { Message } from "../messages/types";
 import { Messages } from "../messages";
 import { RateLimiter } from "../services/rateLimiter";
+import { ToolsetStateSchema, type ToolsetState, toggleTool as toolsetToggle } from "../toolset";
 
 export namespace Session {
 
@@ -88,7 +89,9 @@ export namespace Session {
         /** Enable CVSS 4.0 scoring for findings (defaults to true if not specified) */
         enableCvssScoring: z.boolean().optional(),
         /** Model to use for CVSS scorer subagent (default: claude-4-5-haiku) */
-        cvssModel: z.string().optional()
+        cvssModel: z.string().optional(),
+        /** Toolset state for controlling which tools are available */
+        toolsetState: ToolsetStateSchema.optional()
     });
 
     export type SessionConfig = z.infer<typeof SessionConfigObject>;
@@ -286,7 +289,9 @@ Testing in progress...
     });
 
     export type SessionInfo = z.output<typeof SessionInfoObject> & {
-        _rateLimiter?: RateLimiter
+        _rateLimiter?: RateLimiter;
+        tokensIn?: number;
+        tokensOut?: number;
     };
 
     interface CreateInputProps {
@@ -507,6 +512,87 @@ Testing in progress...
     export function hasOperatorState(session: SessionInfo): boolean {
         const statePath = path.join(session.rootPath, "operator-state.json");
         return existsSync(statePath);
+    }
+
+    // ============================================================================
+    // Runtime Operator Settings Update
+    // ============================================================================
+
+    /**
+     * Update operator settings for a running session
+     * This persists the changes to the session config
+     */
+    export async function updateOperatorSettings(
+        sessionId: string,
+        settings: Partial<OperatorSettings>
+    ): Promise<SessionInfo> {
+        return await update(sessionId, (session) => {
+            if (!session.config) {
+                session.config = {};
+            }
+            if (!session.config.operatorSettings) {
+                session.config.operatorSettings = {
+                    initialMode: "manual",
+                    autoApproveTier: 2,
+                    enableSuggestions: true,
+                };
+            }
+
+            // Update only the provided settings
+            if (settings.initialMode !== undefined) {
+                session.config.operatorSettings.initialMode = settings.initialMode;
+            }
+            if (settings.autoApproveTier !== undefined) {
+                session.config.operatorSettings.autoApproveTier = settings.autoApproveTier;
+            }
+            if (settings.enableSuggestions !== undefined) {
+                session.config.operatorSettings.enableSuggestions = settings.enableSuggestions;
+            }
+        });
+    }
+
+    // ============================================================================
+    // Toolset State Management
+    // ============================================================================
+
+    /**
+     * Update the toolset state for a session
+     */
+    export async function updateToolsetState(
+        sessionId: string,
+        toolsetState: ToolsetState
+    ): Promise<SessionInfo> {
+        return await update(sessionId, (session) => {
+            if (!session.config) {
+                session.config = {};
+            }
+            session.config.toolsetState = toolsetState;
+        });
+    }
+
+    /**
+     * Toggle a specific tool's enabled state
+     */
+    export async function toggleTool(
+        sessionId: string,
+        toolId: string,
+        enabled: boolean
+    ): Promise<SessionInfo> {
+        return await update(sessionId, (session) => {
+            if (!session.config) {
+                session.config = {};
+            }
+            if (!session.config.toolsetState) {
+                // Initialize with all tools enabled if no state exists
+                const { createToolsetState } = require("../toolset");
+                session.config.toolsetState = createToolsetState("web-pentest");
+            }
+            session.config.toolsetState = toolsetToggle(
+                session.config.toolsetState!,
+                toolId,
+                enabled
+            );
+        });
     }
 
 }

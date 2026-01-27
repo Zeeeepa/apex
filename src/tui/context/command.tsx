@@ -7,14 +7,14 @@ import {
   useEffect,
 } from "react";
 import type { ReactNode } from "react";
-import { CommandRouter } from "./command-router";
+import { CommandRouter } from "../command-router";
 import {
   commandRegistry,
   commands,
   type AppCommandContext,
-} from "./command-registry";
-import type { AutocompleteOption } from "./components/autocomplete";
-import { useRoute } from "./context/route";
+} from "../command-registry";
+import type { AutocompleteOption } from "../components/autocomplete";
+import { useRoute } from "./route";
 
 interface CommandContextValue {
   router: CommandRouter<AppCommandContext>;
@@ -47,7 +47,7 @@ export function CommandProvider({ children }: CommandProviderProps) {
     }
     return ctx
   }, [route]);
-  
+
   // Create router with context - initialized once
   const router = useMemo(() => {
     const router = new CommandRouter<AppCommandContext>();
@@ -72,12 +72,6 @@ export function CommandProvider({ children }: CommandProviderProps) {
 
       // Build description with options hint
       let description = cmd.description || "";
-      if (cmdConfig?.options?.length) {
-        const optionsList = cmdConfig.options
-          .map((opt) => opt.name)
-          .join(" ");
-        description += ` [${optionsList}]`;
-      }
 
       // Add main command (aliases hidden but still work via router)
       options.push({
