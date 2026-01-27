@@ -1,4 +1,4 @@
-import { tool } from "ai";
+import { tool as aiTool, type Tool } from "ai";
 import { z } from "zod";
 import { exec, spawn } from "child_process";
 import { promisify } from "util";
@@ -22,6 +22,21 @@ import pLimit from "p-limit";
 import { getKnowledgeCache, CacheKeys } from "../knowledge/cache";
 
 const execAsync = promisify(exec);
+
+/**
+ * Helper to define tools with proper typing.
+ * Works around Zod v4 / AI SDK v6 type compatibility issues.
+ * @see https://github.com/vercel/ai/issues/10014
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function tool<T extends z.ZodType, R>(config: {
+  name?: string;
+  description: string;
+  inputSchema: T;
+  execute: (input: z.infer<T>) => Promise<R>;
+}): Tool<z.infer<T>, R> {
+  return aiTool(config as any) as Tool<z.infer<T>, R>;
+}
 
 /**
  * Tools that run in background by default

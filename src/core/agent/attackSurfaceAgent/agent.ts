@@ -3,8 +3,9 @@ import {
   type StreamTextResult,
   type ToolSet,
   type StreamTextOnStepFinishCallback,
-  tool,
+  tool as aiTool,
   hasToolCall,
+  type Tool,
 } from "ai";
 import { mapMessages, Messages } from "../../messages";
 import { streamResponse, type AIModel } from "../../ai";
@@ -34,6 +35,20 @@ import {
   type DocumentedAssetRecord,
   type AttackSurfaceReport,
 } from "./schemas";
+
+/**
+ * Helper to define tools with proper typing.
+ * Works around Zod v4 / AI SDK v6 type compatibility issues.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function tool<T extends z.ZodType, R>(config: {
+  name?: string;
+  description: string;
+  inputSchema: T;
+  execute: (input: z.infer<T>) => Promise<R>;
+}): Tool<z.infer<T>, R> {
+  return aiTool(config as any) as Tool<z.infer<T>, R>;
+}
 
 /**
  * Merge session-level credentials with explicitly passed credentials.
@@ -173,7 +188,6 @@ export async function runAgent(opts: RunAgentProps): Promise<{
     existingState,
   } = opts;
 
-  // Create a new session for this attack surface analysis
   const session =
     opts.session ||
     (await Session.create({
@@ -312,6 +326,16 @@ Each asset creates a JSON file in the assets directory for tracking and analysis
               .describe(
                 "Status (active, inactive, redirect, error) or HTTP status code"
               ),
+            discoveredParameters: z
+              .array(
+                z.object({
+                  name: z.string().describe("Parameter name"),
+                  behaviorChange: z.string().describe("How the response changed when this parameter was provided"),
+                  injectionCandidate: z.boolean().describe("Whether this parameter is a potential injection target"),
+                })
+              )
+              .optional()
+              .describe("Query/body parameters discovered via fuzzing with fuzz_endpoint_parameters"),
           })
         )
         .describe("Additional details about the asset"),
@@ -759,7 +783,6 @@ Returns all discovered endpoint patterns.`,
           visited.add(url);
 
           try {
-            // Fetch page
             const pageResult = await fetch(url, {
               method: "GET",
               headers: {
@@ -770,7 +793,6 @@ Returns all discovered endpoint patterns.`,
             if (pageResult.status >= 200 && pageResult.status < 400) {
               const html = pageResult.body || "";
 
-              // Extract links
               const linkRegex = /<a[^>]+href=['"]([^'"]+)['"]/gi;
               const links: string[] = [];
               let linkMatch;
@@ -784,7 +806,6 @@ Returns all discovered endpoint patterns.`,
                 }
               }
 
-              // Extract forms
               const formRegex = /<form[^>]+action=['"]([^'"]+)['"]/gi;
               const forms: string[] = [];
               let formMatch;
@@ -792,7 +813,6 @@ Returns all discovered endpoint patterns.`,
                 forms.push(formMatch[1]);
               }
 
-              // Extract JavaScript endpoints from this page
               const jsEndpoints = await extractJavascriptEndpoints({
                 url,
                 sessionCookie,
@@ -837,7 +857,6 @@ Returns all discovered endpoint patterns.`,
     },
   });
 
-  // New tool: test_endpoint_variations
   const test_endpoint_variations = tool({
     name: "test_endpoint_variations",
     description: `Test multiple variations of an endpoint pattern with different parameters.
@@ -919,7 +938,6 @@ Use this to:
     },
   });
 
-  // New tool: validate_discovery_completeness
   const validate_discovery_completeness = tool({
     name: "validate_discovery_completeness",
     description: `Check discovery completeness by analyzing what has been explored.
@@ -963,7 +981,6 @@ Returns a confidence score and identifies potential gaps based on:
       }> = [];
       let confidence = 100;
 
-      // Check: Authenticated if credentials found
       if (credentialsFound && !authenticatedWithCredentials) {
         gaps.push({
           gap: "Credentials found but never used for authentication",
@@ -974,7 +991,6 @@ Returns a confidence score and identifies potential gaps based on:
         confidence -= 40;
       }
 
-      // Check: JavaScript analysis on authenticated pages
       if (authenticatedWithCredentials && pagesWithJSAnalyzed.length === 0) {
         gaps.push({
           gap: "Authenticated but no JavaScript analysis performed",
@@ -985,7 +1001,6 @@ Returns a confidence score and identifies potential gaps based on:
         confidence -= 30;
       }
 
-      // Check: CRUD enumeration for resource patterns
       const resourcePatterns = discoveredEndpoints.filter((ep) =>
         ep.includes("{id}")
       );
@@ -1004,7 +1019,6 @@ Returns a confidence score and identifies potential gaps based on:
         confidence -= 20;
       }
 
-      // Check: Minimum endpoint discovery
       if (discoveredEndpoints.length < 5) {
         gaps.push({
           gap: "Very few endpoints discovered (less than 5)",
@@ -1034,7 +1048,210 @@ Returns a confidence score and identifies potential gaps based on:
     },
   });
 
-  // Simplified answer schema for orchestrator agent
+  // Base parameter wordlist for fuzzing
+  const BASE_PARAMETER_WORDLIST = [
+    // Search/query params
+    "search", "q", "query", "keyword", "term", "find", "lookup",
+    // Filter/selection params
+    "filter", "filters", "where", "status", "type", "category", "id", "user_id", "name", "email", "tag",
+    // Pagination params
+    "page", "limit", "offset", "per_page", "size", "skip", "count", "start", "from", "to", "cursor",
+    // Sorting params
+    "sort", "order", "orderby", "order_by", "sortby", "direction", "asc", "desc",
+    // Output format params
+    "format", "output", "fields", "include", "exclude", "select", "expand",
+    // Debug/testing params
+    "debug", "test", "verbose", "trace",
+    // Auth/access params
+    "token", "key", "api_key", "auth", "callback", "jsonp", "version",
+  ];
+
+  const fuzz_endpoint_parameters = tool({
+    name: "fuzz_endpoint_parameters",
+    description: `Fuzz an API endpoint to discover hidden query parameters using ffuf.
+
+Use this tool to:
+- Discover hidden/undocumented query parameters on API endpoints
+- Identify parameters that may be vulnerable to injection attacks
+- Find parameters that affect response behavior (filtering, sorting, etc.)
+
+The tool:
+1. Generates a context-aware parameter wordlist
+2. Runs ffuf to test each parameter
+3. Identifies parameters that change response behavior
+4. Flags potential injection candidates
+
+WHEN TO USE:
+- Every /api/* endpoint discovered
+- Endpoints returning lists/collections (likely have filter/sort params)
+- Search pages or forms
+- Any endpoint that might accept user input
+
+IMPORTANT: Run this on API endpoints BEFORE documenting them to ensure complete parameter discovery.`,
+    inputSchema: z.object({
+      url: z.string().describe("The endpoint URL to fuzz"),
+      method: z.enum(["GET", "POST"]).default("GET").describe("HTTP method to use"),
+      headers: z.record(z.string(), z.string()).optional().describe("Additional headers to include"),
+      customWordlist: z.array(z.string()).optional().describe("Additional custom parameters to test"),
+      endpointContext: z.string().optional().describe("Context hint for wordlist generation"),
+      timeout: z.number().default(30).describe("Timeout in seconds for ffuf"),
+      toolCallDescription: z.string().describe("A concise, human-readable description of what this tool call is doing"),
+    }),
+    execute: async (params) => {
+      const { url, method, headers, customWordlist, endpointContext, timeout } = params;
+      const scratchpadPath = join(session.rootPath, "scratchpad");
+
+      // Ensure scratchpad directory exists
+      if (!existsSync(scratchpadPath)) {
+        mkdirSync(scratchpadPath, { recursive: true });
+      }
+
+      // Generate context-aware wordlist
+      const wordlist = new Set<string>(BASE_PARAMETER_WORDLIST);
+
+      // Add custom wordlist
+      if (customWordlist) {
+        customWordlist.forEach(p => wordlist.add(p));
+      }
+
+      // Write wordlist to file
+      const wordlistId = nanoid(6);
+      const wordlistPath = join(scratchpadPath, `params-${wordlistId}.txt`);
+      const outputPath = join(scratchpadPath, `ffuf-output-${wordlistId}.json`);
+
+      writeFileSync(wordlistPath, Array.from(wordlist).join("\n"));
+
+      // Build ffuf command
+      const ffufArgs = [
+        "-w", wordlistPath,
+        "-u", `${url}?FUZZ=test`,
+        "-mc", "all",  // Match all status codes
+        "-ac",         // Auto-calibrate (filter similar responses)
+        "-o", outputPath,
+        "-of", "json",
+        "-t", "10",    // 10 threads
+        "-rate", "50", // Rate limit to avoid overwhelming target
+        "-timeout", String(timeout),
+        "-s",          // Silent mode (less output)
+      ];
+
+      // Add method if POST
+      if (method === "POST") {
+        ffufArgs.push("-X", "POST");
+        // For POST, fuzz body instead
+        ffufArgs[ffufArgs.indexOf(`${url}?FUZZ=test`)] = url;
+        ffufArgs.push("-d", "FUZZ=test");
+      }
+
+      // Add headers
+      if (headers) {
+        for (const [key, value] of Object.entries(headers)) {
+          ffufArgs.push("-H", `${key}: ${value}`);
+        }
+      }
+
+      try {
+        // Check if ffuf is available
+        const whichResult = await Bun.spawn(["which", "ffuf"], {
+          stdout: "pipe",
+          stderr: "pipe",
+        }).exited;
+
+        if (whichResult !== 0) {
+          return {
+            success: false,
+            endpoint: url,
+            discoveredParameters: [],
+            injectionCandidates: [],
+            message: "ffuf not found. Install with: brew install ffuf",
+            wordlistPath,
+          };
+        }
+
+        // Run ffuf
+        const proc = Bun.spawn(["ffuf", ...ffufArgs], {
+          stdout: "pipe",
+          stderr: "pipe",
+        });
+
+        const exitCode = await proc.exited;
+
+        // Parse ffuf results
+        let results: Array<{
+          parameter: string;
+          status: number;
+          length: number;
+          words: number;
+          url: string;
+        }> = [];
+
+        if (existsSync(outputPath)) {
+          try {
+            const outputContent = await Bun.file(outputPath).text();
+            const ffufOutput = JSON.parse(outputContent);
+
+            if (ffufOutput.results && Array.isArray(ffufOutput.results)) {
+              results = ffufOutput.results.map((result: any) => {
+                // Extract parameter name from the URL (more reliable than input.FUZZ with autocalibration)
+                let paramName = "unknown";
+                if (result.url) {
+                  try {
+                    const urlObj = new URL(result.url);
+                    const params = Array.from(urlObj.searchParams.keys());
+                    if (params.length > 0) {
+                      paramName = params[0];
+                    }
+                  } catch {
+                    paramName = result.input?.FUZZ || result.FUZZ || "unknown";
+                  }
+                } else {
+                  paramName = result.input?.FUZZ || result.FUZZ || "unknown";
+                }
+
+                return {
+                  parameter: paramName,
+                  status: result.status,
+                  length: result.length || 0,
+                  words: result.words || 0,
+                  url: result.url || "",
+                };
+              });
+            }
+          } catch (parseError: any) {
+            console.error("Error parsing ffuf output:", parseError.message);
+          }
+        }
+
+        // Clean up wordlist file
+        try {
+          if (existsSync(wordlistPath)) {
+            await Bun.write(wordlistPath, "");
+          }
+        } catch {
+          // Ignore cleanup errors
+        }
+
+        return {
+          success: true,
+          endpoint: url,
+          totalTested: wordlist.size,
+          results,
+          message: results.length > 0
+            ? `Found ${results.length} parameters with distinct behavior`
+            : "No parameters with distinct behavior discovered",
+        };
+      } catch (error: any) {
+        return {
+          success: false,
+          endpoint: url,
+          totalTested: 0,
+          results: [],
+          message: `Parameter fuzzing error: ${error.message}`,
+        };
+      }
+    },
+  });
+
   const create_attack_surface_report = tool({
     name: "create_attack_surface_report",
     description: `Provide attack surface analysis results to the orchestrator agent.
@@ -1065,6 +1282,16 @@ Call this at the END of your analysis with:
             rationale: z
               .string()
               .describe("Why this target needs deep testing"),
+            discoveredParameters: z
+              .array(
+                z.object({
+                  name: z.string().describe("Parameter name"),
+                  injectionCandidate: z.boolean().describe("Whether this is a potential injection target"),
+                  testingNotes: z.string().optional().describe("Notes about testing this parameter (e.g., '500 error on any value')"),
+                })
+              )
+              .optional()
+              .describe("Parameters discovered via fuzz_endpoint_parameters that should be tested"),
           })
         )
         .describe("ALL targets for deep penetration testing"),
@@ -1123,7 +1350,6 @@ Call this at the END of your analysis with:
     },
   });
 
-  // Build the enhanced prompt with target context
   const scopeDescription = getScopeDescription(scopeConstraints);
 
   const enhancedPrompt = `
@@ -1159,11 +1385,12 @@ ${enumerationContext}
 1. Understanding the target scope (is it a domain, IP, URL, network range, or organization?)
 2. Performing comprehensive reconnaissance to map the attack surface WITHIN SCOPE
 3. Identifying assets, services, endpoints, and potential entry points
-4. Call the smart_enumerate tool to aid in your discovery to find hidden routes and other resources
-5. Categorizing discovered targets by type and risk level
-6. Identify any core technologies being used, their versions, and calling the cve_lookup tool to see if there are any existing vulnerabilities in that version of the identified software
-7. Document each significant asset using the document_asset tool
-8. When complete, call the create_attack_surface_report tool
+4. Categorizing discovered targets by type and risk level
+5. Identify any core technologies being used, their versions, and calling the cve_lookup tool to see if there are any existing vulnerabilities in that version of the identified software
+6. Extend the eumeration results by intelligently enumerating and discovering endpoints based on your analysis
+7. For EVERY API endpoint discovered, call fuzz_endpoint_parameters to discover hidden query parameters
+8. Document each significant asset using the document_asset tool (include discoveredParameters in details)
+9. When complete, call the create_attack_surface_report tool (include discoveredParameters for each target)
 
 IMPORTANT SCOPING RULES:
 ${
@@ -1189,6 +1416,11 @@ Document all discovered assets using the document_asset tool - this creates an i
 - Endpoints and routes
 - Authentication mechanisms
 
+BEFORE creating your final report, ensure you have:
+1. Called fuzz_endpoint_parameters on EVERY /api/* endpoint discovered
+2. Documented any discovered parameters in your assets
+3. Included discoveredParameters in each target in your report
+
 You MUST provide the final report using create_attack_surface_report tool.
 `.trim();
 
@@ -1209,6 +1441,7 @@ You MUST provide the final report using create_attack_surface_report tool.
       crawl_authenticated_area,
       test_endpoint_variations,
       validate_discovery_completeness,
+      fuzz_endpoint_parameters,
       create_attack_surface_report,
       cve_lookup,
       // Browser automation tools for JavaScript-heavy apps and SPAs

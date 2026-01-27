@@ -1,16 +1,68 @@
 import { tool } from "ai";
 import { z } from "zod";
-import { join } from "path";
+import { join, resolve } from "path";
+import { homedir } from "os";
 import { existsSync, mkdirSync, readFileSync, writeFileSync, appendFileSync } from "fs";
+import type { FileAccessConfig } from "./types";
 import { executeScript, executeScriptPersistent } from "./repl";
-import type { SubAgentSession, AttackPlan, VerificationCriteria, Finding, PlanPhase } from "./types";
-import { AttackPlanSchema, VerificationCriteriaSchema, FindingSchema, PlanPhaseSchema } from "./types";
+import type { SubAgentSession, AttackPlan, VerificationCriteria, Finding, PlanPhase, TieredIndicator } from "./types";
+import { AttackPlanSchema, VerificationCriteriaSchema, FindingSchema, PlanPhaseSchema, TieredIndicatorSchema } from "./types";
 import { createPentestTools } from "../tools";
 import type { Session } from "../../session";
 import { Memory } from "../../memory";
 import { nanoid } from "nanoid";
+import { runVerificationAgent } from "./verificationAgent";
+import type { AIModel } from "../../ai";
 
-export function createInitAgentTools(subagentSession: SubAgentSession) {
+function toKebabCase(str: string): string {
+  return str
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")  // Replace non-alphanumeric with dashes
+    .replace(/^-+|-+$/g, "")       // Remove leading/trailing dashes
+    .replace(/-+/g, "-")           // Collapse multiple dashes
+    .substring(0, 100);            // Limit length
+}
+
+/** Expand ~ to home directory */
+function expandPath(p: string): string {
+  if (p.startsWith("~/")) {
+    return join(homedir(), p.slice(2));
+  }
+  if (p === "~") {
+    return homedir();
+  }
+  return p;
+}
+
+function isPathAllowed(
+  filePath: string,
+  config: FileAccessConfig
+): { allowed: boolean; reason?: string } {
+  const resolved = resolve(expandPath(filePath));
+
+  // Blocked paths take precedence
+  for (const blocked of config.blockedPaths) {
+    const normalizedBlocked = resolve(expandPath(blocked));
+    if (resolved.startsWith(normalizedBlocked + "/") || resolved === normalizedBlocked) {
+      return { allowed: false, reason: `Access to '${blocked}' is blocked` };
+    }
+  }
+
+  // Must be within an allowed directory
+  for (const allowed of config.allowedPaths) {
+    const normalizedAllowed = resolve(expandPath(allowed));
+    if (resolved.startsWith(normalizedAllowed + "/") || resolved === normalizedAllowed) {
+      return { allowed: true };
+    }
+  }
+
+  return { allowed: false, reason: "Path is outside allowed directories" };
+}
+
+export function createInitAgentTools(
+  subagentSession: SubAgentSession,
+  fileAccessConfig?: FileAccessConfig
+) {
   const { id, config, rootPath, planPath, verificationPath } = subagentSession;
 
   const read_file = tool({
@@ -19,6 +71,12 @@ export function createInitAgentTools(subagentSession: SubAgentSession) {
       path: z.string().describe("Absolute path to the file"),
     }),
     execute: async ({ path }) => {
+      if (fileAccessConfig) {
+        const check = isPathAllowed(path, fileAccessConfig);
+        if (!check.allowed) {
+          return { success: false, error: `SANDBOX: ${check.reason}` };
+        }
+      }
       try {
         const content = readFileSync(path, "utf-8");
         return { success: true, content };
@@ -119,9 +177,22 @@ export function createInitAgentTools(subagentSession: SubAgentSession) {
   });
 
   const write_verification_criteria = tool({
-    description: "Write verification criteria for validating findings",
+    description: `Write TIERED verification criteria for validating findings. Prioritize high-signal indicators:
+- high: Proves exploitation (data exfil, command output, unauthorized access)
+- medium: Strong evidence (timing delays, boolean differences)
+- low: Detection only (error messages) - use sparingly
+
+You can provide indicators as strings (defaults to medium tier) or as objects with tier specified.`,
     inputSchema: z.object({
-      successIndicators: z.array(z.string()).describe("Indicators that confirm vulnerability"),
+      successIndicators: z.array(
+        z.union([
+          z.string(),
+          z.object({
+            indicator: z.string().describe("The indicator string to match"),
+            tier: z.enum(["high", "medium", "low"]).describe("Signal tier: high proves exploitation, medium is strong evidence, low is detection only"),
+          }),
+        ])
+      ).describe("Tiered indicators that confirm vulnerability. Prioritize high-signal indicators."),
       failureIndicators: z.array(z.string()).describe("Indicators that rule out vulnerability"),
       verificationSteps: z.array(
         z.object({
@@ -134,11 +205,19 @@ export function createInitAgentTools(subagentSession: SubAgentSession) {
       minimumConfidence: z.number().optional().describe("Minimum confidence threshold (0-100)"),
     }),
     execute: async ({ successIndicators, failureIndicators, verificationSteps, minimumConfidence }) => {
+      // Normalize indicators to tiered format
+      const normalizedIndicators: TieredIndicator[] = successIndicators.map(ind => {
+        if (typeof ind === "string") {
+          return { indicator: ind, tier: "medium" as const };
+        }
+        return ind;
+      });
+
       const criteria: VerificationCriteria = {
         subagentId: id,
         vulnerabilityClass: config.vulnerabilityClass,
         createdAt: new Date().toISOString(),
-        successIndicators,
+        successIndicators: normalizedIndicators,
         failureIndicators,
         verificationSteps,
         minimumConfidence: minimumConfidence || 80,
@@ -168,15 +247,26 @@ export function createInitAgentTools(subagentSession: SubAgentSession) {
   };
 }
 
+function logToFile(logsPath: string, message: string): void {
+  const timestamp = new Date().toISOString();
+  const logEntry = `${timestamp} - ${message}\n`;
+  try {
+    appendFileSync(join(logsPath, "attack.log"), logEntry, "utf8");
+  } catch {}
+}
+
 export function createAttackAgentTools(
   subagentSession: SubAgentSession,
   session: Session.SessionInfo,
   workspace: string,
+  model: AIModel,
+  abortSignal?: AbortSignal,
   toolOverride?: {
     execute_command?: (opts: any) => Promise<any>;
-  }
+  },
+  fileAccessConfig?: FileAccessConfig
 ) {
-  const { id, config, rootPath, planPath, verificationPath, findingsPath, scriptsPath } = subagentSession;
+  const { id, config, rootPath, planPath, verificationPath, findingsPath, scriptsPath, logsPath } = subagentSession;
 
   const pentestTools = createPentestTools(session, undefined, toolOverride);
   const {
@@ -194,6 +284,12 @@ export function createAttackAgentTools(
       path: z.string().describe("Absolute path to the file"),
     }),
     execute: async ({ path }) => {
+      if (fileAccessConfig) {
+        const check = isPathAllowed(path, fileAccessConfig);
+        if (!check.allowed) {
+          return { success: false, error: `SANDBOX: ${check.reason}` };
+        }
+      }
       try {
         const content = readFileSync(path, "utf-8");
         return { success: true, content };
@@ -210,6 +306,12 @@ export function createAttackAgentTools(
       content: z.string().describe("Content to write"),
     }),
     execute: async ({ path, content }) => {
+      if (fileAccessConfig) {
+        const check = isPathAllowed(path, fileAccessConfig);
+        if (!check.allowed) {
+          return { success: false, error: `SANDBOX: ${check.reason}` };
+        }
+      }
       try {
         const dir = path.substring(0, path.lastIndexOf("/"));
         if (!existsSync(dir)) {
@@ -230,6 +332,12 @@ export function createAttackAgentTools(
       content: z.string().describe("Content to append"),
     }),
     execute: async ({ path, content }) => {
+      if (fileAccessConfig) {
+        const check = isPathAllowed(path, fileAccessConfig);
+        if (!check.allowed) {
+          return { success: false, error: `SANDBOX: ${check.reason}` };
+        }
+      }
       try {
         appendFileSync(path, content);
         return { success: true, path };
@@ -406,44 +514,80 @@ The script will be saved to the scripts directory and executed. Output is captur
   });
 
   const verify_finding = tool({
-    description: "Verify a potential finding against the verification criteria",
+    description: `Verify a potential finding using the verification agent.
+
+The verification agent will independently evaluate your evidence and provide:
+- Whether the finding passes verification
+- What evidence gaps exist
+- Specific suggestions for strengthening the proof
+- Actionable retry guidance if verification fails
+
+IMPORTANT: If verification fails, use the feedback to adjust your approach and retry (up to 3 attempts).`,
     inputSchema: z.object({
-      evidence: z.string().describe("Evidence collected"),
-      confidence: z.number().describe("Confidence level 0-100"),
+      evidence: z.string().describe("All evidence collected for this finding"),
+      confidence: z.number().min(0).max(100).describe("Your confidence level 0-100"),
     }),
     execute: async ({ evidence, confidence }) => {
-      try {
-        const criteria = JSON.parse(readFileSync(verificationPath, "utf-8")) as VerificationCriteria;
-        const evidenceLower = evidence.toLowerCase();
-
-        const successMatches = criteria.successIndicators.filter((i) =>
-          evidenceLower.includes(i.toLowerCase())
-        );
-        const failureMatches = criteria.failureIndicators.filter((i) =>
-          evidenceLower.includes(i.toLowerCase())
-        );
-
-        const passed =
-          confidence >= criteria.minimumConfidence &&
-          successMatches.length > 0 &&
-          failureMatches.length === 0;
-
+      // Read verification criteria
+      if (!existsSync(verificationPath)) {
         return {
-          success: true,
-          passed,
-          successMatches,
-          failureMatches,
-          confidenceThreshold: criteria.minimumConfidence,
-          reason: passed
-            ? `Verification passed: ${successMatches.length} success indicators matched`
-            : failureMatches.length > 0
-            ? `Verification failed: failure indicators matched (${failureMatches.join(", ")})`
-            : confidence < criteria.minimumConfidence
-            ? `Confidence ${confidence}% below threshold ${criteria.minimumConfidence}%`
-            : "No success indicators matched",
+          passed: false,
+          verificationQuality: "failed",
+          reason: "No verification criteria found. Call write_verification_criteria first.",
+          gaps: ["No verification criteria defined"],
+          suggestions: ["Create verification criteria before attempting to verify findings"],
+          retryGuidance: "Create verification criteria by calling write_verification_criteria first.",
+          matchedIndicators: [],
         };
+      }
+
+      let criteria: VerificationCriteria;
+      try {
+        criteria = JSON.parse(readFileSync(verificationPath, "utf-8"));
       } catch (error: any) {
-        return { success: false, error: error.message };
+        return {
+          passed: false,
+          verificationQuality: "failed",
+          reason: `Failed to read verification criteria: ${error.message}`,
+          gaps: ["Verification criteria file is invalid"],
+          suggestions: ["Recreate verification criteria"],
+          retryGuidance: "The verification criteria file is corrupted. Call write_verification_criteria to recreate it.",
+          matchedIndicators: [],
+        };
+      }
+
+      // Run verification agent
+      try {
+        const result = await runVerificationAgent({
+          evidence,
+          confidence,
+          criteria,
+          endpoint: config.endpoint,
+          vulnerabilityClass: config.vulnerabilityClass,
+          model,
+          abortSignal,
+        });
+
+        // Log verification attempt
+        logToFile(logsPath, `[VERIFY] Attempt with confidence ${confidence}%: ${result.passed ? "PASSED" : "FAILED"}`);
+        logToFile(logsPath, `[VERIFY] Quality: ${result.verificationQuality}`);
+        if (!result.passed) {
+          logToFile(logsPath, `[VERIFY] Gaps: ${result.gaps.join(", ")}`);
+          logToFile(logsPath, `[VERIFY] Guidance: ${result.retryGuidance}`);
+        }
+
+        return result;
+      } catch (error: any) {
+        logToFile(logsPath, `[VERIFY] Error: ${error.message}`);
+        return {
+          passed: false,
+          verificationQuality: "failed",
+          reason: `Verification agent error: ${error.message}`,
+          gaps: ["Verification agent encountered an error"],
+          suggestions: ["Retry verification"],
+          retryGuidance: "The verification agent encountered an error. Try calling verify_finding again.",
+          matchedIndicators: [],
+        };
       }
     },
   });
@@ -477,8 +621,17 @@ The script will be saved to the scripts directory and executed. Output is captur
         createdAt: new Date().toISOString(),
       };
 
-      const findingPath = join(findingsPath, `${findingId}.json`);
+      // Generate kebab-case filename from title
+      const kebabTitle = toKebabCase(title);
+      const filename = `${kebabTitle}.json`;
+
+      // Write to subagent findings directory
+      const findingPath = join(findingsPath, filename);
       writeFileSync(findingPath, JSON.stringify(finding, null, 2));
+
+      // Copy to session root findings directory
+      const sessionFindingPath = join(session.findingsPath, filename);
+      writeFileSync(sessionFindingPath, JSON.stringify(finding, null, 2));
 
       try {
         await Memory.storeFinding(workspace, {

@@ -1,16 +1,44 @@
 import { streamResponse, type AIModel } from "../../ai";
 import { hasToolCall } from "ai";
-import type { SubAgentSession, AttackAgentResult, Finding, AttackPlan, VerificationCriteria } from "./types";
+import type { SubAgentSession, AttackAgentResult, Finding, AttackPlan, VerificationCriteria, FileAccessConfig } from "./types";
 import { createAttackAgentTools } from "./tools";
 import type { Session } from "../../session";
 import { existsSync, readFileSync, readdirSync, appendFileSync } from "fs";
 import { join } from "path";
 import { Messages } from "../../messages";
+import { listGuidanceFiles } from "./guidance";
 
 const ATTACK_SYSTEM_PROMPT = `You are a security testing attack agent. Your job is to execute the attack plan and find vulnerabilities.
 
 Target: {endpoint}
 Vulnerability Class: {vulnerabilityClass}
+
+## Vulnerability Testing Reference Guides
+
+You have access to comprehensive testing methodology guides in your workspace:
+
+\`\`\`
+{guidanceFiles}
+\`\`\`
+
+**HOW TO USE THESE GUIDES:**
+
+1. **Before starting each attack phase** - Use \`read_file\` to read the relevant guidance file
+2. **When a technique fails** - Consult the guide for alternative payloads and bypass techniques
+3. **When testing filter evasion** - Reference the WAF/filter bypass section
+4. **When verifying findings** - Use the verification checklist in the guide
+
+These guides contain:
+- Multiple injection context patterns (value injection, clause injection, etc.)
+- Database/framework-specific payloads
+- WAF and filter bypass techniques
+- Polyglot payloads for multi-context testing
+- Step-by-step exploitation workflows
+
+**CRITICAL:** Do not rely solely on common payloads. The guides document edge cases
+and alternative patterns that may apply to your target. For example, SQL injection
+can occur at the value level (\`WHERE name='$input'\`) OR at the clause level
+(\`WHERE $input\`) - different patterns require different payloads.
 
 ## Your Tools
 
@@ -68,6 +96,40 @@ Before documenting any finding:
 2. Call verify_finding with your evidence and confidence
 3. Only document if verification passes
 
+**When verification fails:**
+
+The verify_finding tool returns detailed feedback:
+- \`gaps\`: What evidence is missing
+- \`suggestions\`: Specific techniques to try
+- \`retryGuidance\`: Actionable next steps
+
+**You MUST use this feedback to retry (up to 3 attempts):**
+
+1. Read the gaps and suggestions carefully
+2. Execute the suggested techniques to collect stronger evidence
+3. Call verify_finding again with the new evidence
+4. Repeat until verification passes or you've exhausted options
+
+**Example flow:**
+\`\`\`
+verify_finding(evidence="500 error on search param", confidence=60)
+→ Failed: gaps=["No data extraction proof"], suggestions=["Try UNION SELECT to extract data"]
+
+# Execute suggested technique
+execute_script(script="...UNION SELECT...")
+
+verify_finding(evidence="UNION SELECT returned admin table: id=1,email=admin@...", confidence=90)
+→ Passed: verificationQuality="strong"
+
+document_finding(...)
+\`\`\`
+
+**If verification keeps failing:**
+After 3 attempts, if you have detection-level evidence (errors, timing anomalies), document the finding with:
+- Lower severity (info/low)
+- Clear notes that full exploitation was not achieved
+- The detection evidence you collected
+
 Call complete_attack when testing is done.`;
 
 function logToFile(logsPath: string, message: string): void {
@@ -86,18 +148,25 @@ export async function runAttackAgent(
   abortSignal?: AbortSignal,
   toolOverride?: {
     execute_command?: (opts: any) => Promise<any>;
-  }
+  },
+  fileAccessConfig?: FileAccessConfig
 ): Promise<AttackAgentResult> {
   const { config, planPath, verificationPath, findingsPath, logsPath, rootPath } = subagentSession;
 
   logToFile(logsPath, `[INFO] Starting attack phase for endpoint: ${config.endpoint}`);
   logToFile(logsPath, `[INFO] Vulnerability class: ${config.vulnerabilityClass}`);
 
-  const tools = createAttackAgentTools(subagentSession, session, workspace, toolOverride);
+  const tools = createAttackAgentTools(subagentSession, session, workspace, model, abortSignal, toolOverride, fileAccessConfig);
+
+  const guidanceFileList = listGuidanceFiles(subagentSession.guidancePath);
+  const guidanceFilesStr = guidanceFileList.length > 0
+    ? guidanceFileList.join("\n")
+    : "No guidance files available";
 
   const systemPrompt = ATTACK_SYSTEM_PROMPT
     .replace("{endpoint}", config.endpoint)
-    .replace("{vulnerabilityClass}", config.vulnerabilityClass);
+    .replace("{vulnerabilityClass}", config.vulnerabilityClass)
+    .replace("{guidanceFiles}", guidanceFilesStr);
 
   let plan: AttackPlan | null = null;
   let verificationCriteria: VerificationCriteria | null = null;

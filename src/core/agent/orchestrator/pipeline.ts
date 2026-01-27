@@ -4,7 +4,7 @@ import type { AIModel } from "../../ai";
 import type { Session } from "../../session";
 import { runOrchestrator } from "./newOrchestrator";
 import { runSubAgent, runSubAgentsParallel, runSubAgentsParallelWithCallbacks, type RunSubAgentResult } from "../subagent";
-import type { SubAgentManifest, Finding } from "../subagent/types";
+import type { SubAgentManifest, Finding, FileAccessConfig } from "../subagent/types";
 
 export interface PipelineInput {
   attackSurfacePath: string;
@@ -20,6 +20,8 @@ export interface PipelineInput {
   toolOverride?: {
     execute_command?: (opts: any) => Promise<any>;
   };
+  /** Paths to block from file access (for blackbox sandbox) */
+  blockedPaths?: string[];
   onOrchestratorComplete?: (manifest: SubAgentManifest) => void;
   onSubAgentStart?: (subagentId: string, endpoint: string, vulnClass: string) => void;
   onSubAgentComplete?: (result: RunSubAgentResult) => void;
@@ -46,10 +48,21 @@ export async function runPentestPipeline(input: PipelineInput): Promise<Pipeline
     concurrencyLimit = 10,
     abortSignal,
     toolOverride,
+    blockedPaths,
     onOrchestratorComplete,
     onSubAgentStart,
     onSubAgentComplete,
   } = input;
+
+  // Build file access config for sandboxing read_file/write_file/append_file
+  const fileAccessConfig: FileAccessConfig | undefined =
+    (blockedPaths?.length || whiteboxMode) ? {
+      allowedPaths: [
+        session.rootPath,
+        ...(whiteboxMode && sourceCodePath ? [sourceCodePath] : []),
+      ],
+      blockedPaths: blockedPaths || [],
+    } : undefined;
 
   const orchestratorResult = await runOrchestrator(
     {
@@ -98,6 +111,7 @@ export async function runPentestPipeline(input: PipelineInput): Promise<Pipeline
     model,
     abortSignal,
     toolOverride,
+    fileAccessConfig,
     onInitComplete: () => {
       onSubAgentStart?.(config.id, config.endpoint, config.vulnerabilityClass);
     },

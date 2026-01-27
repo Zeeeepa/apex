@@ -1,10 +1,12 @@
 import { streamResponse, type AIModel } from "../../ai";
 import { hasToolCall } from "ai";
-import type { SubAgentSession, InitAgentResult, AttackPlan, VerificationCriteria } from "./types";
+import type { SubAgentSession, InitAgentResult, AttackPlan, VerificationCriteria, FileAccessConfig } from "./types";
 import { createInitAgentTools } from "./tools";
 import { existsSync, readFileSync, appendFileSync } from "fs";
 import { join } from "path";
 import { Messages } from "../../messages";
+import { buildVerificationPrompt } from "./verificationGuidance";
+import { listGuidanceFiles } from "./guidance";
 
 const INIT_SYSTEM_PROMPT = `You are a security testing initialization agent. Your job is to:
 
@@ -15,6 +17,23 @@ const INIT_SYSTEM_PROMPT = `You are a security testing initialization agent. You
 
 You are testing for: {vulnerabilityClass}
 Target endpoint: {endpoint}
+
+## Vulnerability Testing Reference Guides
+
+Comprehensive testing methodology guides are available in your workspace:
+
+\`\`\`
+{guidanceFiles}
+\`\`\`
+
+**When creating your attack plan:**
+1. Use \`read_file\` to read the guidance file for {vulnerabilityClass}
+2. Incorporate techniques from the guide into your plan phases
+3. Include multiple injection patterns/contexts documented in the guide
+4. Add bypass techniques from the guide to your testing approach
+
+This ensures your plan covers edge cases and alternative attack vectors
+that may be missed by generic testing approaches.
 
 ## Your Process
 
@@ -32,11 +51,21 @@ Your plan should have phases like:
 - Exploitation: Confirmed exploit techniques
 - Validation: Verify the finding is real
 
-## Verification Criteria
+{verificationGuidance}
 
-Define clear success/failure indicators. For example:
-- SQL Injection success: Database error messages, UNION results, time delays
-- SQL Injection failure: Input sanitized, parameterized queries, WAF blocking
+## Verification Requirements
+
+Your verification criteria MUST:
+1. Prioritize HIGH signal indicators that prove exploitation
+2. Use MEDIUM signal indicators when HIGH signal isn't achievable
+3. Use LOW signal indicators sparingly - they only detect potential, not exploitation
+4. Include failure indicators to rule out false positives
+5. Be specific, matchable strings for the verify_finding tool
+
+When calling write_verification_criteria, specify the tier for each success indicator:
+- tier: "high" - Proves exploitation (prioritize these)
+- tier: "medium" - Strong evidence of vulnerability
+- tier: "low" - Detection only, use sparingly
 
 Call complete_init when you have created both the plan and verification criteria.`;
 
@@ -51,7 +80,8 @@ function logToFile(logsPath: string, message: string): void {
 export async function runInitAgent(
   subagentSession: SubAgentSession,
   model: AIModel,
-  abortSignal?: AbortSignal
+  abortSignal?: AbortSignal,
+  fileAccessConfig?: FileAccessConfig
 ): Promise<InitAgentResult> {
   const { config, planPath, verificationPath, logsPath, rootPath } = subagentSession;
 
@@ -59,11 +89,19 @@ export async function runInitAgent(
   logToFile(logsPath, `[INFO] Vulnerability class: ${config.vulnerabilityClass}`);
   logToFile(logsPath, `[INFO] Whitebox mode: ${config.whiteboxMode}`);
 
-  const tools = createInitAgentTools(subagentSession);
+  const tools = createInitAgentTools(subagentSession, fileAccessConfig);
 
+  const guidanceFileList = listGuidanceFiles(subagentSession.guidancePath);
+  const guidanceFilesStr = guidanceFileList.length > 0
+    ? guidanceFileList.join("\n")
+    : "No guidance files available";
+
+  const verificationGuidance = buildVerificationPrompt(config.vulnerabilityClass);
   const systemPrompt = INIT_SYSTEM_PROMPT
-    .replace("{vulnerabilityClass}", config.vulnerabilityClass)
-    .replace("{endpoint}", config.endpoint);
+    .replace(/{vulnerabilityClass}/g, config.vulnerabilityClass)
+    .replace("{endpoint}", config.endpoint)
+    .replace("{guidanceFiles}", guidanceFilesStr)
+    .replace("{verificationGuidance}", verificationGuidance);
 
   let userPrompt = `Initialize testing for ${config.endpoint} targeting ${config.vulnerabilityClass} vulnerabilities.`;
 

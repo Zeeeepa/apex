@@ -66,11 +66,21 @@ export const AttackPlanSchema = z.object({
 
 export type AttackPlan = z.infer<typeof AttackPlanSchema>;
 
+export const TieredIndicatorSchema = z.union([
+  z.string(),
+  z.object({
+    indicator: z.string(),
+    tier: z.enum(["high", "medium", "low"]),
+  }),
+]);
+
+export type TieredIndicator = z.infer<typeof TieredIndicatorSchema>;
+
 export const VerificationCriteriaSchema = z.object({
   subagentId: z.string(),
   vulnerabilityClass: z.string(),
   createdAt: z.string(),
-  successIndicators: z.array(z.string()),
+  successIndicators: z.array(TieredIndicatorSchema),
   failureIndicators: z.array(z.string()),
   verificationSteps: z.array(
     z.object({
@@ -113,6 +123,7 @@ export interface SubAgentSession {
   findingsPath: string;
   scriptsPath: string;
   logsPath: string;
+  guidancePath: string;
 }
 
 export interface InitAgentResult {
@@ -127,4 +138,17 @@ export interface AttackAgentResult {
   findings: Finding[];
   summary: string;
   error?: string;
+}
+
+export interface SubAgentError {
+  phase: 'init' | 'attack' | 'timeout' | 'unknown';
+  message: string;
+  timedOut?: boolean;
+}
+
+export interface FileAccessConfig {
+  /** Directories the agent is allowed to read/write (whitelist) */
+  allowedPaths: string[];
+  /** Explicitly blocked paths (takes precedence over allowed) */
+  blockedPaths: string[];
 }
