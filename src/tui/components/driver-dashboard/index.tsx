@@ -14,10 +14,19 @@ import { RGBA } from "@opentui/core";
 import { existsSync, readFileSync } from "fs";
 import { join } from "path";
 import { Session } from "../../../core/session";
-import type { PentestTarget, AttackSurfaceAnalysisResults } from "../../../core/agent/attackSurfaceAgent/types";
+import type {
+  PentestTarget,
+  AttackSurfaceAnalysisResults,
+} from "../../../core/agent/attackSurfaceAgent/types";
 import { runAgent as runAttackSurfaceAgent } from "../../../core/agent/attackSurfaceAgent";
-import { createDriverModeAgent, type DriverModeAgent } from "../../../core/agent/driverModeAgent";
-import { extractPentestTarget, type DiscoveredEndpoint } from "../../../core/agent/driverModeAgent/targetExtractor";
+import {
+  createDriverModeAgent,
+  type DriverModeAgent,
+} from "../../../core/agent/driverModeAgent";
+import {
+  extractPentestTarget,
+  type DiscoveredEndpoint,
+} from "../../../core/agent/driverModeAgent/targetExtractor";
 import type { DisplayMessage } from "../agent-display";
 import AgentDisplay from "../agent-display";
 import { SpinnerDots } from "../sprites";
@@ -41,7 +50,7 @@ interface DriverAgent {
   id: string;
   name: string;
   target: PentestTarget;
-  status: 'running' | 'paused' | 'completed' | 'failed';
+  status: "running" | "paused" | "completed" | "failed";
   messages: DisplayMessage[];
   createdAt: Date;
   agentRef: DriverModeAgent;
@@ -57,53 +66,59 @@ export default function DriverDashboard({ session }: DriverDashboardProps) {
   const { stack, externalDialogOpen } = useDialog();
 
   // State
-  const [currentView, setCurrentView] = useState<'overview' | 'agent-chat' | 'recon-view'>('overview');
+  const [currentView, setCurrentView] = useState<
+    "overview" | "agent-chat" | "recon-view"
+  >("overview");
   const [agents, setAgents] = useState<DriverAgent[]>([]);
   const [endpoints, setEndpoints] = useState<DiscoveredEndpoint[]>([]);
-  const [reconStatus, setReconStatus] = useState<'idle' | 'running' | 'completed'>('idle');
+  const [reconStatus, setReconStatus] = useState<
+    "idle" | "running" | "completed"
+  >("idle");
   const [reconMessages, setReconMessages] = useState<DisplayMessage[]>([]);
-  const [focusedArea, setFocusedArea] = useState<'agents' | 'endpoints'>('agents');
+  const [focusedArea, setFocusedArea] = useState<"agents" | "endpoints">(
+    "agents",
+  );
   const [focusedAgentIndex, setFocusedAgentIndex] = useState(0);
   const [focusedEndpointIndex, setFocusedEndpointIndex] = useState(0);
   const [activeAgentId, setActiveAgentId] = useState<string | null>(null);
   const [showNewAgentInput, setShowNewAgentInput] = useState(false);
-  const [newAgentInput, setNewAgentInput] = useState('');
+  const [newAgentInput, setNewAgentInput] = useState("");
   const [startTime] = useState(() => new Date());
   const [showMentions, setShowMentions] = useState(false);
-  const [mentionQuery, setMentionQuery] = useState('');
+  const [mentionQuery, setMentionQuery] = useState("");
 
   const [loading, setLoading] = useState(false);
 
   // Get active agent
   const activeAgent = useMemo(
-    () => agents.find(a => a.id === activeAgentId) || null,
-    [agents, activeAgentId]
+    () => agents.find((a) => a.id === activeAgentId) || null,
+    [agents, activeAgentId],
   );
 
   // Auto-start recon on mount
   useEffect(() => {
-    if (reconStatus === 'idle') {
+    if (reconStatus === "idle") {
       startRecon();
     }
   }, []);
 
-    // Handle input changes
+  // Handle input changes
   const handleInput = useCallback((value: string) => {
-    if(loading) {
+    if (loading) {
       return;
     }
     setNewAgentInput(value);
 
     // Check for @ mention trigger
-    const lastAtIndex = value.lastIndexOf('@');
+    const lastAtIndex = value.lastIndexOf("@");
     if (lastAtIndex !== -1 && lastAtIndex === value.length - 1) {
       // Just typed @
       setShowMentions(true);
-      setMentionQuery('');
+      setMentionQuery("");
     } else if (lastAtIndex !== -1) {
       // Typing after @
       const afterAt = value.substring(lastAtIndex + 1);
-      if (!afterAt.includes(' ')) {
+      if (!afterAt.includes(" ")) {
         setShowMentions(true);
         setMentionQuery(afterAt);
       } else {
@@ -114,46 +129,53 @@ export default function DriverDashboard({ session }: DriverDashboardProps) {
     }
   }, []);
 
-    // Handle mention selection - insert the actual URL
-  const handleMentionSelect = useCallback((endpoint: DiscoveredEndpoint) => {
-    const lastAtIndex = newAgentInput.lastIndexOf('@');
-    const newValue = newAgentInput.substring(0, lastAtIndex) + endpoint.url + ' ';
-    setNewAgentInput(newValue);
-    setShowMentions(false);
-  }, [newAgentInput]);
+  // Handle mention selection - insert the actual URL
+  const handleMentionSelect = useCallback(
+    (endpoint: DiscoveredEndpoint) => {
+      const lastAtIndex = newAgentInput.lastIndexOf("@");
+      const newValue =
+        newAgentInput.substring(0, lastAtIndex) + endpoint.url + " ";
+      setNewAgentInput(newValue);
+      setShowMentions(false);
+    },
+    [newAgentInput],
+  );
 
   // Start recon agent
   const startRecon = useCallback(async () => {
-    setReconStatus('running');
-    setReconMessages([{
-      role: 'user',
-      content: `Starting attack surface discovery for: ${session.targets[0]}`,
-      createdAt: new Date(),
-    }]);
+    setReconStatus("running");
+    setReconMessages([
+      {
+        role: "user",
+        content: `Starting attack surface discovery for: ${session.targets[0]}`,
+        createdAt: new Date(),
+      },
+    ]);
 
     try {
       const { streamResult } = await runAttackSurfaceAgent({
-        target: session.targets[0] || '',
-        objective: 'Comprehensive attack surface discovery and target identification',
+        target: session.targets[0] || "",
+        objective:
+          "Comprehensive attack surface discovery and target identification",
         model: model.id,
         session,
         onStepFinish: async (step) => {
           const { text, toolCalls, toolResults } = step;
 
-          setReconMessages(prev => {
+          setReconMessages((prev) => {
             const newMessages = [...prev];
 
             // Add text content
             if (text && text.trim()) {
               const lastMsg = newMessages[newMessages.length - 1];
-              if (lastMsg && lastMsg.role === 'assistant') {
+              if (lastMsg && lastMsg.role === "assistant") {
                 newMessages[newMessages.length - 1] = {
                   ...lastMsg,
-                  content: (lastMsg.content || '') + text,
+                  content: (lastMsg.content || "") + text,
                 };
               } else {
                 newMessages.push({
-                  role: 'assistant',
+                  role: "assistant",
                   content: text,
                   createdAt: new Date(),
                 });
@@ -163,14 +185,16 @@ export default function DriverDashboard({ session }: DriverDashboardProps) {
             // Add tool calls
             if (toolCalls && toolCalls.length > 0) {
               for (const tc of toolCalls) {
-                const args = (tc as any).input as Record<string, unknown> | undefined;
+                const args = (tc as any).input as
+                  | Record<string, unknown>
+                  | undefined;
                 const toolDescription =
-                  typeof args?.toolCallDescription === 'string'
+                  typeof args?.toolCallDescription === "string"
                     ? args.toolCallDescription
                     : tc.toolName;
                 newMessages.push({
-                  role: 'tool',
-                  status: 'pending',
+                  role: "tool",
+                  status: "pending",
                   toolCallId: tc.toolCallId,
                   toolName: tc.toolName,
                   content: toolDescription,
@@ -184,18 +208,23 @@ export default function DriverDashboard({ session }: DriverDashboardProps) {
             if (toolResults && toolResults.length > 0) {
               for (const tr of toolResults) {
                 const msgIdx = newMessages.findIndex(
-                  (m) => m.role === 'tool' && (m as any).toolCallId === tr.toolCallId
+                  (m) =>
+                    m.role === "tool" &&
+                    (m as any).toolCallId === tr.toolCallId,
                 );
                 if (msgIdx !== -1) {
-                  const existingMsg = newMessages[msgIdx] as DisplayMessage & { toolName?: string; toolCallId?: string };
+                  const existingMsg = newMessages[msgIdx] as DisplayMessage & {
+                    toolName?: string;
+                    toolCallId?: string;
+                  };
                   const description =
-                    typeof existingMsg.content === 'string' &&
+                    typeof existingMsg.content === "string" &&
                     existingMsg.content !== existingMsg.toolName
                       ? existingMsg.content
-                      : existingMsg.toolName || 'tool';
+                      : existingMsg.toolName || "tool";
                   newMessages[msgIdx] = {
                     ...existingMsg,
-                    status: 'completed',
+                    status: "completed",
                     content: `✓ ${description}`,
                     result: (tr as any).output,
                   };
@@ -214,106 +243,114 @@ export default function DriverDashboard({ session }: DriverDashboardProps) {
       }
 
       // Read results from the JSON file created by the agent
-      const resultsPath = join(session.rootPath, 'attack-surface-results.json');
+      const resultsPath = join(session.rootPath, "attack-surface-results.json");
 
       if (!existsSync(resultsPath)) {
-        console.log('No attack surface results file found');
-        setReconStatus('completed');
+        console.log("No attack surface results file found");
+        setReconStatus("completed");
         return;
       }
 
-      const resultsData = readFileSync(resultsPath, 'utf-8');
+      const resultsData = readFileSync(resultsPath, "utf-8");
       const results: AttackSurfaceAnalysisResults = JSON.parse(resultsData);
 
       // Convert results to discovered endpoints
-      const discoveredEndpoints: DiscoveredEndpoint[] = (results.targets || []).map((t: PentestTarget, i: number) => ({
+      const discoveredEndpoints: DiscoveredEndpoint[] = (
+        results.targets || []
+      ).map((t: PentestTarget, i: number) => ({
         id: `endpoint-${i}`,
         url: t.target,
-        method: 'GET',
+        method: "GET",
         suggestedObjective: t.objective,
-        source: 'recon' as const,
+        source: "recon" as const,
       }));
 
       setEndpoints(discoveredEndpoints);
-      setReconStatus('completed');
+      setReconStatus("completed");
     } catch (error) {
-      console.error('Recon failed:', error);
-      setReconStatus('completed');
+      console.error("Recon failed:", error);
+      setReconStatus("completed");
     }
   }, [session, model.id]);
 
   // Spawn agent from target
-  const spawnAgent = useCallback(async (target: PentestTarget) => {
-    const agentId = `agent-${Date.now()}`;
-    const agentName = `Agent ${agents.length + 1}`;
+  const spawnAgent = useCallback(
+    async (target: PentestTarget) => {
+      const agentId = `agent-${Date.now()}`;
+      const agentName = `Agent ${agents.length + 1}`;
 
-    const driverAgent = createDriverModeAgent({
-      session,
-      model: model.id,
-      vulnerabilityClass: 'generic',
-    });
+      const driverAgent = createDriverModeAgent({
+        session,
+        model: model.id,
+        vulnerabilityClass: "generic",
+      });
 
-    const newAgent: DriverAgent = {
-      id: agentId,
-      name: agentName,
-      target,
-      status: 'running',
-      messages: [],
-      createdAt: new Date(),
-      agentRef: driverAgent,
-    };
+      const newAgent: DriverAgent = {
+        id: agentId,
+        name: agentName,
+        target,
+        status: "running",
+        messages: [],
+        createdAt: new Date(),
+        agentRef: driverAgent,
+      };
 
-    // Set up event listeners
-    driverAgent.on('message', (message: DisplayMessage) => {
-      setAgents(prev => prev.map(a =>
-        a.id === agentId
-          ? { ...a, messages: [...a.messages, message] }
-          : a
-      ));
-    });
+      // Set up event listeners
+      driverAgent.on("message", (message: DisplayMessage) => {
+        setAgents((prev) =>
+          prev.map((a) =>
+            a.id === agentId ? { ...a, messages: [...a.messages, message] } : a,
+          ),
+        );
+      });
 
-    driverAgent.on('status-change', (status: string) => {
-      setAgents(prev => prev.map(a =>
-        a.id === agentId
-          ? { ...a, status: status as DriverAgent['status'] }
-          : a
-      ));
-    });
+      driverAgent.on("status-change", (status: string) => {
+        setAgents((prev) =>
+          prev.map((a) =>
+            a.id === agentId
+              ? { ...a, status: status as DriverAgent["status"] }
+              : a,
+          ),
+        );
+      });
 
-    driverAgent.on('complete', () => {
-      setAgents(prev => prev.map(a =>
-        a.id === agentId
-          ? { ...a, status: 'completed' }
-          : a
-      ));
-    });
+      driverAgent.on("complete", () => {
+        setAgents((prev) =>
+          prev.map((a) =>
+            a.id === agentId ? { ...a, status: "completed" } : a,
+          ),
+        );
+      });
 
-    driverAgent.on('error', () => {
-      setAgents(prev => prev.map(a =>
-        a.id === agentId
-          ? { ...a, status: 'failed' }
-          : a
-      ));
-    });
+      driverAgent.on("error", () => {
+        setAgents((prev) =>
+          prev.map((a) => (a.id === agentId ? { ...a, status: "failed" } : a)),
+        );
+      });
 
-    setAgents(prev => [...prev, newAgent]);
-    setActiveAgentId(agentId);
-    setCurrentView('agent-chat');
+      setAgents((prev) => [...prev, newAgent]);
+      setActiveAgentId(agentId);
+      setCurrentView("agent-chat");
 
-    // Start the agent
-    driverAgent.start(target).catch(console.error);
-  }, [agents.length, session, model.id]);
+      // Start the agent
+      driverAgent.start(target).catch(console.error);
+    },
+    [agents.length, session, model.id],
+  );
 
   // Spawn agent from endpoint
-  const spawnAgentFromEndpoint = useCallback(async (endpoint: DiscoveredEndpoint) => {
-    const target: PentestTarget = {
-      target: endpoint.url,
-      objective: endpoint.suggestedObjective,
-      rationale: 'Spawned from discovered endpoint',
-    };
+  const spawnAgentFromEndpoint = useCallback(
+    async (endpoint: DiscoveredEndpoint) => {
+      const target: PentestTarget = {
+        target: endpoint.url,
+        objective: endpoint.suggestedObjective,
+        rationale: "Spawned from discovered endpoint",
+      };
 
-    await spawnAgent(target);
-  }, [spawnAgent]);
+      await spawnAgent(target);
+    },
+    [spawnAgent],
+  );
 
   // Handle new agent creation from input
   const handleCreateNewAgent = useCallback(async () => {
@@ -322,7 +359,7 @@ export default function DriverDashboard({ session }: DriverDashboardProps) {
       return;
     }
 
-    if(loading) {
+    if (loading) {
       return;
     }
 
@@ -336,10 +373,10 @@ export default function DriverDashboard({ session }: DriverDashboardProps) {
       });
 
       await spawnAgent(target);
-      setNewAgentInput('');
+      setNewAgentInput("");
       setShowNewAgentInput(false);
     } catch (error) {
-      console.error('Failed to extract target:', error);
+      console.error("Failed to extract target:", error);
       // TODO: error toast
     }
     setLoading(false);
@@ -351,20 +388,20 @@ export default function DriverDashboard({ session }: DriverDashboardProps) {
     if (stack.length > 0 || externalDialogOpen) return;
 
     // Handle agent chat view separately
-    if (currentView === 'agent-chat') {
+    if (currentView === "agent-chat") {
       // Shift+/ to return to dashboard
-      if (key.shift && key.name === '/') {
-        setCurrentView('overview');
+      if (key.shift && key.name === "/") {
+        setCurrentView("overview");
         return;
       }
       return; // Let AgentChatView handle other keys
     }
 
     // Handle recon view
-    if (currentView === 'recon-view') {
+    if (currentView === "recon-view") {
       // Shift+/ or ESC to return to dashboard
-      if ((key.shift && key.name === '/') || key.name === 'escape') {
-        setCurrentView('overview');
+      if ((key.shift && key.name === "/") || key.name === "escape") {
+        setCurrentView("overview");
         return;
       }
       return; // Let ReconView handle scrolling
@@ -372,17 +409,17 @@ export default function DriverDashboard({ session }: DriverDashboardProps) {
 
     // Overview keyboard handling
     if (showNewAgentInput) {
-      if (key.name === 'escape') {
+      if (key.name === "escape") {
         if (showMentions) {
           setShowMentions(false);
         } else {
           setShowNewAgentInput(false);
-          setNewAgentInput('');
+          setNewAgentInput("");
         }
         return;
       }
       // Only handle Enter if autocomplete is not showing
-      if (key.name === 'return' && !showMentions) {
+      if (key.name === "return" && !showMentions) {
         handleCreateNewAgent();
         return;
       }
@@ -390,73 +427,75 @@ export default function DriverDashboard({ session }: DriverDashboardProps) {
     }
 
     // N - New agent
-    if (key.name === 'n' || key.name === 'N') {
+    if (key.name === "n" || key.name === "N") {
       setShowNewAgentInput(true);
       return;
     }
 
     // R - View recon agent messages
-    if (key.name === 'r' || key.name === 'R') {
-      setCurrentView('recon-view');
+    if (key.name === "r" || key.name === "R") {
+      setCurrentView("recon-view");
       return;
     }
 
     // Tab - Switch between agents and endpoints
-    if (key.name === 'tab') {
-      setFocusedArea(prev => prev === 'agents' ? 'endpoints' : 'agents');
+    if (key.name === "tab") {
+      setFocusedArea((prev) => (prev === "agents" ? "endpoints" : "agents"));
       return;
     }
 
     // Shift+/ - Exit dashboard
-    if (key.shift && key.name === '/') {
-      route.navigate({ type: 'base', path: 'home' });
+    if (key.shift && key.name === "/") {
+      route.navigate({ type: "base", path: "home" });
       return;
     }
 
     // ESC - Exit
-    if (key.name === 'escape') {
-      route.navigate({ type: 'base', path: 'home' });
+    if (key.name === "escape") {
+      route.navigate({ type: "base", path: "home" });
       return;
     }
 
     // Arrow navigation
-    if (focusedArea === 'agents' && agents.length > 0) {
-      if (key.name === 'up') {
-        setFocusedAgentIndex(prev => Math.max(0, prev - 2));
+    if (focusedArea === "agents" && agents.length > 0) {
+      if (key.name === "up") {
+        setFocusedAgentIndex((prev) => Math.max(0, prev - 2));
         return;
       }
-      if (key.name === 'down') {
-        setFocusedAgentIndex(prev => Math.min(agents.length - 1, prev + 2));
+      if (key.name === "down") {
+        setFocusedAgentIndex((prev) => Math.min(agents.length - 1, prev + 2));
         return;
       }
-      if (key.name === 'left') {
-        setFocusedAgentIndex(prev => Math.max(0, prev - 1));
+      if (key.name === "left") {
+        setFocusedAgentIndex((prev) => Math.max(0, prev - 1));
         return;
       }
-      if (key.name === 'right') {
-        setFocusedAgentIndex(prev => Math.min(agents.length - 1, prev + 1));
+      if (key.name === "right") {
+        setFocusedAgentIndex((prev) => Math.min(agents.length - 1, prev + 1));
         return;
       }
-      if (key.name === 'return') {
+      if (key.name === "return") {
         const agent = agents[focusedAgentIndex];
         if (agent) {
           setActiveAgentId(agent.id);
-          setCurrentView('agent-chat');
+          setCurrentView("agent-chat");
         }
         return;
       }
     }
 
-    if (focusedArea === 'endpoints' && endpoints.length > 0) {
-      if (key.name === 'up') {
-        setFocusedEndpointIndex(prev => Math.max(0, prev - 1));
+    if (focusedArea === "endpoints" && endpoints.length > 0) {
+      if (key.name === "up") {
+        setFocusedEndpointIndex((prev) => Math.max(0, prev - 1));
         return;
       }
-      if (key.name === 'down') {
-        setFocusedEndpointIndex(prev => Math.min(endpoints.length - 1, prev + 1));
+      if (key.name === "down") {
+        setFocusedEndpointIndex((prev) =>
+          Math.min(endpoints.length - 1, prev + 1),
+        );
         return;
       }
-      if (key.name === 'return') {
+      if (key.name === "return") {
         const endpoint = endpoints[focusedEndpointIndex];
         if (endpoint) {
           spawnAgentFromEndpoint(endpoint);
@@ -467,16 +506,19 @@ export default function DriverDashboard({ session }: DriverDashboardProps) {
   });
 
   // Compute metrics
-  const metrics = useMemo(() => ({
-    totalAgents: agents.length,
-    activeAgents: agents.filter(a => a.status === 'running').length,
-    completedAgents: agents.filter(a => a.status === 'completed').length,
-    discoveredEndpoints: endpoints.length,
-    duration: Math.floor((Date.now() - startTime.getTime()) / 1000),
-  }), [agents, endpoints, startTime]);
+  const metrics = useMemo(
+    () => ({
+      totalAgents: agents.length,
+      activeAgents: agents.filter((a) => a.status === "running").length,
+      completedAgents: agents.filter((a) => a.status === "completed").length,
+      discoveredEndpoints: endpoints.length,
+      duration: Math.floor((Date.now() - startTime.getTime()) / 1000),
+    }),
+    [agents, endpoints, startTime],
+  );
 
   // Render agent chat view
-  if (currentView === 'agent-chat' && activeAgent) {
+  if (currentView === "agent-chat" && activeAgent) {
     return (
       <AgentChatView
         agent={activeAgent}
@@ -484,17 +526,17 @@ export default function DriverDashboard({ session }: DriverDashboardProps) {
         onSendMessage={(message) => {
           activeAgent.agentRef.injectUserMessage(message);
         }}
-        onBack={() => setCurrentView('overview')}
+        onBack={() => setCurrentView("overview")}
         onStop={() => {
           activeAgent.agentRef.stop();
-          setCurrentView('overview');
+          setCurrentView("overview");
         }}
       />
     );
   }
 
   // Render recon view
-  if (currentView === 'recon-view') {
+  if (currentView === "recon-view") {
     return (
       <box flexDirection="column" width="100%" height="100%" flexGrow={1}>
         {/* Header */}
@@ -510,15 +552,17 @@ export default function DriverDashboard({ session }: DriverDashboardProps) {
         >
           <box flexDirection="column">
             <text fg={creamText}>
-              <span fg={reconStatus === 'running' ? greenBullet : dimText}>
-                {reconStatus === 'running' ? '◐ ' : '✓ '}
+              <span fg={reconStatus === "running" ? greenBullet : dimText}>
+                {reconStatus === "running" ? "◐ " : "✓ "}
               </span>
               Attack Surface Discovery
             </text>
             <text fg={dimText}>Target: {session.targets[0]}</text>
           </box>
           <text fg={dimText}>
-            {reconStatus === 'running' ? 'Running...' : `${endpoints.length} targets found`}
+            {reconStatus === "running"
+              ? "Running..."
+              : `${endpoints.length} targets found`}
           </text>
         </box>
 
@@ -526,7 +570,7 @@ export default function DriverDashboard({ session }: DriverDashboardProps) {
         <box flexGrow={1} padding={1}>
           <AgentDisplay
             messages={reconMessages}
-            isStreaming={reconStatus === 'running'}
+            isStreaming={reconStatus === "running"}
             focused={true}
           />
         </box>
@@ -545,9 +589,7 @@ export default function DriverDashboard({ session }: DriverDashboardProps) {
           <text fg={dimText}>
             Messages: {reconMessages.length} | Status: {reconStatus}
           </text>
-          <text fg={dimText}>
-            [ESC] or [Shift+/] Back to dashboard
-          </text>
+          <text fg={dimText}>[ESC] or [Shift+/] Back to dashboard</text>
         </box>
       </box>
     );
@@ -557,23 +599,41 @@ export default function DriverDashboard({ session }: DriverDashboardProps) {
   return (
     <box flexDirection="column" width="100%" height="100%" flexGrow={1}>
       {/* Header */}
-      <box flexDirection="row" justifyContent="space-between" paddingLeft={2} paddingRight={2} paddingTop={1} paddingBottom={1}>
+      <box
+        flexDirection="row"
+        justifyContent="space-between"
+        paddingLeft={2}
+        paddingRight={2}
+        paddingTop={1}
+        paddingBottom={1}
+      >
         <box flexDirection="column">
           <text fg={creamText}>Driver Mode - {session.name}</text>
           <text fg={dimText}>Target: {session.targets[0]}</text>
         </box>
         <box flexDirection="row" gap={2}>
-          <text fg={reconStatus === 'running' ? greenBullet : dimText}>
-            Recon: {reconStatus === 'running' ? 'Running...' : reconStatus === 'completed' ? 'Complete' : 'Idle'}
+          <text fg={reconStatus === "running" ? greenBullet : dimText}>
+            Recon:{" "}
+            {reconStatus === "running"
+              ? "Running..."
+              : reconStatus === "completed"
+                ? "Complete"
+                : "Idle"}
           </text>
         </box>
       </box>
 
       {/* Main content */}
-      <box flexDirection="row" flexGrow={1} gap={2} paddingLeft={2} paddingRight={2}>
+      <box
+        flexDirection="row"
+        flexGrow={1}
+        gap={2}
+        paddingLeft={2}
+        paddingRight={2}
+      >
         {/* Agent grid */}
         <box flexDirection="column" flexGrow={2} gap={1}>
-          <text fg={focusedArea === 'agents' ? creamText : dimText}>
+          <text fg={focusedArea === "agents" ? creamText : dimText}>
             Agents ({agents.length})
           </text>
 
@@ -585,7 +645,9 @@ export default function DriverDashboard({ session }: DriverDashboardProps) {
               border
               borderColor={dimText}
             >
-              <text fg={dimText}>No agents yet. Press [N] to create one or select an endpoint.</text>
+              <text fg={dimText}>
+                No agents yet. Press [N] to create one or select an endpoint.
+              </text>
             </box>
           ) : (
             <box flexDirection="row" flexWrap="wrap" gap={1}>
@@ -593,7 +655,9 @@ export default function DriverDashboard({ session }: DriverDashboardProps) {
                 <AgentCard
                   key={agent.id}
                   agent={agent}
-                  focused={focusedArea === 'agents' && focusedAgentIndex === index}
+                  focused={
+                    focusedArea === "agents" && focusedAgentIndex === index
+                  }
                 />
               ))}
             </box>
@@ -603,7 +667,7 @@ export default function DriverDashboard({ session }: DriverDashboardProps) {
         {/* Endpoint sidebar */}
         <EndpointSidebar
           endpoints={endpoints}
-          focusedIndex={focusedArea === 'endpoints' ? focusedEndpointIndex : -1}
+          focusedIndex={focusedArea === "endpoints" ? focusedEndpointIndex : -1}
           reconStatus={reconStatus}
           onSelectEndpoint={spawnAgentFromEndpoint}
         />
@@ -621,28 +685,27 @@ export default function DriverDashboard({ session }: DriverDashboardProps) {
           backgroundColor={darkBg}
           padding={1}
         >
-           {showMentions && (
-              <MentionAutocomplete
-                endpoints={endpoints}
-                query={mentionQuery}
-                onSelect={handleMentionSelect}
-                onClose={() => setShowMentions(false)}
+          {showMentions && (
+            <MentionAutocomplete
+              endpoints={endpoints}
+              query={mentionQuery}
+              onSelect={handleMentionSelect}
+              onClose={() => setShowMentions(false)}
             />
           )}
-          <text fg={creamText}>New Agent Target (use @endpoint or describe target): </text>
+          <text fg={creamText}>
+            New Agent Target (use @endpoint or describe target):{" "}
+          </text>
           <box flexDirection="row" width={"100%"} height={2}>
             <input
               width={"100%"}
-              height={"100%"}
               value={newAgentInput}
               onInput={handleInput}
               focused={!loading}
               textColor={loading ? "gray" : "white"}
               placeholder="@http://localhost:3000/api/user test for SQL injection..."
             />
-            {loading &&
-             <SpinnerDots fg="gray"/>
-            }
+            {loading && <SpinnerDots fg="gray" />}
           </box>
         </box>
       )}
@@ -660,11 +723,12 @@ export default function DriverDashboard({ session }: DriverDashboardProps) {
       >
         <text fg={dimText}>
           Agents: {metrics.activeAgents}/{metrics.totalAgents} active |
-          Endpoints: {metrics.discoveredEndpoints} |
-          Duration: {formatDuration(metrics.duration)}
+          Endpoints: {metrics.discoveredEndpoints} | Duration:{" "}
+          {formatDuration(metrics.duration)}
         </text>
         <text fg={dimText}>
-          [N] New Agent | [R] View Recon | [Tab] Switch | [Enter] Select | [Shift+/] Exit
+          [N] New Agent | [R] View Recon | [Tab] Switch | [Enter] Select |
+          [Shift+/] Exit
         </text>
       </box>
     </box>
@@ -674,12 +738,18 @@ export default function DriverDashboard({ session }: DriverDashboardProps) {
 /**
  * Agent card component
  */
-function AgentCard({ agent, focused }: { agent: DriverAgent; focused: boolean }) {
+function AgentCard({
+  agent,
+  focused,
+}: {
+  agent: DriverAgent;
+  focused: boolean;
+}) {
   const statusIcon = {
-    running: '◐',
-    paused: '◑',
-    completed: '✓',
-    failed: '✗',
+    running: "◐",
+    paused: "◑",
+    completed: "✓",
+    failed: "✗",
   }[agent.status];
 
   const statusColor = {
@@ -703,11 +773,11 @@ function AgentCard({ agent, focused }: { agent: DriverAgent; focused: boolean })
         {agent.name}
       </text>
       <text fg={dimText}>
-        {agent.target.target.length > 40 ? agent.target.target.substring(0, 37) + '...' : agent.target.target}
+        {agent.target.target.length > 40
+          ? agent.target.target.substring(0, 37) + "..."
+          : agent.target.target}
       </text>
-      <text fg={dimText}>
-        {agent.messages.length} messages
-      </text>
+      <text fg={dimText}>{agent.messages.length} messages</text>
     </box>
   );
 }
@@ -718,5 +788,5 @@ function AgentCard({ agent, focused }: { agent: DriverAgent; focused: boolean })
 function formatDuration(seconds: number): string {
   const mins = Math.floor(seconds / 60);
   const secs = seconds % 60;
-  return `${mins}:${secs.toString().padStart(2, '0')}`;
+  return `${mins}:${secs.toString().padStart(2, "0")}`;
 }
