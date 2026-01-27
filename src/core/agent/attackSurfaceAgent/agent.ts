@@ -167,6 +167,8 @@ export interface RunAgentProps {
   persistence?: PersistenceCallbacks;
   /** Optional existing state for idempotency - avoids re-documenting known assets */
   existingState?: ExistingState;
+  /** Optional pre-enumeration context from tools like katana/feroxbuster */
+  enumerationContext?: string;
 }
 
 export interface RunAgentResult extends StreamTextResult<ToolSet, never> {
@@ -186,6 +188,7 @@ export async function runAgent(opts: RunAgentProps): Promise<{
     toolOverride,
     persistence,
     existingState,
+    enumerationContext,
   } = opts;
 
   const session =
@@ -1369,11 +1372,7 @@ CRITICAL: When identifying targets for penetration testing, YOU MUST include the
 
 `
     : ""
-}
-SCOPE CONSTRAINTS:
-${scopeDescription}
-
-${
+}${
   enumerationContext
     ? `<pre_enumeration_results>
 ${enumerationContext}
@@ -1381,7 +1380,10 @@ ${enumerationContext}
 
 `
     : ""
-}Begin your attack surface analysis by:
+}SCOPE CONSTRAINTS:
+${scopeDescription}
+
+Begin your attack surface analysis by:
 1. Understanding the target scope (is it a domain, IP, URL, network range, or organization?)
 2. Performing comprehensive reconnaissance to map the attack surface WITHIN SCOPE
 3. Identifying assets, services, endpoints, and potential entry points

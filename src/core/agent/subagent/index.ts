@@ -8,7 +8,7 @@ import { runAttackAgent } from "./attackAgent";
 import { nanoid } from "nanoid";
 import { injectGuidanceFiles, cleanupGuidanceFiles } from "./guidance";
 
-const DEFAULT_SUBAGENT_TIMEOUT = 10 * 60 * 1000; // 10 minutes
+const DEFAULT_SUBAGENT_TIMEOUT = 20 * 60 * 1000; // 20 minutes
 
 export interface RunSubAgentInput {
   config: SubAgentConfig;

@@ -130,6 +130,20 @@ After 3 attempts, if you have detection-level evidence (errors, timing anomalies
 - Clear notes that full exploitation was not achieved
 - The detection evidence you collected
 
+## IMPORTANT: Document Findings Incrementally
+
+**DO NOT wait until the end to document findings.** As soon as you have verified evidence of a vulnerability:
+1. Call verify_finding with your evidence
+2. If verification passes, immediately call document_finding
+3. Then continue testing for additional vulnerabilities or stronger proof
+
+**For injection vulnerabilities specifically:**
+- If you have boolean-based evidence (1=1 vs 1=2 shows different results), that is SUFFICIENT to document as a confirmed SQLi
+- Document the boolean-based finding first, then continue trying UNION SELECT for data extraction
+- If UNION fails, you still have the boolean-based finding documented
+
+**Time awareness:** You have limited time. Don't spend too long trying to perfect one technique if you already have proof of the vulnerability. Document what you have, then try to improve it.
+
 Call complete_attack when testing is done.`;
 
 function logToFile(logsPath: string, message: string): void {
@@ -216,9 +230,14 @@ Call complete_attack when done.`;
       },
     });
 
+    let calledCompleteAttack = false;
     for await (const chunk of streamResult.fullStream) {
       if (chunk.type === "error") {
         throw (chunk as any).error;
+      }
+      // Check if complete_attack was called
+      if (chunk.type === "tool-call" && chunk.toolName === "complete_attack") {
+        calledCompleteAttack = true;
       }
     }
 
@@ -241,6 +260,19 @@ Call complete_attack when done.`;
           findings.push(finding);
         } catch {}
       }
+    }
+
+    // Check if stream ended due to abort signal (timeout) vs complete_attack
+    const wasAborted = abortSignal?.aborted && !calledCompleteAttack;
+    if (wasAborted) {
+      logToFile(logsPath, `[WARN] Attack phase interrupted by abort signal (likely timeout)`);
+      logToFile(logsPath, `[INFO] Findings count before interruption: ${findings.length}`);
+      return {
+        success: false,
+        findings,
+        summary: `Attack phase interrupted (timeout/abort). Found ${findings.length} vulnerabilities before interruption.`,
+        error: "Attack phase interrupted by timeout or abort signal",
+      };
     }
 
     logToFile(logsPath, `[INFO] Attack phase completed successfully`);
